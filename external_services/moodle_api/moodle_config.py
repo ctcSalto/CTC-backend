@@ -2,7 +2,12 @@ from dataclasses import dataclass
 from enum import Enum
 import os
 import dotenv
-dotenv.load_dotenv(override=True)
+# Cargar .env en desarrollo, usar variables del sistema en producción
+try:
+    import dotenv
+    dotenv.load_dotenv(override=True)
+except Exception:
+    pass  # En producción no existe .env, usa variables del sistema
 
 @dataclass
 class MoodleConfig:

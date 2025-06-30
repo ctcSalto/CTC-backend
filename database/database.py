@@ -19,7 +19,12 @@ from .services.test.test_services import AuthorService, PostService
 
 from external_services.mercadopago_api.controllers.mercadopago import MercadoPagoController
 
-load_dotenv(override=True)   
+# Cargar .env en desarrollo, usar variables del sistema en producción
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+except Exception:
+    pass  # En producción no existe .env, usa variables del sistema
 
 engine = create_engine(
     os.getenv("DATABASE_URL")

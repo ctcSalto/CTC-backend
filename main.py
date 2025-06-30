@@ -6,8 +6,11 @@ from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_en
 from routes.mercadopago import mercadopago
 
 from pages.welcome import html
-import os
 from database.database import reset_database
+
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 from routes.test import test_filters
 
@@ -40,4 +43,5 @@ if __name__ == "__main__":
     # python main.py
     #reset_database()
     import uvicorn
-    uvicorn.run("main:app", reload=True)
+    port = os.getenv("PORT", 8000)
+    uvicorn.run("main:app", reload=True, port=port)

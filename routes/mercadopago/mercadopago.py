@@ -14,7 +14,12 @@ import json
 
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+# Cargar .env en desarrollo, usar variables del sistema en producción
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+except Exception:
+    pass  # En producción no existe .env, usa variables del sistema
 
 from utils.logger import show
 
