@@ -94,6 +94,18 @@ async def login_user(
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
+@router.get("/generate-permanent-token", response_model=Token)
+async def generate_permanent_token(current_user: UserRead = Depends(get_current_active_user)) -> Token:
+    """Genera un token JWT permanentemente válido para usuarios con rol de administrador"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+    access_token = create_access_token(data={"sub": current_user.username})
+    return Token(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    )
+
 @router.get("/me", response_model=UserRead)
 async def get_current_user_info(
     current_user: UserRead = Depends(get_current_active_user),

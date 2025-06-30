@@ -53,7 +53,7 @@ class UserLogin(SQLModel):
 class Token(SQLModel):
     access_token: str
     token_type: str
-    expires_in: int
+    expires_in: Optional[int] = None
 
 class TokenData(SQLModel):
     username: Optional[str] = None

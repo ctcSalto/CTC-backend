@@ -1,9 +1,15 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+
 from routes import example, auth
-from html.welcome import html
+from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_enrolment
+from routes.mercadopago import mercadopago
+
+from pages.welcome import html
 import os
-from database.database import create_db_and_tables
+from database.database import reset_database
+
+from routes.test import test_filters
 
 app = FastAPI(
     title="Backend CTC",
@@ -15,11 +21,23 @@ app = FastAPI(
 def root():
     return html
 
-app.include_router(example.router)
+@app.get("/generate-permanent-token")
+def generate_permanent_token():
+    return ""
+
 app.include_router(auth.router)
+app.include_router(example.router)
+app.include_router(moodle_user.router)
+app.include_router(moodle_category.router)
+app.include_router(moodle_course.router)
+app.include_router(moodle_enrolment.router)
+app.include_router(mercadopago.router)
+
+
+app.include_router(test_filters.router)
 
 if __name__ == "__main__":
-    if not os.path.exists("test.db"):
-        create_db_and_tables()
+    # python main.py
+    #reset_database()
     import uvicorn
     uvicorn.run("main:app", reload=True)

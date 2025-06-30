@@ -3,33 +3,37 @@ from ..models.example import Example, ExampleCreate, ExampleRead, ExampleUpdate
 from typing import List
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
-class ExampleService:
+from database.services.filter.filters import BaseServiceWithFilters
 
-    def create_example(self, example: ExampleCreate, session: Session) -> Example:
+class ExampleService(BaseServiceWithFilters[Example]):
+    def __init__(self):
+        super().__init__(Example)
+
+    def create_example(self, example: ExampleCreate, session: Session) -> ExampleRead:
         with session:
             new_example = Example(**example.model_dump())
             session.add(new_example)
             session.commit()
             session.refresh(new_example)
-            return new_example
+            return ExampleRead.from_orm(new_example)
 
-    def get_examples(self, session: Session, offset: int = 0, limit: int = 10) -> List[Example]:
+    def get_examples(self, session: Session, offset: int = 0, limit: int = 10) -> List[ExampleRead]:
         with session:
             statement = select(Example).offset(offset).limit(limit)
             examples = session.exec(statement).all()
             if not examples:
                 return []
-            return examples
+            return [ExampleRead.from_orm(example) for example in examples]
 
-    def get_example_by_id(self, id: int, session: Session) -> Example:
+    def get_example_by_id(self, id: int, session: Session) -> ExampleRead:
         with session:
             statement = select(Example).where(Example.id == id)
             example = session.exec(statement).one()
             if not example:
                 return None
-            return example
+            return ExampleRead.from_orm(example)
 
-    def update_example(self, id: int, example_update: ExampleUpdate, session: Session) -> Example:
+    def update_example(self, id: int, example_update: ExampleUpdate, session: Session) -> ExampleRead:
         with session:
             statement = select(Example).where(Example.id == id)
             old_example = session.exec(statement).one()
@@ -40,7 +44,7 @@ class ExampleService:
                 
             session.commit()
             session.refresh(old_example)
-            return old_example
+            return ExampleRead.from_orm(old_example)
 
     def delete_example(self, id: int, session: Session) -> bool:
         with session:
