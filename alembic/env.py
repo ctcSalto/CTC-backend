@@ -10,10 +10,20 @@ sys.path.insert(0, str(project_root))
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 from sqlmodel import SQLModel
-from dotenv import load_dotenv
 
-# Cargar variables de entorno
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    # Solo carga .env si existe el archivo
+    if os.path.exists('.env'):
+        load_dotenv(override=True)
+        print("✅ Variables de entorno cargadas desde .env")
+    else:
+        print("ℹ️ Usando variables del sistema (producción)")
+except ImportError:
+    # En producción donde python-dotenv no está instalado
+    print("ℹ️ python-dotenv no disponible, usando variables del sistema")
+except Exception as e:
+    print(f"⚠️ Error cargando .env: {e}")
 
 # Importa todos tus modelos aquí para que Alembic los detecte
 # IMPORTANTE: Asegúrate de que estas importaciones sean correctas según tu estructura

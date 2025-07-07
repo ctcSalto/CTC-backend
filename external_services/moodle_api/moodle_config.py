@@ -2,12 +2,19 @@ from dataclasses import dataclass
 from enum import Enum
 import os
 import dotenv
-# Cargar .env en desarrollo, usar variables del sistema en producción
 try:
-    import dotenv
-    dotenv.load_dotenv(override=True)
-except Exception:
-    pass  # En producción no existe .env, usa variables del sistema
+    from dotenv import load_dotenv
+    # Solo carga .env si existe el archivo
+    if os.path.exists('.env'):
+        load_dotenv(override=True)
+        print("✅ Variables de entorno cargadas desde .env")
+    else:
+        print("ℹ️ Usando variables del sistema (producción)")
+except ImportError:
+    # En producción donde python-dotenv no está instalado
+    print("ℹ️ python-dotenv no disponible, usando variables del sistema")
+except Exception as e:
+    print(f"⚠️ Error cargando .env: {e}")
 
 @dataclass
 class MoodleConfig:

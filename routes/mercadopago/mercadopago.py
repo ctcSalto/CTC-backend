@@ -7,19 +7,25 @@ from sqlmodel import Session
 from external_services.mercadopago_api.models.preference import MercadoPagoPreferenceRequest
 from external_services.mercadopago_api.models.suscription_plan import SubscriptionPlanRequest
 
-import os
 import hmac
 import hashlib
 import json
 
-from dotenv import load_dotenv
 
-# Cargar .env en desarrollo, usar variables del sistema en producción
+import os
 try:
     from dotenv import load_dotenv
-    load_dotenv(override=True)
-except Exception:
-    pass  # En producción no existe .env, usa variables del sistema
+    # Solo carga .env si existe el archivo
+    if os.path.exists('.env'):
+        load_dotenv(override=True)
+        print("✅ Variables de entorno cargadas desde .env")
+    else:
+        print("ℹ️ Usando variables del sistema (producción)")
+except ImportError:
+    # En producción donde python-dotenv no está instalado
+    print("ℹ️ python-dotenv no disponible, usando variables del sistema")
+except Exception as e:
+    print(f"⚠️ Error cargando .env: {e}")
 
 from utils.logger import show
 
@@ -126,7 +132,26 @@ async def mercadopago_webhook(
                 detail="ID de datos faltante"
             )
         
-        # Verificación de signature (mismo código que arriba)
+        # VERIFICACIÓN DEL ACCESS TOKEN ANTES DE USARLO
+        access_token = os.getenv('MERCADOPAGO_ACESS_TOKEN')
+        
+        if not access_token:
+            print("ERROR: MERCADOPAGO_ACCESS_TOKEN no está configurado en las variables de entorno")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Token de acceso no configurado"
+            )
+        
+        if not isinstance(access_token, str):
+            print(f"ERROR: access_token no es string, es tipo: {type(access_token)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Token de acceso inválido"
+            )
+        
+        print(f"Access token válido: {access_token[:10]}...")  # Solo muestra los primeros 10 caracteres por seguridad
+        
+        # Verificación de signature
         signature_parts = x_signature.split(',')
         if len(signature_parts) != 2:
             raise HTTPException(
@@ -141,6 +166,14 @@ async def mercadopago_webhook(
         signature_template = f"id:{data_id};request-id:{x_request_id};ts:{ts_value};"
         
         webhook_secret = os.getenv('MERCADOPAGO_WEBHOOK_SECRET_KEY')
+        
+        if not webhook_secret:
+            print("ERROR: MERCADOPAGO_WEBHOOK_SECRET_KEY no está configurado")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Secret key no configurado"
+            )
+        
         cyphed_signature = hmac.new(
             webhook_secret.encode('utf-8'),
             signature_template.encode('utf-8'),
@@ -153,65 +186,64 @@ async def mercadopago_webhook(
                 detail="Solicitud no autorizada"
             )
         
-        # Usar el SDK más nuevo (si tienes mercadopago >= 2.0.0)
+        # Usar el SDK de MercadoPago
         import mercadopago as mp
         
-        access_token = os.getenv('MERCADOPAGO_ACCESS_TOKEN')
         client = mp.SDK(access_token=access_token)
         payment_client = client.payment()
+        
+        print(f"Consultando pago con ID: {data_id}")
         payment_data = payment_client.get(data_id)
         
-        if not payment_data:
+        if not payment_data or 'response' not in payment_data:
+            print(f"Respuesta del pago: {payment_data}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Pago no encontrado"
             )
         
-        show(f"payment: {json.dumps(payment_data, indent=2, default=str)}")
+        # El SDK devuelve la respuesta en payment_data['response']
+        payment_info = payment_data['response']
+        
+        print(f"Pago recibido - ID: {payment_info.get('id')}, Estado: {payment_info.get('status')}")
+        print(f"Monto: {payment_info.get('transaction_amount')}, Moneda: {payment_info.get('currency_id')}")
+        
+        # Mostrar información completa del pago (opcional para debug)
+        # show(f"payment: {json.dumps(payment_info, indent=2, default=str)}")
         
         """
-        Colocar Logica de verificaciones y guardado de datos en la base de datos
-        # Ejemplo de cómo podrías guardar el pago en la base de datos
-        from database.models import Payment, User
+        Aquí irá tu lógica de base de datos cuando la implementes:
         
-        user_id = payment_data.metadata.get('user_id')
+        user_id = payment_info.get('metadata', {}).get('user_id')
         
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="ID de usuario no encontrado en metadata"
+        if payment_info.get('status') == 'approved':
+            # Guardar en BD
+            new_payment_record = Payment(
+                total=payment_info.get('transaction_amount'),
+                user_id=user_id,
+                payment_id=payment_info.get('id'),
+                provider="mercadopago",
+                status=payment_info.get('status')
             )
-        
-        user_found = db.query(User).filter(User.id == user_id).first()
-        if not user_found:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Usuario no encontrado"
-            )
-        
-        new_payment_record = Payment(
-            total=payment_data.transaction_amount,
-            user_id=user_found.id,
-            payment_id=payment_data.id,
-            provider="mercadopago"
-        )
-        
-        db.add(new_payment_record)
-        db.commit()
-        db.refresh(new_payment_record)
-        
-        print(f"newPaymentRecord: {json.dumps(new_payment_record.__dict__, indent=2, default=str)}")
+            # session.add(new_payment_record)
+            # session.commit()
         """
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content={"status": "ok"}
+            content={
+                "status": "ok",
+                "payment_id": payment_info.get('id'),
+                "payment_status": payment_info.get('status')
+            }
         )
         
     except HTTPException:
         raise
     except Exception as error:
         print(f"Error en webhook: {error}")
+        import traceback
+        traceback.print_exc()  # Esto te dará más información sobre el error
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error en el webhook de Mercado Pago"
@@ -260,7 +292,7 @@ async def mercadopago_webhook(
         
         signature_template = f"id:{data_id};request-id:{x_request_id};ts:{ts_value};"
         
-        webhook_secret = os.getenv('MERCADOPAGO_WEBHOOK_SECRET_KEY')
+        webhook_secret = os.getenv('MERCADOPAGO_WEBHOOK_SUSCRIPTIONS_SECRET_KEY')
         cyphed_signature = hmac.new(
             webhook_secret.encode('utf-8'),
             signature_template.encode('utf-8'),
@@ -276,7 +308,7 @@ async def mercadopago_webhook(
         # Usar el SDK más nuevo (si tienes mercadopago >= 2.0.0)
         import mercadopago as mp
         
-        access_token = os.getenv('MERCADOPAGO_ACCESS_TOKEN')
+        access_token = os.getenv('MERCADOPAGO_ACESS_TOKEN')
         client = mp.SDK(access_token=access_token)
         payment_client = client.preapproval()
         payment_data = payment_client.get(data_id)

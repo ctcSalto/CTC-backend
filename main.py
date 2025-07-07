@@ -9,10 +9,23 @@ from pages.welcome import html
 from database.database import reset_database
 
 import os
-from dotenv import load_dotenv
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    # Solo carga .env si existe el archivo
+    if os.path.exists('.env'):
+        load_dotenv(override=True)
+        print("✅ Variables de entorno cargadas desde .env")
+    else:
+        print("ℹ️ Usando variables del sistema (producción)")
+except ImportError:
+    # En producción donde python-dotenv no está instalado
+    print("ℹ️ python-dotenv no disponible, usando variables del sistema")
+except Exception as e:
+    print(f"⚠️ Error cargando .env: {e}")
 
 from routes.test import test_filters
+
+from utils.logger import show
 
 app = FastAPI(
     title="Backend CTC",
@@ -40,8 +53,9 @@ app.include_router(mercadopago.router)
 app.include_router(test_filters.router)
 
 if __name__ == "__main__":
-    # python main.py
+    # run command -> python main.py
     #reset_database()
     import uvicorn
-    port = os.getenv("PORT", 8000)
+    port = int(os.getenv("PORT", 8000))
+    show(port)
     uvicorn.run("main:app", reload=True, port=port)

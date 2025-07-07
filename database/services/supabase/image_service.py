@@ -7,13 +7,19 @@ import mimetypes
 
 from utils.logger import show
 
-from dotenv import load_dotenv
-# Cargar .env en desarrollo, usar variables del sistema en producción
 try:
     from dotenv import load_dotenv
-    load_dotenv(override=True)
-except Exception:
-    pass  # En producción no existe .env, usa variables del sistema
+    # Solo carga .env si existe el archivo
+    if os.path.exists('.env'):
+        load_dotenv(override=True)
+        print("✅ Variables de entorno cargadas desde .env")
+    else:
+        print("ℹ️ Usando variables del sistema (producción)")
+except ImportError:
+    # En producción donde python-dotenv no está instalado
+    print("ℹ️ python-dotenv no disponible, usando variables del sistema")
+except Exception as e:
+    print(f"⚠️ Error cargando .env: {e}")
 
 class SupabaseService:
     def __init__(self):

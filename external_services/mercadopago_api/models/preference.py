@@ -95,7 +95,7 @@ class MercadoPagoPreferenceRequest(BaseModel):
                         "number": "1523164589"
                     },
                     "identification": {
-                        "type": "DNI",
+                        "type": "CI",
                         "number": "12345678"
                     },
                     "address": {
@@ -111,7 +111,7 @@ class MercadoPagoPreferenceRequest(BaseModel):
                     "default_payment_method_id": "account_money"
                 },
                 "expires": True,
-                "expiration_date_from": "2025-01-01T12:00:00.000-04:00",
+                "expiration_date_from": "2025-07-01T12:00:00.000-03:00",
                 "expiration_date_to": "2026-12-31T12:00:00.000-04:00",
                 "metadata": {
                     "user_id": 1

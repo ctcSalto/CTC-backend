@@ -60,7 +60,9 @@ class EstadoPagoEnum(str, Enum):
     CANCELADO = "cancelado"
     REEMBOLSADO = "reembolsado"
 
-# Modelos Base
+# --- USUARIO ---
+
+# --> Colocarle imagen de perfil?
 class UsuarioBase(SQLModel):
     moodle_user_id: Optional[int] = None
     email: str = Field(unique=True, index=True)
@@ -111,7 +113,7 @@ class UsuarioUpdate(SQLModel):
     rol: Optional[RolEnum] = None
     activo: Optional[bool] = None
 
-# Carreras
+# --- CARRERAS ---
 class CarreraBase(SQLModel):
     nombre: str
     descripcion: Optional[str] = None
@@ -140,7 +142,7 @@ class CarreraRead(CarreraBase):
     fecha_creacion: datetime
     fecha_actualizacion: datetime
 
-# Materias
+# --- MATERIAS ---
 class MateriaBase(SQLModel):
     nombre: str
     descripcion: Optional[str] = None
@@ -181,7 +183,7 @@ class MateriaRead(MateriaBase):
     fecha_creacion: datetime
     fecha_actualizacion: datetime
 
-# Cursos
+# --- CURSOS ---
 class CursoBase(SQLModel):
     materia_id: int = Field(foreign_key="materias.id")
     docente_id: int = Field(foreign_key="usuarios.id")
@@ -214,7 +216,7 @@ class CursoRead(CursoBase):
     id: int
     fecha_creacion: datetime
 
-# Examenes
+# --- EXAMENES ---
 class ExamenBase(SQLModel):
     materia_id: int = Field(foreign_key="materias.id")
     nombre: str
@@ -245,7 +247,7 @@ class ExamenRead(ExamenBase):
     fecha_creacion: datetime
     fecha_actualizacion: datetime
 
-# Inscripciones Cursos
+# --- INSCRIPCIONES CURSOS ---
 class InscripcionCursoBase(SQLModel):
     curso_id: int = Field(foreign_key="cursos.id")
     estudiante_id: int = Field(foreign_key="usuarios.id")
@@ -271,7 +273,7 @@ class InscripcionCursoRead(InscripcionCursoBase):
     id: int
     fecha_inscripcion: datetime
 
-# Inscripciones Examenes
+# --- INSCRIPCIONES EXAMENES ---
 class InscripcionExamenBase(SQLModel):
     examen_id: int = Field(foreign_key="examenes.id")
     estudiante_id: int = Field(foreign_key="usuarios.id")
@@ -297,7 +299,7 @@ class InscripcionExamenRead(InscripcionExamenBase):
     id: int
     fecha_inscripcion: datetime
 
-# Calificaciones Cursos
+# --- CALIFICACIONES CURSOS ---
 class CalificacionCursoBase(SQLModel):
     curso_id: int = Field(foreign_key="cursos.id")
     estudiante_id: int = Field(foreign_key="usuarios.id")
@@ -324,7 +326,7 @@ class CalificacionCursoRead(CalificacionCursoBase):
     id: int
     fecha_aprobacion: datetime
 
-# Pagos
+# --- PAGOS ---
 class PagoBase(SQLModel):
     usuario_id: int = Field(foreign_key="usuarios.id")
     tipo_pago: TipoPagoEnum
@@ -354,7 +356,7 @@ class PagoRead(PagoBase):
     id: int
     fecha_pago: datetime
 
-# Cursos Comprados
+# --- CURSOS COMPRADOS ---
 class CursoCompradoBase(SQLModel):
     pago_id: int = Field(foreign_key="pagos.id")
     curso_id: Optional[int] = Field(default=None, foreign_key="cursos.id")
@@ -380,7 +382,7 @@ class CursoCompradoRead(CursoCompradoBase):
     id: int
     fecha_compra: datetime
 
-# Previaturas
+# --- PREVIATURAS ---
 class PreviaturaBase(SQLModel):
     materia_id: int = Field(foreign_key="materias.id")
     materia_previa_id: int = Field(foreign_key="materias.id")
@@ -409,7 +411,9 @@ class PreviaturaRead(PreviaturaBase):
     id: int
     fecha_creacion: datetime
 
-# Noticias
+# --- NOTICIAS ---
+
+# --> Carrusel de imagenes y videos?
 class NoticiaBase(SQLModel):
     titulo: str
     resumen: Optional[str] = None
