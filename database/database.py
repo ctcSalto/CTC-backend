@@ -1,21 +1,21 @@
 from sqlmodel import SQLModel, create_engine, Session
+from contextlib import contextmanager
 from dotenv import load_dotenv
 import os
 
-from .models.example import Example
 from .models.user import User
+from .models.career import Career
+from .models.testimony import Testimony
+from .models.news import News
 
-from .services.example_service import ExampleService
 from .services.user_service import UserService
+from .services.carrer_service import CareerService
+from .services.testimony_service import TestimonyService
+
 from .services.supabase.image_service import SupabaseService
+from .services.cache.cache import CacheService
 
-#-------------------TEST------------------------------
-from .models.test.author import Author
-from .models.test.post import Post
-from .models.test.profile import Profile
-
-from database.services.filter.filters import BaseServiceWithFilters
-from .services.test.test_services import AuthorService, PostService
+#-------------------MERCADO PAGO------------------------------
 
 from external_services.mercadopago_api.controllers.mercadopago import MercadoPagoController
 
@@ -34,21 +34,28 @@ except Exception as e:
     print(f"⚠️ Error cargando .env: {e}")
 
 engine = create_engine(
-    os.getenv("DATABASE_URL")
+    os.getenv("DATABASE_URL"),
+    pool_pre_ping=True,
+    pool_recycle=3600,  # 1 hora
+    echo=False
 )
 
 class Services:
     def __init__(self):
-        self.exampleService = ExampleService()
+        # Entity Services
         self.userService = UserService()
-        self.supabaseService = SupabaseService()
-
-        self.authorService = AuthorService()
-        self.postService = PostService()
+        self.careerService = CareerService()
+        self.testimonyService = TestimonyService()
         
+        # Utils Services
+        self.supabaseService = SupabaseService()
         self.mercadoPagoController = MercadoPagoController(
             access_token=os.getenv("MERCADOPAGO_ACESS_TOKEN")
         )
+    
+    def get_cache_service(self, session: Session) -> CacheService:
+        """Crear CacheService cuando se necesite, con la sesión correcta"""
+        return CacheService(session)
 
 _services_instance: Services | None = None
 
@@ -70,8 +77,25 @@ def reset_database():
     print("Base de datos reseteada exitosamente")
 
 def get_session():
+    """Dependency para FastAPI que maneja la sesión correctamente"""
     with Session(engine) as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            session.rollback()
+            raise
+        
+
+@contextmanager
+def get_db_session():
+    """Para uso fuera de FastAPI"""
+    with Session(engine) as session:
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
 
 def init_services():
     return Services()

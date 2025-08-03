@@ -24,7 +24,7 @@ class AuthorBase(SQLModel):
 
 class Author(AuthorBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    
+
     # Relaciones
     profile: Optional["Profile"] = Relationship(back_populates="author", sa_relationship_kwargs={"lazy": "noload"})
     posts: List["Post"] = Relationship(back_populates="author", sa_relationship_kwargs={"lazy": "noload"})
@@ -45,15 +45,15 @@ class AuthorUpdate(SQLModel):
 
 # CORREGIDO: AuthorResponse ahora coincide con los campos reales de Author
 class AuthorResponse(BaseModel):
-    id: int
-    username: str  # Cambiado de 'name' a 'username'
-    email: str
-    status: AuthorStatus
-    created_at: datetime
-    is_verified: bool
-    posts: List["PostResponse"] = []
+    id: Optional[int] = None
+    username: Optional[str] = None
+    email: Optional[str] = None
+    status: Optional[AuthorStatus] = None
+    created_at: Optional[datetime] = None
+    is_verified: Optional[bool] = None
+    posts: Optional[List["PostResponse"]] = None
     profile: Optional["ProfileResponse"] = None
-    
+
     class Config:
         from_attributes = True
 

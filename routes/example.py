@@ -12,7 +12,6 @@ from database.models.user import UserRead
 
 from utils.logger import show
 
-
 from exceptions import AppException
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
@@ -27,7 +26,7 @@ def handle_app_exception(e):
 
 router = APIRouter(prefix="/example", tags=["Example"])
 
-# current_user: UserRead = Depends(get_current_active_user) para usuarios autenticados
+# current_user: UsuarioRead = Depends(get_current_active_user) para usuarios autenticados
 # require_admin_role para usuarios con rol de administrador
 @router.get("/getExampleById/{id}", response_model=ExampleRead)
 async def get_example_by_id(
@@ -64,7 +63,7 @@ async def create_example(
     image: UploadFile = File(...),
     images: List[UploadFile] = File(...),
     services: Services = Depends(get_services), 
-    #current_user: UserRead = Depends(require_admin_role),
+    #current_user: UsuarioRead = Depends(require_admin_role),
     session: Session = Depends(get_session)
 ) -> ExampleRead:
     try:

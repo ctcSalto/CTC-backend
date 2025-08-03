@@ -29,7 +29,7 @@ class PostBase(SQLModel):
 class Post(PostBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     author_id: int = Field(foreign_key="author.id")
-    
+
     # Relaciones
     author: "Author" = Relationship(back_populates="posts", sa_relationship_kwargs={"lazy": "noload"})
 
@@ -52,18 +52,19 @@ class PostUpdate(SQLModel):
     published_at: Optional[datetime] = None
 
 class PostResponse(BaseModel):
-    id: int
-    title: str
-    content: str
-    status: str
-    views: int
-    likes: int
-    created_at: datetime
-    updated_at: datetime
-    published_at: Optional[datetime]
-    author_id: int
-    # Nota: NO incluimos author aquí para evitar recursión
+    id: Optional[int] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    status: Optional[str] = None
+    views: Optional[int] = None
+    likes: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    published_at: Optional[datetime] = None
+    author_id: Optional[int] = None
+
+    class Config:
+        from_attributes = True
 
 from .author import AuthorResponse
 PostResponse.model_rebuild()
-

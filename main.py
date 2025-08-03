@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-from routes import example, auth
+from routes import auth, career, testimony, news
 from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_enrolment
 from routes.mercadopago import mercadopago
 
@@ -41,12 +41,21 @@ def root():
 def generate_permanent_token():
     return ""
 
+@app.get("/reset-database")
+def reset_db():
+    reset_database()
+    return {"message": "Database reset successfully"}
+
 app.include_router(auth.router)
-app.include_router(example.router)
+app.include_router(career.router)
+app.include_router(testimony.router)
+app.include_router(news.router)
+
 app.include_router(moodle_user.router)
 app.include_router(moodle_category.router)
 app.include_router(moodle_course.router)
 app.include_router(moodle_enrolment.router)
+
 app.include_router(mercadopago.router)
 
 
@@ -54,7 +63,6 @@ app.include_router(test_filters.router)
 
 if __name__ == "__main__":
     # run command -> python main.py
-    #reset_database()
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     show(port)
