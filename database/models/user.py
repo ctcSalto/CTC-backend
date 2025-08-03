@@ -22,7 +22,7 @@ class User(SQLModel, table=True):
     phone: str
     document: str = Field(unique=True)
     rol: UserRole
-    confirmed: bool = Field(default=False)
+    confirmed: bool = Field(default=True)
     creationDate: date = Field(default_factory=date.today)
     modificationDate: Optional[date] = None
     lastAccess: Optional[date] = None
