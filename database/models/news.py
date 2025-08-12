@@ -33,7 +33,7 @@ class News(NewsBase, table=True):
     creationDate: date = Field(default_factory=lambda: datetime.now().date(), description="Fecha de creación")
     modificationDate: Optional[date] = Field(default=None, description="Fecha de modificación")
     publicationDate: Optional[date] = Field(default=None, description="Fecha de publicación")
-    published: bool = Field(default=False, description="Estado de publicación")
+    published: bool = Field(default=True, description="Estado de publicación")
     creator: int = Field(foreign_key="user.userId", description="ID del usuario creador")
     modifier: Optional[int] = Field(default=None, foreign_key="user.userId", description="ID del usuario modificador")
     
@@ -91,7 +91,7 @@ class NewsCreate(NewsBase):
 # Modelo para actualizar una noticia (PUT/PATCH)
 class NewsUpdate(SQLModel):
     area: Optional[Area] = None
-    career: Optional[int] = None
+    career: Optional["CareerRead"] = None
     title: Optional[str] = Field(default=None, max_length=150)
     text: Optional[str] = Field(default=None, max_length=5000)
     videoLink: Optional[str] = None
@@ -99,6 +99,7 @@ class NewsUpdate(SQLModel):
     publicationDate: Optional[date] = None
     published: Optional[bool] = None
     modifier: Optional[int] = None
+    modificationDate: Optional[date] = Field(default_factory=lambda: datetime.now().date())
     
     @field_validator('imagesLink')
     @classmethod
@@ -122,10 +123,27 @@ class NewsRead(NewsBase):
     creator: int
     modifier: Optional[int] = None
     imagesLink: Optional[List[str]] = None
+
+
+class NewsFilterResponse(SQLModel):
+    newsId: int
+    title: str
+    text: str
+    area: Area
+    published: bool
+    publicationDate: Optional[date] = None
+    creationDate: date
+    modificationDate: Optional[date] = None
+    videoLink: Optional[str] = None
+    imagesLink: Optional[List[str]] = None
+    career: Optional[int] = None  # ID de la carrera
+    creator: Optional[int] = None  
+    modifier: Optional[int] = None
+    
+    # Relaciones opcionales
     creator_user: Optional["UserRead"] = None
     modifier_user: Optional["UserRead"] = None
-    career: Optional["CareerRead"] = None
-
+    career_ref: Optional["CareerRead"] = None
 # Modelo para respuestas de lista
 class NewsInList(SQLModel):
     newsId: int

@@ -11,9 +11,10 @@ from .models.news import News
 from .services.user_service import UserService
 from .services.carrer_service import CareerService
 from .services.testimony_service import TestimonyService
+from .services.news_services import NewsService
 
 from .services.supabase.image_service import SupabaseService
-from .services.cache.cache import CacheService
+from .services.redis.redis import RedisService
 
 #-------------------MERCADO PAGO------------------------------
 
@@ -46,16 +47,14 @@ class Services:
         self.userService = UserService()
         self.careerService = CareerService()
         self.testimonyService = TestimonyService()
+        self.newsService = NewsService()
         
         # Utils Services
         self.supabaseService = SupabaseService()
         self.mercadoPagoController = MercadoPagoController(
             access_token=os.getenv("MERCADOPAGO_ACESS_TOKEN")
         )
-    
-    def get_cache_service(self, session: Session) -> CacheService:
-        """Crear CacheService cuando se necesite, con la sesión correcta"""
-        return CacheService(session)
+        self.redisService = RedisService()
 
 _services_instance: Services | None = None
 
@@ -78,12 +77,15 @@ def reset_database():
 
 def get_session():
     """Dependency para FastAPI que maneja la sesión correctamente"""
-    with Session(engine) as session:
-        try:
-            yield session
-        except Exception:
-            session.rollback()
-            raise
+    session = Session(engine)
+    try:
+        yield session
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise
+    finally:
+        session.close()
         
 
 @contextmanager

@@ -23,7 +23,6 @@ class Area(str, Enum):
     GENERAL = "general"
     IT = "it"
 
-# Modelo base para la tabla
 class CareerBase(SQLModel):
     careerType: CareerType = Field(description="Tipo de carrera")
     area: Area = Field(description="Área de la carrera")
@@ -75,11 +74,7 @@ class CareerUpdate(SQLModel):
     publicationDate: Optional[date] = None
     published: Optional[bool] = None
     modifier: Optional[int] = None
-    
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        # Actualizar fecha de modificación automáticamente
-        self.modificationDate = datetime.now().date()
+    modificationDate: Optional[date] = Field(default_factory=lambda: datetime.now().date())
 
 # Modelo para leer una carrera (GET) - incluye todos los campos
 class CareerRead(CareerBase):
@@ -93,6 +88,53 @@ class CareerRead(CareerBase):
     creator_user: Optional["UserRead"] = None
     modifier_user: Optional["UserRead"] = None
     testimonies: List["TestimonyRead"] = []
+
+class CareerReadSimple(CareerBase):
+    careerId: int
+    creationDate: date
+    modificationDate: Optional[date] = None
+    publicationDate: Optional[date] = None
+    published: bool
+    creator: int
+    modifier: Optional[int] = None
+    
+class CareerSimple(SQLModel):
+    """Modelo minimalista de carrera para endpoints públicos"""
+    careerId: int = Field(description="ID único de la carrera")
+    imageLink: str = Field(description="Enlace de la imagen")
+    aboutCourse1: str = Field(description="Descripción del curso parte 1")
+    careerType: CareerType = Field(description="Tipo de carrera")
+    area: Area = Field(description="Área de la carrera")
+    name: str = Field(description="Nombre de la carrera")
+    
+class TestimonyForCareer(SQLModel):
+    """Testimonio simplificado para mostrar en career sin referencia circular"""
+    testimonyId: int
+    text: str
+    name: str
+    lastname: str
+    creationDate: date
+    
+class UserSimple(SQLModel):
+    userId: int
+    name: str
+    lastname: str
+    
+class CareerReadOptimized(CareerBase):
+    careerId: int
+    creationDate: date
+    modificationDate: Optional[date] = None
+    publicationDate: Optional[date] = None
+    published: bool
+    creator: int
+    modifier: Optional[int] = None
+    
+    # Usuarios simplificados (solo id, name, lastname)
+    creator_user: Optional[UserSimple] = None
+    modifier_user: Optional[UserSimple] = None
+    
+    # Testimonios sin referencia circular
+    testimonies: List[TestimonyForCareer] = []
 
 # Modelo para respuestas de lista (sin algunos campos sensibles si es necesario)
 class CareerInList(SQLModel):
@@ -110,4 +152,5 @@ from .user import UserRead
 from .testimony import TestimonyRead
 # Rebuild después de definir todos los modelos
 CareerRead.model_rebuild()
+CareerReadOptimized.model_rebuild()
 

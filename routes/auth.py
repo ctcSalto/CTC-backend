@@ -3,7 +3,6 @@ from sqlmodel import Session
 from datetime import timedelta
 from database.database import Services, get_services, get_session
 from database.models.user import UserCreate, UserLogin, Token, UserRead, UserReadFilters, UserUpdate
-from database.services.filter.filters import filter_model_response
 
 from database.services.filter.filters import Filter
 from database.services.auth.dependencies import get_current_user, require_admin_role, HTTPAuthorizationCredentials, security
@@ -12,10 +11,52 @@ from exceptions import AppException
 
 from jose import jwt
 import os
+from typing import List
 
 from utils.logger import show
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+@router.post("/create-first-user", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+async def create_first_user(
+        services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> UserRead:
+    """Crea el primer usuario administrador"""
+    try:
+        
+        users = services.userService.get_all_users(session)
+        if users:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Ya existen usuarios en la base de datos"
+            )
+        # Crear el primer usuario administrador
+        first_user_data = UserCreate(
+            email="admin@gmail.com",
+            password="Admin@123",
+            rol="admin",
+            name="Admin",
+            lastname="User",
+            document="12345678",
+            phone="12345678"
+        )
+        
+        first_user = services.userService.create_user(first_user_data, session)
+        if not first_user:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error al crear el primer usuario"
+            )
+        return first_user
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        show(f"Error al crear el primer usuario: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def register_user(
@@ -142,7 +183,15 @@ async def logout_user(
         from database.services.auth.security import blacklist_token
         from sqlmodel import text
         
-        cache_service = services.get_cache_service(session)
+        # Verificar que tenemos los servicios necesarios
+        if not services or not services.redisService:
+            print("DEBUG logout: Services o redisService no disponible")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Servicio de cache no disponible"
+            )
+        
+        cache_service = services.redisService
         token = credentials.credentials
         
         # Decodificar token para obtener JTI
@@ -310,28 +359,6 @@ async def activate_user(
         )
         
 
-@router.get("/generate-permanent-token", response_model=Token)
-async def generate_permanent_token(
-    current_user: UserRead = Depends(require_admin_role)
-) -> Token:
-    """Genera un token JWT permanente para administradores"""
-    try:
-        access_token = create_access_token(
-            data={"sub": current_user.email}
-        )
-        return Token(
-            access_token=access_token,
-            token_type="bearer",
-            expires_in=None
-        )
-    except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error interno: {str(e)}"
-        )
-
 @router.get("/me", response_model=UserRead)
 async def get_current_user_info(
     current_user: UserRead = Depends(get_current_user),
@@ -352,14 +379,14 @@ async def get_current_user_info(
             detail=f"Error interno: {str(e)}"
         )
 
-@router.get("/users", response_model=list[UserRead])
+@router.get("/users", response_model=List[UserRead])
 async def get_all_users(
     skip: int = 0,
     limit: int = 100,
     current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
-) -> list[UserRead]:
+) -> List[UserRead]:
     """Obtiene todos los usuarios (solo administradores)"""
     try:
         users = services.userService.get_all_users(session, skip=skip, limit=limit)
@@ -374,7 +401,7 @@ async def get_all_users(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
         
 @router.post("/filters/users", response_model=list[dict])
@@ -383,19 +410,20 @@ async def get_all_users(
     #current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
-) -> list[UserRead]:
+) -> List[UserRead]:
     """Obtiene todos los usuarios (solo administradores)"""
     try:
         users = services.userService.get_with_filters_clean(session, filters)
         if not users:
             return []
+        show(users)
         return [user.model_dump() if hasattr(user, 'model_dump') else user for user in users]
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
         
 @router.put("/users/{userId}", response_model=UserRead)

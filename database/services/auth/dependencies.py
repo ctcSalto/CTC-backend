@@ -4,6 +4,7 @@ from database.database import Services, get_services, get_session
 from .security import verify_token
 from database.models.user import UserRead, UserRole
 from sqlmodel import Session
+from sqlalchemy.exc import SQLAlchemyError
 
 from utils.logger import show
 
@@ -15,22 +16,48 @@ async def get_current_user(
     session: Session = Depends(get_session)
 ) -> UserRead:
     """Obtiene el usuario actual basado en el token JWT con verificación de blacklist"""
-    token = credentials.credentials
-    cache_service = services.get_cache_service(session)
-    # Verificar token incluyendo blacklist
-    token_data = verify_token(token, cache_service, session)
-    
-    # Cambiar get_user_by_username por get_user_by_email ya que usamos email
-    user_table = services.userService.get_user_by_email(token_data.email, session)
-    if user_table is None:
+    try:
+        token = credentials.credentials
+        cache_service = services.redisService
+        
+        # Verificar token incluyendo blacklist
+        token_data = verify_token(token, cache_service, session)
+        
+        # Cambiar get_user_by_username por get_user_by_email ya que usamos email
+        user_table = services.userService.get_user_by_email(token_data.email, session)
+        
+        if user_table is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        return user_table
+        
+    except HTTPException:
+        # Re-lanzar HTTPExceptions sin modificar
+        raise
+        
+    except SQLAlchemyError as e:
+        # Error específico de base de datos
+        show(f"Database error in get_current_user: {e}")
+        session.rollback()  # Hacer rollback explícito
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error during authentication",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Ya no necesitas crear UserRead manualmente, el servicio ya lo devuelve
-    return user_table
+        
+    except Exception as e:
+        # Cualquier otro error
+        show(f"Unexpected error in get_current_user: {e}")
+        session.rollback()  # Hacer rollback explícito por seguridad
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 async def get_current_active_user(
     current_user: UserRead = Depends(get_current_user)

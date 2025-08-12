@@ -29,7 +29,6 @@ class Testimony(TestimonyBase, table=True):
 # Modelo para crear un testimonio (POST)
 class TestimonyCreate(TestimonyBase):
     creator: int
-
 # Modelo para actualizar un testimonio (PUT/PATCH)
 class TestimonyUpdate(SQLModel):
     text: Optional[str] = Field(default=None, max_length=350)
@@ -37,6 +36,7 @@ class TestimonyUpdate(SQLModel):
     lastname: Optional[str] = Field(default=None, max_length=50)
     career: Optional[int] = None
     modifier: Optional[int] = None
+    modificationDate: Optional[date] = Field(default_factory=lambda: datetime.now().date())
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -52,7 +52,7 @@ class TestimonyRead(TestimonyBase):
     modifier: Optional[int] = None
     creator_user: Optional["UserRead"] = None
     modifier_user: Optional["UserRead"] = None
-    career: Optional["CareerRead"] = None
+    career: Optional[int] = None
 
 # Modelo para respuestas de lista
 class TestimonyInList(SQLModel):

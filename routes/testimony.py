@@ -10,6 +10,8 @@ from database.models.testimony import (
     TestimonyPublic
 )
 from database.models.user import UserRead
+from database.services.filter.filters import Filter
+
 from database.services.auth.dependencies import get_current_user, require_admin_role
 from exceptions import AppException
 from sqlalchemy.exc import NoResultFound
@@ -37,6 +39,23 @@ async def get_public_testimonies(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno del servidor"
         )
+        
+@router.get("/public/random", response_model=List[TestimonyPublic], status_code=status.HTTP_200_OK)
+async def get_random_testimonies(
+    count: int = Query(6, ge=1, le=20, description="Número de testimonios aleatorios a devolver"),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> List[TestimonyPublic]:
+    """Obtener testimonios públicos de forma aleatoria"""
+    try:
+        testimonies = services.testimonyService.get_random_testimonies(session, count)
+        return testimonies
+    except Exception as e:
+        show(f"Error al obtener testimonios aleatorios: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
 
 @router.get("/public/latest", response_model=List[TestimonyPublic], status_code=status.HTTP_200_OK)
 async def get_latest_testimonies(
@@ -52,7 +71,7 @@ async def get_latest_testimonies(
         show(f"Error al obtener testimonios recientes: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 @router.get("/public/career/{career_id}", response_model=List[TestimonyPublic], status_code=status.HTTP_200_OK)
@@ -71,12 +90,12 @@ async def get_public_testimonies_by_career(
         show(f"Error al obtener testimonios por carrera: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 # =================== ENDPOINTS ADMINISTRATIVOS ===================
 
-@router.post("/", response_model=TestimonyRead, status_code=status.HTTP_201_CREATED)
+@router.post("/create", response_model=TestimonyRead, status_code=status.HTTP_201_CREATED)
 async def create_testimony(
     testimony_data: TestimonyCreate,
     current_user: UserRead = Depends(require_admin_role),
@@ -124,7 +143,7 @@ async def get_testimonies(
         show(f"Error al obtener testimonios: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 @router.get("/list", response_model=List[TestimonyInList], status_code=status.HTTP_200_OK)
@@ -143,7 +162,7 @@ async def get_testimonies_list(
         show(f"Error al obtener lista de testimonios: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 @router.get("/{testimony_id}", response_model=TestimonyRead, status_code=status.HTTP_200_OK)
@@ -174,7 +193,7 @@ async def get_testimony_by_id(
         show(f"Error al obtener testimonio: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 @router.put("/{testimony_id}", response_model=TestimonyRead, status_code=status.HTTP_200_OK)
@@ -237,49 +256,27 @@ async def delete_testimony(
         show(f"Error al eliminar testimonio: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 # =================== ENDPOINTS DE BÚSQUEDA ===================
 
-@router.get("/search/text", response_model=List[TestimonyRead], status_code=status.HTTP_200_OK)
-async def search_testimonies_by_text(
-    q: str = Query(..., min_length=3, description="Término de búsqueda en el texto"),
-    offset: int = Query(0, ge=0, description="Número de registros a omitir"),
-    limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
+@router.post("/filters/testimonies", response_model=List[TestimonyRead], status_code=status.HTTP_200_OK)
+async def get_testimonies_by_filters(
+    filter: Filter,
     current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[TestimonyRead]:
-    """Buscar testimonios por contenido de texto (solo administradores)"""
+    """Obtener testimonios por filtros (solo administradores)"""
     try:
-        testimonies = services.testimonyService.search_testimonies_by_text(q, session, offset, limit)
+        testimonies = services.testimonyService.get_with_filters_clean(session, filter)
         return testimonies
     except Exception as e:
-        show(f"Error al buscar testimonios por texto: {e}")
+        show(f"Error al obtener testimonios por filtros: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
-
-@router.get("/search/name", response_model=List[TestimonyRead], status_code=status.HTTP_200_OK)
-async def search_testimonies_by_name(
-    q: str = Query(..., min_length=2, description="Término de búsqueda en nombre o apellido"),
-    offset: int = Query(0, ge=0, description="Número de registros a omitir"),
-    limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> List[TestimonyRead]:
-    """Buscar testimonios por nombre o apellido (solo administradores)"""
-    try:
-        testimonies = services.testimonyService.search_testimonies_by_name(q, session, offset, limit)
-        return testimonies
-    except Exception as e:
-        show(f"Error al buscar testimonios por nombre: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 @router.get("/career/{career_id}", response_model=List[TestimonyRead], status_code=status.HTTP_200_OK)
@@ -299,7 +296,7 @@ async def get_testimonies_by_career(
         show(f"Error al obtener testimonios por carrera: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 @router.get("/creator/{creator_id}", response_model=List[TestimonyRead], status_code=status.HTTP_200_OK)
@@ -319,7 +316,7 @@ async def get_testimonies_by_creator(
         show(f"Error al obtener testimonios por creador: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 # =================== ENDPOINTS DE ESTADÍSTICAS ===================
@@ -338,7 +335,7 @@ async def get_testimonies_stats(
         show(f"Error al obtener estadísticas: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 @router.get("/stats/count", status_code=status.HTTP_200_OK)
@@ -355,7 +352,7 @@ async def get_testimonies_count(
         show(f"Error al obtener conteo: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 # =================== ENDPOINTS DE UTILIDAD ===================
@@ -379,5 +376,5 @@ async def bulk_delete_testimonies_by_career(
         show(f"Error al eliminar testimonios por carrera: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )

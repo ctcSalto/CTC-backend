@@ -1,7 +1,8 @@
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 from ..models.testimony import Testimony, TestimonyCreate, TestimonyRead, TestimonyUpdate, TestimonyInList, TestimonyPublic
 from typing import List, Optional
 from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.orm import joinedload
 from datetime import datetime
 
 from database.services.filter.filters import BaseServiceWithFilters
@@ -16,8 +17,15 @@ class TestimonyService(BaseServiceWithFilters[Testimony]):
             new_testimony = Testimony(**testimony.model_dump())
             session.add(new_testimony)
             session.commit()
-            session.refresh(new_testimony)
-            return TestimonyRead.model_validate(new_testimony)
+            
+            # Consultar nuevamente con las relaciones cargadas
+            testimony_with_relations = session.query(Testimony).options(
+                joinedload(Testimony.career_ref),
+                joinedload(Testimony.creator_user),
+                joinedload(Testimony.modifier_user)
+            ).filter(Testimony.testimonyId == new_testimony.testimonyId).first()
+            
+            return TestimonyRead.model_validate(testimony_with_relations)
 
     def get_testimonies(self, session: Session, offset: int = 0, limit: int = 10) -> List[TestimonyRead]:
         """Obtener lista de testimonios con paginación"""
@@ -27,6 +35,34 @@ class TestimonyService(BaseServiceWithFilters[Testimony]):
             if not testimonies:
                 return []
             return [TestimonyRead.model_validate(testimony) for testimony in testimonies]
+        
+    def get_random_testimonies(self, session: Session, count: int = 6) -> List[TestimonyPublic]:
+        """Obtener testimonios aleatorios de forma eficiente"""
+        import random
+        
+        with session:
+            # Primero obtener el conteo total
+            count_stmt = select(func.count(Testimony.testimonyId))
+            total_count = session.exec(count_stmt).one()
+            
+            if total_count <= count:
+                # Si hay menos testimonios que los solicitados, devolver todos
+                stmt = select(Testimony)
+                testimonies = session.exec(stmt).all()
+            else:
+                # Generar IDs aleatorios y buscarlos
+                # Obtener todos los IDs disponibles
+                ids_stmt = select(Testimony.testimonyId)
+                all_ids = list(session.exec(ids_stmt).all())
+                
+                # Seleccionar IDs aleatorios
+                random_ids = random.sample(all_ids, count)
+                
+                # Buscar los testimonios por esos IDs
+                stmt = select(Testimony).where(Testimony.testimonyId.in_(random_ids))
+                testimonies = session.exec(stmt).all()
+            
+            return [TestimonyPublic.model_validate(testimony) for testimony in testimonies]
 
     def get_testimonies_in_list(self, session: Session, offset: int = 0, limit: int = 10) -> List[TestimonyInList]:
         """Obtener lista simplificada de testimonios para listados"""

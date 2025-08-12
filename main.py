@@ -1,12 +1,13 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from routes import auth, career, testimony, news
 from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_enrolment
 from routes.mercadopago import mercadopago
 
 from pages.welcome import html
-from database.database import reset_database
+from database.database import reset_database, create_db_and_tables
 
 import os
 try:
@@ -60,6 +61,14 @@ app.include_router(mercadopago.router)
 
 
 app.include_router(test_filters.router)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 if __name__ == "__main__":
     # run command -> python main.py

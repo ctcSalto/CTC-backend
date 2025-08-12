@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Depends
 from sqlmodel import Session
 from database.models.test.author import AuthorResponse
-from database.services.filter.filters import Filter, QueryBuilderError, extract_filter_fields, EnhancedFieldFilter, filter_model_response
+from database.services.filter.filters import Filter, extract_filter_fields, EnhancedFieldFilter, filter_model_response
 from database.database import Services, get_services, get_session
 
 from utils.logger import show

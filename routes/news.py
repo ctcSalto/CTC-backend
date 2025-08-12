@@ -9,8 +9,10 @@ from database.models.news import (
     NewsUpdate, 
     NewsInList, 
     NewsPublic,
+    NewsFilterResponse,
     Area
 )
+from database.services.filter.filters import Filter
 from database.models.user import UserRead
 from database.services.auth.dependencies import get_current_user, require_admin_role
 from exceptions import AppException
@@ -42,7 +44,7 @@ async def get_public_news(
 
 @router.get("/public/latest", response_model=List[NewsPublic], status_code=status.HTTP_200_OK)
 async def get_latest_published_news(
-    limit: int = Query(5, ge=1, le=20, description="Número de noticias recientes a obtener"),
+    limit: int = Query(4, ge=1, le=20, description="Número de noticias recientes a obtener"),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[NewsPublic]:
@@ -146,22 +148,31 @@ async def search_published_news(
 
 # =================== ENDPOINTS ADMINISTRATIVOS ===================
 
-@router.post("/", response_model=NewsRead, status_code=status.HTTP_201_CREATED)
+@router.post("/create", response_model=NewsRead, status_code=status.HTTP_201_CREATED)
 async def create_news(
     area: Area = Form(...),
     title: str = Form(...),
     text: str = Form(...),
-    career: Optional[int] = Form(None),
-    videoLink: Optional[str] = Form(None),
+    career_id: Optional[int] = Form(None),
+    video_url: Optional[str] = Form(None, description="Enlace del video (opcional)"),
     images: Optional[List[UploadFile]] = File(None),
     current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> NewsRead:
     """Crear una nueva noticia con imágenes (solo administradores)"""
+    image_urls = None
+    career = None
     try:
+        if career_id is not None:
+            career = services.careerService.get_career_by_id(career_id, session)
+            if not career:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Carrera no encontrada"
+                )
+            
         # Subir imágenes si existen
-        image_urls = None
         if images and len(images) > 0:
             # Filtrar archivos vacíos
             valid_images = [img for img in images if img.size > 0]
@@ -171,18 +182,20 @@ async def create_news(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Máximo 6 imágenes permitidas"
                     )
+                print(f"📸 Subiendo {len(valid_images)} imágenes...")
                 image_urls = await services.supabaseService.upload_multiple_images(
-                    valid_images, 
-                    folder="news"
+                    valid_images
                 )
+                
+        show(image_urls)
 
         # Crear el objeto NewsCreate
         news_data = NewsCreate(
             area=area,
-            career=career,
+            career=career.careerId if career else None,
             title=title,
             text=text,
-            videoLink=videoLink,
+            videoLink=video_url,
             imagesLink=image_urls,
             creator=current_user.userId
         )
@@ -200,12 +213,21 @@ async def create_news(
         return new_news
         
     except ValueError as e:
+        services.supabaseService.rollback(image_urls=image_urls, video_url=video_url)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
             detail=str(e)
         )
     except AppException as e:
+        services.supabaseService.rollback(image_urls=image_urls, video_url=video_url)
         raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        services.supabaseService.rollback(image_urls=image_urls, video_url=video_url)
+        show(f"Error al crear noticia: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
 
 @router.get("/", response_model=List[NewsRead], status_code=status.HTTP_200_OK)
 async def get_news(
@@ -223,10 +245,10 @@ async def get_news(
         show(f"Error al obtener noticias: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
-@router.get("/list", response_model=List[NewsInList], status_code=status.HTTP_200_OK)
+@router.get("/simple-list", response_model=List[NewsInList], status_code=status.HTTP_200_OK)
 async def get_news_list(
     offset: int = Query(0, ge=0, description="Número de registros a omitir"),
     limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
@@ -259,25 +281,6 @@ async def get_pending_news(
         return news_list
     except Exception as e:
         show(f"Error al obtener noticias pendientes: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
-
-@router.get("/scheduled", response_model=List[NewsRead], status_code=status.HTTP_200_OK)
-async def get_scheduled_news(
-    offset: int = Query(0, ge=0, description="Número de registros a omitir"),
-    limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> List[NewsRead]:
-    """Obtener noticias programadas para publicación futura (solo administradores)"""
-    try:
-        news_list = services.newsService.get_scheduled_news(session, offset, limit)
-        return news_list
-    except Exception as e:
-        show(f"Error al obtener noticias programadas: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno del servidor"
@@ -317,13 +320,7 @@ async def get_news_by_id(
 @router.put("/{news_id}", response_model=NewsRead, status_code=status.HTTP_200_OK)
 async def update_news(
     news_id: int,
-    area: Optional[Area] = Form(None),
-    title: Optional[str] = Form(None),
-    text: Optional[str] = Form(None),
-    career: Optional[int] = Form(None),
-    videoLink: Optional[str] = Form(None),
-    images: Optional[List[UploadFile]] = File(None),
-    replace_images: bool = Form(False, description="Si es True, reemplaza todas las imágenes. Si es False, las agrega."),
+    news_update: NewsUpdate,
     current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
@@ -337,40 +334,6 @@ async def update_news(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Noticia no encontrada"
             )
-
-        # Manejar las imágenes
-        image_urls = None
-        if images and len(images) > 0:
-            # Filtrar archivos vacíos
-            valid_images = [img for img in images if img.size > 0]
-            if valid_images:
-                new_image_urls = await services.supabaseService.upload_multiple_images(
-                    valid_images, 
-                    folder="news"
-                )
-                
-                if replace_images:
-                    # Reemplazar todas las imágenes
-                    image_urls = new_image_urls
-                else:
-                    # Agregar a las existentes
-                    existing_urls = current_news.imagesLink or []
-                    image_urls = existing_urls + new_image_urls
-                    
-                    # Verificar límite de 6 imágenes
-                    if len(image_urls) > 6:
-                        image_urls = image_urls[:6]
-
-        # Crear el objeto NewsUpdate
-        news_update = NewsUpdate(
-            area=area,
-            career=career,
-            title=title,
-            text=text,
-            videoLink=videoLink,
-            imagesLink=image_urls,
-            modifier=current_user.userId
-        )
 
         updated_news = services.newsService.update_news(news_id, news_update, session)
         
@@ -390,6 +353,12 @@ async def update_news(
         )
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        show(f"Error al actualizar noticia: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
 
 @router.post("/{news_id}/publish", response_model=NewsRead, status_code=status.HTTP_200_OK)
 async def publish_news(
@@ -479,44 +448,23 @@ async def delete_news(
 
 # =================== ENDPOINTS DE BÚSQUEDA ADMINISTRATIVA ===================
 
-@router.get("/search/title", response_model=List[NewsRead], status_code=status.HTTP_200_OK)
-async def search_news_by_title(
-    q: str = Query(..., min_length=3, description="Término de búsqueda en el título"),
-    offset: int = Query(0, ge=0, description="Número de registros a omitir"),
-    limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
+# BUG: Relaciones en los filtros dan errores
+@router.post("/filters", response_model=List[dict], status_code=status.HTTP_200_OK)
+async def filter_news(
+    filters: Filter,
     current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
-) -> List[NewsRead]:
+) -> List[NewsFilterResponse]:
     """Buscar noticias por título (solo administradores)"""
     try:
-        news_list = services.newsService.search_news_by_title(q, session, offset, limit)
+        news_list = services.newsService.get_with_filters_clean(session, filters)
         return news_list
     except Exception as e:
         show(f"Error al buscar noticias por título: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
-
-@router.get("/search/content", response_model=List[NewsRead], status_code=status.HTTP_200_OK)
-async def search_news_by_content(
-    q: str = Query(..., min_length=3, description="Término de búsqueda en el contenido"),
-    offset: int = Query(0, ge=0, description="Número de registros a omitir"),
-    limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> List[NewsRead]:
-    """Buscar noticias por contenido (solo administradores)"""
-    try:
-        news_list = services.newsService.search_news_by_content(q, session, offset, limit)
-        return news_list
-    except Exception as e:
-        show(f"Error al buscar noticias por contenido: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 @router.get("/area/{area}", response_model=List[NewsRead], status_code=status.HTTP_200_OK)
@@ -536,7 +484,7 @@ async def get_news_by_area(
         show(f"Error al obtener noticias por área: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 @router.get("/career/{career_id}", response_model=List[NewsRead], status_code=status.HTTP_200_OK)
@@ -556,7 +504,7 @@ async def get_news_by_career(
         show(f"Error al obtener noticias por carrera: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 @router.get("/creator/{creator_id}", response_model=List[NewsRead], status_code=status.HTTP_200_OK)
@@ -576,140 +524,9 @@ async def get_news_by_creator(
         show(f"Error al obtener noticias por creador: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
-# =================== ENDPOINTS DE ESTADÍSTICAS ===================
-
-@router.get("/stats/general", status_code=status.HTTP_200_OK)
-async def get_news_stats(
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> dict:
-    """Obtener estadísticas generales de noticias (solo administradores)"""
-    try:
-        stats = services.newsService.get_news_stats(session)
-        return stats
-    except Exception as e:
-        show(f"Error al obtener estadísticas: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
-
-@router.get("/stats/count", status_code=status.HTTP_200_OK)
-async def get_news_count(
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> dict:
-    """Obtener conteo total de noticias (solo administradores)"""
-    try:
-        total_count = services.newsService.get_news_count(session)
-        published_count = services.newsService.get_published_news_count(session)
-        return {
-            "total_news": total_count,
-            "published_news": published_count,
-            "draft_news": total_count - published_count
-        }
-    except Exception as e:
-        show(f"Error al obtener conteo: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
-
-# =================== ENDPOINTS DE UTILIDAD ===================
-
-@router.post("/bulk/publish", status_code=status.HTTP_200_OK)
-async def bulk_publish_news(
-    news_ids: List[int],
-    publication_date: Optional[date] = Query(None, description="Fecha de publicación (opcional, por defecto hoy)"),
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> dict:
-    """Publicar múltiples noticias en lote (solo administradores)"""
-    try:
-        published_count = services.newsService.bulk_publish_news(news_ids, publication_date, session)
-        
-        show(f"{published_count} noticias publicadas")
-        
-        return {"published_count": published_count, "total_requested": len(news_ids)}
-        
-    except Exception as e:
-        show(f"Error al publicar noticias en lote: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
-
-@router.post("/bulk/unpublish", status_code=status.HTTP_200_OK)
-async def bulk_unpublish_news(
-    news_ids: List[int],
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> dict:
-    """Despublicar múltiples noticias en lote (solo administradores)"""
-    try:
-        unpublished_count = services.newsService.bulk_unpublish_news(news_ids, session)
-        
-        show(f"{unpublished_count} noticias despublicadas")
-        
-        return {"unpublished_count": unpublished_count, "total_requested": len(news_ids)}
-        
-    except Exception as e:
-        show(f"Error al despublicar noticias en lote: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
-
-@router.delete("/bulk/area/{area}", status_code=status.HTTP_200_OK)
-async def bulk_delete_news_by_area(
-    area: Area,
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> dict:
-    """Eliminar todas las noticias de un área específica (solo administradores)"""
-    try:
-        deleted_count = services.newsService.bulk_delete_by_area(area, session)
-        
-        show(f"{deleted_count} noticias eliminadas del área {area}")
-        
-        return {"deleted_count": deleted_count}
-        
-    except Exception as e:
-        show(f"Error al eliminar noticias por área: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
-
-@router.delete("/bulk/career/{career_id}", status_code=status.HTTP_200_OK)
-async def bulk_delete_news_by_career(
-    career_id: int,
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> dict:
-    """Eliminar todas las noticias de una carrera específica (solo administradores)"""
-    try:
-        deleted_count = services.newsService.bulk_delete_by_career(career_id, session)
-        
-        show(f"{deleted_count} noticias eliminadas de la carrera {career_id}")
-        
-        return {"deleted_count": deleted_count}
-        
-    except Exception as e:
-        show(f"Error al eliminar noticias por carrera: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
 
 # =================== ENDPOINTS DE MANEJO DE IMÁGENES ===================
 
@@ -810,18 +627,29 @@ async def remove_image_from_news(
         show(f"Error al eliminar imagen: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 @router.put("/{news_id}/images", response_model=NewsRead, status_code=status.HTTP_200_OK)
-async def update_news_images(
+async def update_news_files(
     news_id: int,
     images: List[UploadFile] = File(...),
+    replace_files: bool = False,
     current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> NewsRead:
-    """Reemplazar todas las imágenes de una noticia (solo administradores)"""
+    """
+    Actualizar archivos de una noticia (solo administradores).
+    
+    Args:
+        replace_files: Si es True, reemplaza todas las imágenes existentes.
+                      Si es False, agrega las nuevas imágenes a las existentes.
+    """
+    
+    # Inicializar variables para rollback
+    new_image_urls = None
+    
     try:
         # Verificar que la noticia existe
         current_news = services.newsService.get_news_by_id(news_id, session)
@@ -832,41 +660,105 @@ async def update_news_images(
             )
 
         # Filtrar archivos vacíos
-        valid_images = [img for img in images if img.size > 0]
+        valid_images = [img for img in images if img.size > 0] if images else []
         
-        if len(valid_images) > 6:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Máximo 6 imágenes permitidas"
-            )
+        # Validar límite de imágenes según el modo
+        if replace_files:
+            # Modo reemplazo: solo validar las nuevas imágenes
+            if len(valid_images) > 6:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Máximo 6 imágenes permitidas"
+                )
+        else:
+            # Modo agregar: validar imágenes existentes + nuevas
+            existing_images_count = len(current_news.imagesLink) if current_news.imagesLink else 0
+            total_images = existing_images_count + len(valid_images)
+            
+            if total_images > 6:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Máximo 6 imágenes permitidas. La noticia tiene {existing_images_count} imágenes, "
+                           f"intentas agregar {len(valid_images)}, total sería {total_images}"
+                )
 
         # Subir las nuevas imágenes
-        image_urls = []
+        new_image_urls = []
         if valid_images:
-            image_urls = await services.supabaseService.upload_multiple_images(
+            print(f"📸 Subiendo {len(valid_images)} nuevas imágenes...")
+            new_image_urls = await services.supabaseService.upload_multiple_images(
                 valid_images, 
                 folder="news"
             )
 
-        # Actualizar las imágenes de la noticia
-        updated_news = services.newsService.update_news_images(news_id, image_urls, session)
+        # Preparar las URLs finales según el modo
+        if replace_files:
+            # Reemplazar: usar solo las nuevas imágenes/video
+            final_image_urls = new_image_urls if new_image_urls else None
+            
+            # Eliminar archivos antiguos después de subir los nuevos
+            old_images_to_delete = current_news.imagesLink if current_news.imagesLink else []
+            
+        else:
+            # Agregar: combinar existentes + nuevas
+            existing_images = current_news.imagesLink if current_news.imagesLink else []
+            final_image_urls = existing_images + new_image_urls if new_image_urls else existing_images
+            final_image_urls = final_image_urls if final_image_urls else None
+            
+            # Para video: reemplazar si se sube uno nuevo, sino mantener el existente
+            
+            # En modo agregar, solo eliminar video anterior si se reemplaza
+            old_images_to_delete = []
+
+        # Actualizar la noticia en la base de datos
+        updated_news = services.newsService.update_news_files(
+            news_id=news_id,
+            image_urls=final_image_urls,
+            session=session
+        )
         
-        show(f"Imágenes actualizadas en la noticia {news_id}")
+        # Si la actualización fue exitosa, eliminar archivos antiguos
+        if replace_files:
+            try:
+                if old_images_to_delete:
+                    for old_url in old_images_to_delete:
+                        services.supabaseService.delete_file(old_url)
+                    print(f"🗑️ Eliminadas {len(old_images_to_delete)} imágenes anteriores")
+                
+
+                    
+            except Exception as cleanup_error:
+                print(f"⚠️ Error limpiando archivos antiguos: {cleanup_error}")
+                # No fallar la operación por esto, solo loguear
         
+        show(f"Archivos actualizados en la noticia {news_id}")
         return updated_news
         
+    except HTTPException:
+        # Re-lanzar HTTPException sin rollback si es error de validación
+        raise
     except NoResultFound:
+        services.supabaseService.rollback(image_urls=new_image_urls)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Noticia no encontrada"
         )
     except ValueError as e:
+        services.supabaseService.rollback(image_urls=new_image_urls)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except AppException as e:
+        services.supabaseService.rollback(image_urls=new_image_urls)
         raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        services.supabaseService.rollback(image_urls=new_image_urls)
+        show(f"Error actualizando archivos de la noticia: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
 
 # =================== ENDPOINTS ADICIONALES BASADOS EN NewsService ===================
 
@@ -874,7 +766,7 @@ async def update_news_images(
 async def get_recent_news(
     days: int = Query(30, ge=1, le=365, description="Número de días para considerar como reciente"),
     offset: int = Query(0, ge=0, description="Número de registros a omitir"),
-    limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
+    limit: int = Query(4, ge=1, le=100, description="Número máximo de registros a devolver"),
     current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
@@ -887,41 +779,5 @@ async def get_recent_news(
         show(f"Error al obtener noticias recientes: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
-
-@router.get("/stats/area/{area}", status_code=status.HTTP_200_OK)
-async def get_news_count_by_area(
-    area: Area,
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> dict:
-    """Obtener conteo de noticias por área específica (solo administradores)"""
-    try:
-        count = services.newsService.get_news_count_by_area(area, session)
-        return {"area": area.value, "count": count}
-    except Exception as e:
-        show(f"Error al obtener conteo por área: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
-
-@router.get("/stats/career/{career_id}", status_code=status.HTTP_200_OK)
-async def get_news_count_by_career(
-    career_id: int,
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> dict:
-    """Obtener conteo de noticias por carrera específica (solo administradores)"""
-    try:
-        count = services.newsService.get_news_count_by_career(career_id, session)
-        return {"career_id": career_id, "count": count}
-    except Exception as e:
-        show(f"Error al obtener conteo por carrera: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
+            detail=f"Error interno del servidor: {str(e)}"
         )

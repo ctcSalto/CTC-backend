@@ -1,0 +1,253 @@
+# =============================================================================
+# EJEMPLO 1: Usuario por email específico - Solo campos básicos
+# =============================================================================
+{
+  "conditions": [
+    {
+      "attribute": "email",
+      "operator": "eq",
+      "value": "admin@gmail.com"
+    }
+  ],
+  "logical_operator": "and",
+  "fields": ["userId", "email", "name", "lastname"],
+  "limit": 1
+}
+
+# =============================================================================
+# EJEMPLO 2: Usuarios activos y confirmados con información básica
+# =============================================================================
+{
+  "conditions": [
+    {
+      "attribute": "active",
+      "operator": "eq",
+      "value": true
+    },
+    {
+      "attribute": "confirmed",
+      "operator": "eq",
+      "value": true
+    },
+    {
+      "attribute": "rol",
+      "operator": "eq",
+      "value": "student"
+    }
+  ],
+  "logical_operator": "and",
+  "fields": ["userId", "email", "name", "lastname", "rol", "creationDate"],
+  "limit": 50,
+  "offset": 0,
+  "order_by": "creationDate",
+  "order_direction": "desc"
+}
+
+# =============================================================================
+# EJEMPLO 3: Carrera por nombre con su usuario creador
+# =============================================================================
+
+{
+  "conditions": [
+    {
+      "attribute": "name",
+      "operator": "eq",
+      "value": "Gestion de Empresas"
+    },
+    {
+      "attribute": "area",
+      "operator": "eq",
+      "value": "it"
+    },
+    {
+      "attribute": "careerType",
+      "operator": "eq",
+      "value": "COURSE"
+    },
+    {
+      "attribute": "published",
+      "operator": "eq",
+      "value": "true"
+    }
+  ],
+  "logical_operator": "and",
+  "fields": [
+    "name", "careerId"
+  ],
+  "limit": 10,
+  "offset": 0,
+  "order_by": "name",
+  "order_direction": "asc"
+}
+
+# =============================================================================
+# EJEMPLO 4: Grupos de condiciones complejas
+# (Activos Y Confirmados) O (Admins Y Creados después de fecha)
+# =============================================================================
+{
+  "conditions": [
+    {
+      "conditions": [
+        {
+          "attribute": "active",
+          "operator": "eq",
+          "value": true
+        },
+        {
+          "attribute": "confirmed",
+          "operator": "eq",
+          "value": true
+        }
+      ],
+      "logical_operator": "and"
+    },
+    {
+      "conditions": [
+        {
+          "attribute": "rol",
+          "operator": "eq",
+          "value": "admin"
+        },
+        {
+          "attribute": "creationDate",
+          "operator": "gte",
+          "value": "2024-01-01"
+        }
+      ],
+      "logical_operator": "and"
+    }
+  ],
+  "logical_operator": "or",
+  "fields": ["userId", "email", "name", "rol", "active", "confirmed", "creationDate"],
+  "order_by": "creationDate",
+  "order_direction": "desc"
+}
+
+# =============================================================================
+# EJEMPLO 5: Lista de Noticias publicadas
+# =============================================================================
+{
+    "conditions": [
+      {
+        "attribute": "published",
+        "operator": "eq",
+        "value": true
+      }
+    ],
+    "fields": ["newsId", "title", "text", "area", "publicationDate", "published"],
+    "limit": 20,
+    "offset": 0,
+    "order_by": "publicationDate",
+    "order_direction": "desc"
+  }
+
+# =============================================================================
+# EJEMPLO 6: Lista de Noticias publicadas entre fechas
+# =============================================================================
+
+  {
+    "conditions": [
+      {
+        "attribute": "published",
+        "operator": "eq",
+        "value": true
+      },
+      {
+        "attribute": "publicationDate",
+        "operator": "gte",
+        "value": "2024-01-01"
+      },
+      {
+        "attribute": "publicationDate",
+        "operator": "lte",
+        "value": "2026-12-31"
+      }
+    ],
+    "logical_operator": "and",
+    "fields": ["newsId", "title", "text", "area", "publicationDate", "published"],
+    "limit": 20,
+    "offset": 0,
+    "order_by": "publicationDate",
+    "order_direction": "desc"
+  }
+
+# =============================================================================
+# EJEMPLO 7: Noticias que contienen %palabra% en titulo o texto
+# =============================================================================
+
+  {
+    "conditions": [
+      {
+        "conditions": [
+          {
+            "attribute": "title",
+            "operator": "icontains",
+            "value": "tecnología"
+          },
+          {
+            "attribute": "text",
+            "operator": "icontains",
+            "value": "tecnología"
+          }
+        ],
+        "logical_operator": "or"
+      }
+    ],
+    "logical_operator": "and",
+    "fields": ["newsId", "title", "text", "area", "publicationDate", "published"],
+    "limit": 20,
+    "offset": 0,
+    "order_by": "publicationDate",
+    "order_direction": "desc"
+  }
+
+# =============================================================================
+# EJEMPLO 9: Lista de Noticias que pertenecen al area it
+# =============================================================================
+{
+    "conditions": [
+      {
+        "attribute": "area",
+        "operator": "eq",
+        "value": "it"
+      }
+    ],
+    "fields": ["newsId", "title", "text", "area", "publicationDate", "published"],
+    "limit": 20,
+    "offset": 0,
+    "order_by": "publicationDate",
+    "order_direction": "desc"
+}
+
+
+{
+  "conditions": [
+    {
+      "attribute": "careerId",
+      "operator": "eq",
+      "value": 1
+    },
+    {
+      "attribute": "area",
+      "operator": "eq",
+      "value": "example"
+    },
+    {
+      "attribute": "careerType",
+      "operator": "eq",
+      "value": "example"
+    },
+    {
+      "attribute": "published",
+      "operator": "eq",
+      "value": true
+    }
+  ],
+  "relations": [
+    {
+      "relation_name": "testimonies",
+      "load_strategy": "select",
+    }
+  ],
+  "order_by": "careerId"
+}

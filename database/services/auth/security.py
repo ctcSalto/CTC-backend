@@ -101,6 +101,25 @@ def blacklist_token(token: str, cache_service, session: Session) -> bool:
     try:
         print(f"DEBUG blacklist_token: Iniciando blacklist del token")
         
+        # Verificar que cache_service esté disponible
+        if not cache_service:
+            print("DEBUG blacklist_token: cache_service es None")
+            return False
+        
+        # Test de conexión Redis
+        if hasattr(cache_service, 'test_connection'):
+            if not cache_service.test_connection():
+                print("DEBUG blacklist_token: Error de conexión a Redis")
+                return False
+        
+        # Decodificar token
+        SECRET_KEY = os.environ.get("SECRET_KEY")
+        ALGORITHM = "HS256"  # Ajusta según tu configuración
+        
+        if not SECRET_KEY:
+            print("DEBUG blacklist_token: SECRET_KEY no configurada")
+            return False
+            
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         jti = payload.get("jti")
         exp = payload.get("exp")
@@ -110,20 +129,42 @@ def blacklist_token(token: str, cache_service, session: Session) -> bool:
         if not jti:
             print("DEBUG blacklist_token: Token sin JTI válido")
             return False
-            
-        # Para tokens con expiración, calcular expires_at
+        
+        # Calcular expires_at
+        expires_at = None
         if exp:
             expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
             print(f"DEBUG blacklist_token: Token expira en: {expires_at}")
+            
+            # Verificar que el token no haya expirado ya
+            now = datetime.now(tz=timezone.utc)
+            if expires_at <= now:
+                print(f"DEBUG blacklist_token: Token ya expiró ({expires_at} <= {now})")
+                return False
+        else:
+            # Si no hay exp, el token no expira - darle una expiración por defecto
+            # Opcional: puedes darle 30 días o dejarlo None para permanente
+            print("DEBUG blacklist_token: Token sin expiración - usando None")
+            expires_at = None
         
-        # Guardar en blacklist con la clave correcta
-        blacklist_key = f"blacklist_{jti}"  # ✅ Clave consistente
-        success = cache_service.set(blacklist_key, True, expires_at, session)
-        session.commit()
+        # Usar el método específico para blacklist
+        success = cache_service.set_blacklist_token(jti, expires_at, session)
         
-        print(f"DEBUG blacklist_token: Token {'agregado' if success else 'NO agregado'} a blacklist con key: {blacklist_key}")
-            # ✅ DEBUG: Verificar inmediatamente después de set()
-
+        print(f"DEBUG blacklist_token: set_blacklist_token result: {success}")
+        
+        if success:
+            # Verificación inmediata
+            is_blacklisted = cache_service.is_token_blacklisted(jti, session)
+            print(f"DEBUG blacklist_token: Verificación inmediata - Token en blacklist: {is_blacklisted}")
+            
+            if not is_blacklisted:
+                print("DEBUG blacklist_token: WARNING - Token no se encuentra en blacklist después de agregarlo")
+                return False
+        
+        # NO hacer commit aquí - Redis no necesita transacciones SQL
+        # session.commit()  # ❌ Esto puede causar problemas
+        
+        print(f"DEBUG blacklist_token: Token {'agregado' if success else 'NO agregado'} a blacklist")
         return success
         
     except JWTError as e:
@@ -131,4 +172,40 @@ def blacklist_token(token: str, cache_service, session: Session) -> bool:
         return False
     except Exception as e:
         print(f"DEBUG blacklist_token: Error inesperado: {e}")
+        import traceback
+        print(f"DEBUG blacklist_token: Traceback: {traceback.format_exc()}")
+        return False
+
+
+def is_token_blacklisted(token: str, cache_service) -> bool:
+    """Verifica si un token está en la blacklist"""
+    try:
+        print(f"DEBUG is_token_blacklisted: Verificando token")
+        
+        if not cache_service:
+            print("DEBUG is_token_blacklisted: cache_service es None")
+            return False
+        
+        # Decodificar token para obtener JTI
+        SECRET_KEY = os.environ.get("SECRET_KEY")
+        ALGORITHM = "HS256"
+        
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": False})
+        jti = payload.get("jti")
+        
+        if not jti:
+            print("DEBUG is_token_blacklisted: Token sin JTI")
+            return False
+        
+        # Verificar blacklist
+        is_blacklisted = cache_service.is_token_blacklisted(jti)
+        print(f"DEBUG is_token_blacklisted: jti={jti}, blacklisted={is_blacklisted}")
+        
+        return is_blacklisted
+        
+    except JWTError as e:
+        print(f"DEBUG is_token_blacklisted: Error JWT: {e}")
+        return False
+    except Exception as e:
+        print(f"DEBUG is_token_blacklisted: Error inesperado: {e}")
         return False
