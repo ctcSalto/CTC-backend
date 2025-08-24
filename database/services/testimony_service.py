@@ -76,6 +76,7 @@ class TestimonyService(BaseServiceWithFilters[Testimony]):
     def get_testimonies_public(self, session: Session, offset: int = 0, limit: int = 10) -> List[TestimonyPublic]:
         """Obtener testimonios públicos (sin información sensible)"""
         with session:
+            # TODO: verifiar si solo trae publicos
             statement = select(Testimony).offset(offset).limit(limit)
             testimonies = session.exec(statement).all()
             if not testimonies:

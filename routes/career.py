@@ -14,7 +14,6 @@ from utils.logger import show
 
 router = APIRouter(prefix="/careers", tags=["Careers"])
 
-# TODO: Sacar? frontend se encarga de esto?
 @router.get("/types", response_model=List[CareerType])
 def get_career_types(current_user: UserRead = Depends(require_admin_role)) -> List[Area]:
     """Obtener tipos de carreras (solo admins)"""
@@ -28,7 +27,6 @@ def get_career_types(current_user: UserRead = Depends(require_admin_role)) -> Li
             detail=f"Error interno del servidor: {str(e)}"
         )
 
-# TODO: Sacar? frontend se encarga de esto?
 @router.get("/areas", response_model=List[Area])
 def get_career_areas(current_user: UserRead = Depends(require_admin_role)) -> List[Area]:
     """Obtener areas de carreras (solo admins)"""
@@ -136,9 +134,50 @@ async def get_careers(
             detail=f"Error interno del servidor: {str(e)}"
         )
         
+@router.get("/admin/careers", response_model=List[CareerInList])
+async def get_careers_admin(
+    offset: int = Query(0, ge=0, description="Número de registros a saltar"),
+    limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
+    current_user: UserRead = Depends(require_admin_role),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> List[CareerInList]:
+    """Obtener lista de carreras (público)"""
+    try:
+        careers = services.careerService.get_careers_in_list_admin(session, offset, limit)
+        return careers
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+        
+# TODO: SACAR TESTIMONIOS, USUARIOS Y QUEDAR SOLO CON TITULO, AREA TIPO ABOUT1 LINK CAREERID 
 @router.post("/filters", response_model=List[dict])
 async def get_careers(
     filters: Filter,
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> List[CareerInList]:
+    """Obtener lista de carreras (público)"""
+    try:
+        careers = services.careerService.get_with_filters_clean(session, filters)
+        published_careers = [career for career in careers if career.get("published")]
+        return published_careers
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+
+@router.post("/admin/filters", response_model=List[dict])
+async def get_careers_admin(
+    filters: Filter,
+    current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[CareerInList]:
@@ -153,11 +192,32 @@ async def get_careers(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail=f"Error interno del servidor: {str(e)}"
         )
-        
+
 @router.get("/careers-optimized", response_model=List[CareerReadOptimized])
 async def get_careers(
     offset: int = Query(0, ge=0, description="Número de registros a saltar"),
     limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> List[CareerReadOptimized]:
+    """Obtener lista de carreras (público)"""
+    try:
+        careers = services.careerService.get_careers_optimized(session, offset, limit)
+        published_carreers = [career for career in careers if career.published]
+        return published_carreers
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+
+@router.get("/admin/careers-optimized", response_model=List[CareerReadOptimized])
+async def get_careers_admin(
+    offset: int = Query(0, ge=0, description="Número de registros a saltar"),
+    limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
+    current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[CareerReadOptimized]:
@@ -172,12 +232,32 @@ async def get_careers(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail=f"Error interno del servidor: {str(e)}"
         )
-        
+
 @router.get("/career-optimized/{career_id}", response_model=CareerReadOptimized)
-async def get_careers(
+async def get_careers_by_id(
     career_id: int,
     services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+) -> CareerReadOptimized:
+    """Obtener lista de carreras (público)"""
+    try:
+        careers = services.careerService.get_career_optimized_by_id(session, career_id)
+        published_careers = [career for career in careers if career.published]
+        return published_careers
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+        
+@router.get("/admin/career-optimized/{career_id}", response_model=CareerReadOptimized)
+async def get_careers_by_id_admin(
+    career_id: int,
+    services: Services = Depends(get_services),
+    current_user: UserRead = Depends(require_admin_role),
+    session: Session = Depends(get_session),
 ) -> CareerReadOptimized:
     """Obtener lista de carreras (público)"""
     try:
@@ -191,7 +271,6 @@ async def get_careers(
             detail=f"Error interno del servidor: {str(e)}"
         )
         
-# TODO: SACAR TESTIMONIOS, USUARIOS Y QUEDAR SOLO CON TITULO, AREA TIPO ABOUT1 LINK CAREERID
 @router.get("/public/random", response_model=List[CareerSimple], status_code=status.HTTP_200_OK)
 async def get_random_careers(
     count: int = Query(4, ge=1, le=20, description="Número de carreras aleatorias a devolver"),
@@ -317,6 +396,22 @@ async def get_careers_by_area(
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
+@router.get("/admin/type/{career_type}", response_model=List[CareerRead])
+async def get_careers_by_type_admin(
+    career_type: CareerType,
+    current_user: UserRead = Depends(require_admin_role),
+    offset: int = Query(0, ge=0, description="Número de registros a saltar"),
+    limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> List[CareerRead]:
+    """Obtener carreras por tipo (público)"""
+    try:
+        careers = services.careerService.get_careers_by_type(career_type.value, session, offset, limit)
+        return careers
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
 @router.get("/type/{career_type}", response_model=List[CareerRead])
 async def get_careers_by_type(
     career_type: CareerType,
@@ -328,7 +423,8 @@ async def get_careers_by_type(
     """Obtener carreras por tipo (público)"""
     try:
         careers = services.careerService.get_careers_by_type(career_type.value, session, offset, limit)
-        return careers
+        published_careers = [career for career in careers if career.published]
+        return published_careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -348,7 +444,7 @@ async def search_careers(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 @router.get("/{career_id}", response_model=CareerRead)
-async def get_career_by_id(
+async def get_career_by_id_admin(
     career_id: int,
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
@@ -356,6 +452,25 @@ async def get_career_by_id(
     """Obtener una carrera por ID (público)"""
     try:
         career = services.careerService.get_career_by_id(career_id, session)
+        if not career:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Carrera no encontrada"
+            )
+        return career
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+@router.get("/admin/{career_id}", response_model=CareerRead)
+async def get_career_by_id_admin(
+    career_id: int,
+    current_user: UserRead = Depends(require_admin_role),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> CareerRead:
+    """Obtener una carrera por ID (público)"""
+    try:
+        career = services.careerService.get_career_by_id_admin(career_id, session)
         if not career:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

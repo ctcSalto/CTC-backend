@@ -33,6 +33,15 @@ class CareerService(BaseServiceWithFilters[Career]):
     def get_careers_in_list(self, session: Session, offset: int = 0, limit: int = 10) -> List[CareerInList]:
         """Obtener lista simplificada de carreras para listados"""
         with session:
+            statement = select(Career).where(Career.published == True).offset(offset).limit(limit)
+            careers = session.exec(statement).all()
+            if not careers:
+                return []
+            return [CareerInList.model_validate(career) for career in careers]
+
+    def get_careers_in_list_admin(self, session: Session, offset: int = 0, limit: int = 10) -> List[CareerInList]:
+        """Obtener lista simplificada de carreras para listados"""
+        with session:
             statement = select(Career).offset(offset).limit(limit)
             careers = session.exec(statement).all()
             if not careers:
@@ -176,10 +185,19 @@ class CareerService(BaseServiceWithFilters[Career]):
                 return []
             return [CareerRead.model_validate(career) for career in careers]
 
-    def get_career_by_id(self, career_id: int, session: Session) -> CareerRead:
+    def get_career_by_id_admin(self, career_id: int, session: Session) -> CareerRead:
         """Obtener una carrera por su ID"""
         with session:
             statement = select(Career).where(Career.careerId == career_id)
+            career = session.exec(statement).one()
+            if not career:
+                return None
+            return CareerRead.model_validate(career)
+
+    def get_career_by_id(self, career_id: int, session: Session) -> CareerRead:
+        """Obtener una carrera por su ID"""
+        with session:
+            statement = select(Career).where(and_(Career.published == True, Career.careerId == career_id))
             career = session.exec(statement).one()
             if not career:
                 return None
@@ -392,7 +410,10 @@ class CareerService(BaseServiceWithFilters[Career]):
         """Buscar carreras por nombre (búsqueda parcial)"""
         with session:
             statement = select(Career).where(
+                and_(
+                Career.published == True,
                 Career.name.ilike(f"%{search_term}%")
+                )
             ).offset(offset).limit(limit)
             careers = session.exec(statement).all()
             if not careers:

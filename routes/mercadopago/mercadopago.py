@@ -43,6 +43,7 @@ async def create_payment(
         show(preference)
         preference_dict = preference.model_dump(mode="json", exclude_none=True)
         init_point: str =services.mercadoPagoController.create_preference(preference_dict)
+        # NOTE: Guardar en la BD?
         return init_point
     except Exception as e:
         show(e)
@@ -74,6 +75,7 @@ async def delete_payment(
     try:
         show(preference_id)
         preference =services.mercadoPagoController.cancel_payment(preference_id)
+        # Registrar en la BD la cancelacion
         show(preference)
         return preference
     except Exception as e:

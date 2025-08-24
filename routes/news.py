@@ -41,7 +41,7 @@ async def get_public_news(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno del servidor"
         )
-
+        
 @router.get("/public/latest", response_model=List[NewsPublic], status_code=status.HTTP_200_OK)
 async def get_latest_published_news(
     limit: int = Query(4, ge=1, le=20, description="Número de noticias recientes a obtener"),
@@ -229,7 +229,7 @@ async def create_news(
             detail=f"Error interno del servidor: {str(e)}"
         )
 
-@router.get("/", response_model=List[NewsRead], status_code=status.HTTP_200_OK)
+@router.get("/admin/news", response_model=List[NewsRead], status_code=status.HTTP_200_OK)
 async def get_news(
     offset: int = Query(0, ge=0, description="Número de registros a omitir"),
     limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
@@ -248,7 +248,7 @@ async def get_news(
             detail=f"Error interno del servidor: {str(e)}"
         )
 
-@router.get("/simple-list", response_model=List[NewsInList], status_code=status.HTTP_200_OK)
+@router.get("/admin/simple-list", response_model=List[NewsInList], status_code=status.HTTP_200_OK)
 async def get_news_list(
     offset: int = Query(0, ge=0, description="Número de registros a omitir"),
     limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
@@ -286,7 +286,7 @@ async def get_pending_news(
             detail="Error interno del servidor"
         )
 
-@router.get("/{news_id}", response_model=NewsRead, status_code=status.HTTP_200_OK)
+@router.get("/admin/{news_id}", response_model=NewsRead, status_code=status.HTTP_200_OK)
 async def get_news_by_id(
     news_id: int,
     current_user: UserRead = Depends(require_admin_role),
@@ -448,7 +448,7 @@ async def delete_news(
 
 # =================== ENDPOINTS DE BÚSQUEDA ADMINISTRATIVA ===================
 
-# BUG: Relaciones en los filtros dan errores
+# TODO: Hacer otro endpoint para usuarios (Filtrar que esten publicadas las carreras)
 @router.post("/filters", response_model=List[dict], status_code=status.HTTP_200_OK)
 async def filter_news(
     filters: Filter,

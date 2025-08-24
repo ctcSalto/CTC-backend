@@ -61,7 +61,7 @@ async def create_first_user(
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def register_user(
     user_data: UserCreate,
-    current_user: UserRead = Depends(require_admin_role),
+    #current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> UserRead:
