@@ -63,7 +63,7 @@ app = FastAPI(
     title="Backend CTC",
     description="Backend para la aplicación CTC",
     version="0.0.1",
-    lifespan=lifespan  # 👈 ESTO ES LO IMPORTANTE
+    # lifespan=lifespan  # Para iniciar la base de datos
 )
 
 @app.get("/" , response_class=HTMLResponse)
