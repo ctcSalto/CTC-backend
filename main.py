@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 
 from routes import auth, career, testimony, news
 from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_enrolment
@@ -25,13 +26,44 @@ except Exception as e:
     print(f"⚠️ Error cargando .env: {e}")
 
 from routes.test import test_filters
-
 from utils.logger import show
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        print("🔄 Iniciando configuración de base de datos...")
+        from database.database import engine
+        from sqlalchemy import text
+        
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT 1"))
+            print("✅ Conexión a PostgreSQL exitosa")
+        
+        create_db_and_tables()
+        print("✅ Base de datos y tablas creadas/verificadas")
+    except Exception as e:
+        print(f"❌ Error en startup: {e}")
+        # En producción, podrías querer hacer raise e para fallar el startup
+    
+    yield  # Aquí la app funciona
+    
+    # Shutdown
+    try:
+        print("🔄 Cerrando aplicación...")
+        # Aquí puedes cerrar conexiones, limpiar recursos, etc.
+        from database.database import engine
+        engine.dispose()
+        print("✅ Recursos liberados correctamente")
+    except Exception as e:
+        print(f"⚠️ Error en shutdown: {e}")
+
+# ✅ CORRECTO: Pasar lifespan como parámetro al crear la app
 app = FastAPI(
     title="Backend CTC",
     description="Backend para la aplicación CTC",
     version="0.0.1",
+    lifespan=lifespan  # 👈 ESTO ES LO IMPORTANTE
 )
 
 @app.get("/" , response_class=HTMLResponse)
@@ -47,6 +79,7 @@ def reset_db():
     reset_database()
     return {"message": "Database reset successfully"}
 
+# Routers
 app.include_router(auth.router)
 app.include_router(career.router)
 app.include_router(testimony.router)
@@ -58,14 +91,9 @@ app.include_router(moodle_course.router)
 app.include_router(moodle_enrolment.router)
 
 app.include_router(mercadopago.router)
-
 app.include_router(test_filters.router)
 
-@app.on_event("startup")
-async def startup_event():
-    create_db_and_tables()
-    print("✅ Base de datos y tablas creadas/verificadas")
-
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -79,4 +107,4 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     show(port)
-    uvicorn.run("main:app", reload=True, port=port)
+    uvicorn.run("main:app", reload=True, port=port, host="0.0.0.0")
