@@ -29,6 +29,7 @@ except Exception as e:
 from routes.test import test_filters
 from utils.logger import show
 
+"""
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -72,13 +73,13 @@ async def lifespan(app: FastAPI):
         print(f"⚠️ [SHUTDOWN] Error: {e}")
     
     print("👋 [SHUTDOWN] Aplicación cerrada")
-    
+"""  
     
 app = FastAPI(
     title="Backend CTC",
     description="Backend para la aplicación CTC",
     version="0.0.1",
-    lifespan=lifespan  # Para iniciar la base de datos
+    #lifespan=lifespan  # Para iniciar la base de datos
 )
 
 @app.get("/health")
