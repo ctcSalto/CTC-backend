@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from routes import auth, career, testimony, news
 from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_enrolment
@@ -79,6 +80,14 @@ app = FastAPI(
     version="0.0.1",
     lifespan=lifespan  # Para iniciar la base de datos
 )
+
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy", 
+        "timestamp": datetime.now().isoformat(),
+        "service": "backend-ctc"
+    }
 
 @app.get("/" , response_class=HTMLResponse)
 def root():
