@@ -42,16 +42,20 @@ async def lifespan(app: FastAPI):
         
         create_db_and_tables()
         print("✅ Base de datos y tablas creadas/verificadas")
+        
     except Exception as e:
-        print(f"❌ Error en startup: {e}")
-        # En producción, podrías querer hacer raise e para fallar el startup
+        print(f"❌ ERROR CRÍTICO EN STARTUP: {e}")
+        print(f"❌ Tipo de error: {type(e).__name__}")
+        import traceback
+        print(f"❌ Traceback completo: {traceback.format_exc()}")
+        # En producción, DEBES hacer raise para que falle el startup
+        raise e  # ← Esto es importante
     
     yield  # Aquí la app funciona
     
     # Shutdown
     try:
         print("🔄 Cerrando aplicación...")
-        # Aquí puedes cerrar conexiones, limpiar recursos, etc.
         from database.database import engine
         engine.dispose()
         print("✅ Recursos liberados correctamente")
@@ -63,7 +67,7 @@ app = FastAPI(
     title="Backend CTC",
     description="Backend para la aplicación CTC",
     version="0.0.1",
-    # lifespan=lifespan  # Para iniciar la base de datos
+    lifespan=lifespan  # Para iniciar la base de datos
 )
 
 @app.get("/" , response_class=HTMLResponse)
