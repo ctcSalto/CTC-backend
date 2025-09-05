@@ -77,6 +77,6 @@ app.add_middleware(
 if __name__ == "__main__":
     # run command -> python main.py
     import uvicorn
-    port = int(os.getenv("PORT", 5689))
+    port = int(os.getenv("PORT", 8000))
     show(port)
     uvicorn.run("main:app", reload=True, port=port)
