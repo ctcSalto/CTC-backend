@@ -31,38 +31,48 @@ from utils.logger import show
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    startup_success = False
     try:
-        print("🔄 Iniciando configuración de base de datos...")
+        print("🔄 [STARTUP] Iniciando configuración de base de datos...")
         from database.database import engine
         from sqlalchemy import text
         
+        print("🔄 [STARTUP] Probando conexión a PostgreSQL...")
         with engine.connect() as conn:
             result = conn.execute(text("SELECT 1"))
-            print("✅ Conexión a PostgreSQL exitosa")
+            print("✅ [STARTUP] Conexión a PostgreSQL exitosa")
         
+        print("🔄 [STARTUP] Creando tablas...")
         create_db_and_tables()
-        print("✅ Base de datos y tablas creadas/verificadas")
+        print("✅ [STARTUP] Base de datos y tablas creadas/verificadas")
+        
+        startup_success = True
+        print("🎉 [STARTUP] TODO EL STARTUP COMPLETADO EXITOSAMENTE")
         
     except Exception as e:
-        print(f"❌ ERROR CRÍTICO EN STARTUP: {e}")
-        print(f"❌ Tipo de error: {type(e).__name__}")
+        print(f"❌ [STARTUP] ERROR CRÍTICO: {e}")
+        print(f"❌ [STARTUP] Tipo: {type(e).__name__}")
         import traceback
-        print(f"❌ Traceback completo: {traceback.format_exc()}")
-        # En producción, DEBES hacer raise para que falle el startup
-        raise e  # ← Esto es importante
+        traceback.print_exc()
+        raise e  # Esto hará que falle el startup
     
-    yield  # Aquí la app funciona
+    if startup_success:
+        print("🚀 [LIFESPAN] Aplicación lista para recibir requests")
+    
+    yield  # La aplicación funciona aquí
     
     # Shutdown
+    print("🔄 [SHUTDOWN] Iniciando proceso de cierre...")
     try:
-        print("🔄 Cerrando aplicación...")
         from database.database import engine
         engine.dispose()
-        print("✅ Recursos liberados correctamente")
+        print("✅ [SHUTDOWN] Recursos liberados correctamente")
     except Exception as e:
-        print(f"⚠️ Error en shutdown: {e}")
-
-# ✅ CORRECTO: Pasar lifespan como parámetro al crear la app
+        print(f"⚠️ [SHUTDOWN] Error: {e}")
+    
+    print("👋 [SHUTDOWN] Aplicación cerrada")
+    
+    
 app = FastAPI(
     title="Backend CTC",
     description="Backend para la aplicación CTC",
