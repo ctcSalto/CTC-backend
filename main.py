@@ -59,8 +59,12 @@ app.include_router(moodle_enrolment.router)
 
 app.include_router(mercadopago.router)
 
-
 app.include_router(test_filters.router)
+
+@app.on_event("startup")
+async def startup_event():
+    create_db_and_tables()
+    print("✅ Base de datos y tablas creadas/verificadas")
 
 app.add_middleware(
     CORSMiddleware,

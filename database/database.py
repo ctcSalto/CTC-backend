@@ -62,7 +62,17 @@ def get_engine():
     return engine
 
 def create_db_and_tables():
-    SQLModel.metadata.create_all(engine)
+    """
+    Crea las tablas solo si no existen.
+    SQLAlchemy verifica automáticamente la existencia.
+    """
+    try:
+        # SQLAlchemy solo crea las tablas que NO existen
+        SQLModel.metadata.create_all(bind=engine, checkfirst=True)
+        print("✅ Verificación de tablas completada")
+    except Exception as e:
+        print(f"❌ Error creando/verificando tablas: {e}")
+        raise
 
 def reset_database():
     """
