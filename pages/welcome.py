@@ -219,6 +219,10 @@ html: str = """
         </p>
 
         <div class="api-links">
+            <a href="/docs-scalar" class="api-btn">
+                <i class="fas fa-book"></i>
+                Scalar UI
+            </a>
             <a href="/docs" class="api-btn">
                 <i class="fas fa-book"></i>
                 Swagger UI

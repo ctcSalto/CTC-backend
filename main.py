@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-from datetime import datetime
+from scalar_fastapi import get_scalar_api_reference, Layout
+
+# from contextlib import asynccontextmanager
+# from datetime import datetime
 
 from routes import auth, career, testimony, news
 from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_enrolment
@@ -82,13 +84,18 @@ app = FastAPI(
     #lifespan=lifespan  # Para iniciar la base de datos
 )
 
-@app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy", 
-        "timestamp": datetime.now().isoformat(),
-        "service": "backend-ctc"
-    }
+@app.get("/docs-scalar", include_in_schema=False)
+async def scalar_docs():
+    return get_scalar_api_reference(
+        openapi_url=app.openapi_url,
+        title="Scalar API Docs - CTC",
+        layout=Layout.MODERN,
+        dark_mode=True,
+        show_sidebar=True,
+        default_open_all_tags=True,
+        hide_download_button=True,
+        hide_models=True,
+    )
 
 @app.get("/" , response_class=HTMLResponse)
 def root():
