@@ -198,7 +198,7 @@ class CareerService(BaseServiceWithFilters[Career]):
         """Obtener una carrera por su ID"""
         with session:
             statement = select(Career).where(and_(Career.published == True, Career.careerId == career_id))
-            career = session.exec(statement).one()
+            career = session.exec(statement).one_or_none()
             if not career:
                 return None
             return CareerRead.model_validate(career)

@@ -163,10 +163,11 @@ async def create_news(
     """Crear una nueva noticia con imágenes (solo administradores)"""
     image_urls = None
     career = None
+    
     try:
         if career_id is not None:
             career = services.careerService.get_career_by_id(career_id, session)
-            if not career:
+            if career is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Carrera no encontrada"
