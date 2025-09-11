@@ -157,6 +157,10 @@ class UserReadFilters(SQLModel):
         """Convertir a diccionario, omitiendo campos None"""
         return {k: v for k, v in self.model_dump().items() if v is not None}
 
+class UserFilterWithCountResponse(SQLModel):
+    data: List[UserReadFilters] = []
+    total_count: int = 0
+
 class UserLogin(SQLModel):
     email: str
     password: str

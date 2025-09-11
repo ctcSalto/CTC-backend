@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from sqlmodel import Session
 from datetime import timedelta
 from database.database import Services, get_services, get_session
-from database.models.user import UserCreate, UserLogin, Token, UserRead, UserReadFilters, UserUpdate
+from database.models.user import UserCreate, UserLogin, Token, UserRead, UserReadFilters, UserUpdate, UserFilterWithCountResponse
 
 from database.services.filter.filters import Filter
 from database.services.auth.dependencies import get_current_user, require_admin_role, HTTPAuthorizationCredentials, security
@@ -404,20 +404,18 @@ async def get_all_users(
             detail=f"Error interno del servidor: {str(e)}"
         )
         
-@router.post("/filters/users", response_model=list[dict])
-async def get_all_users(
+@router.post("/filters/users")
+async def get_all_users_with_filters(
     filters: Filter,
     #current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
-) -> List[UserRead]:
+):
     """Obtiene todos los usuarios (solo administradores)"""
     try:
-        users = services.userService.get_with_filters_clean(session, filters)
-        if not users:
-            return []
-        show(users)
-        return [user.model_dump() if hasattr(user, 'model_dump') else user for user in users]
+        result = services.userService.get_with_filters_clean(session, filters)
+        show(result)
+        return result
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:

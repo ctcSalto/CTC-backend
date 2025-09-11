@@ -32,7 +32,7 @@ class ExampleService(BaseServiceWithFilters[Example]):
             if not example:
                 return None
             return ExampleRead.from_orm(example)
-
+ 
     def update_example(self, id: int, example_update: ExampleUpdate, session: Session) -> ExampleRead:
         with session:
             statement = select(Example).where(Example.id == id)

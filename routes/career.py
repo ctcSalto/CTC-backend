@@ -5,7 +5,7 @@ from datetime import datetime
 from datetime import date
 from database.database import Services, get_services, get_session
 from database.services.filter.filters import Filter
-from database.models.career import Area, CareerType, CareerCreate, CareerRead, CareerSimple,  CareerUpdate, CareerInList, CareerType, CareerReadOptimized
+from database.models.career import Area, CareerType, CareerCreate, CareerRead, CareerSimple,  CareerUpdate, CareerInList, CareerType, CareerReadOptimized, CareerFilterWithCountResponse
 from database.models.user import UserRead
 from database.services.auth.dependencies import get_current_user, require_admin_role
 from exceptions import AppException
@@ -155,12 +155,12 @@ async def get_careers_admin(
         )
         
 # TODO: SACAR TESTIMONIOS, USUARIOS Y QUEDAR SOLO CON TITULO, AREA TIPO ABOUT1 LINK CAREERID 
-@router.post("/filters", response_model=List[dict])
+@router.post("/filters")
 async def get_careers(
     filters: Filter,
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
-) -> List[CareerInList]:
+):
     """Obtener lista de carreras (público)"""
     try:
         careers = services.careerService.get_with_filters_clean(session, filters)
@@ -174,13 +174,13 @@ async def get_careers(
             detail=f"Error interno del servidor: {str(e)}"
         )
 
-@router.post("/admin/filters", response_model=List[dict])
-async def get_careers_admin(
+@router.post("/admin/filters")
+async def get_careers_admin_filters(
     filters: Filter,
     current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
-) -> List[CareerInList]:
+):
     """Obtener lista de carreras (público)"""
     try:
         careers = services.careerService.get_with_filters_clean(session, filters)

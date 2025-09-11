@@ -126,24 +126,21 @@ class NewsRead(NewsBase):
 
 
 class NewsFilterResponse(SQLModel):
-    newsId: int
-    title: str
-    text: str
-    area: Area
-    published: bool
+    newsId: Optional[int] = None
+    title: Optional[str] = None
+    text: Optional[str] = None
+    area: Optional[Area] = None
+    published: Optional[bool] = None
     publicationDate: Optional[date] = None
-    creationDate: date
+    creationDate: Optional[date] = None
     modificationDate: Optional[date] = None
     videoLink: Optional[str] = None
     imagesLink: Optional[List[str]] = None
-    career: Optional[int] = None  # ID de la carrera
-    creator: Optional[int] = None  
-    modifier: Optional[int] = None
+
+class NewsFilterWithCountResponse(SQLModel):
+    data: List[NewsFilterResponse] = []
+    total_count: int = 0
     
-    # Relaciones opcionales
-    creator_user: Optional["UserRead"] = None
-    modifier_user: Optional["UserRead"] = None
-    career_ref: Optional["CareerRead"] = None
 # Modelo para respuestas de lista
 class NewsInList(SQLModel):
     newsId: int

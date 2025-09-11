@@ -10,6 +10,7 @@ from database.models.news import (
     NewsInList, 
     NewsPublic,
     NewsFilterResponse,
+    NewsFilterWithCountResponse,
     Area
 )
 from database.services.filter.filters import Filter
@@ -450,13 +451,13 @@ async def delete_news(
 # =================== ENDPOINTS DE BÚSQUEDA ADMINISTRATIVA ===================
 
 # TODO: Hacer otro endpoint para usuarios (Filtrar que esten publicadas las carreras)
-@router.post("/filters", response_model=List[dict], status_code=status.HTTP_200_OK)
+@router.post("/filters", status_code=status.HTTP_200_OK)
 async def filter_news(
     filters: Filter,
     current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
-) -> List[NewsFilterResponse]:
+):
     """Buscar noticias por título (solo administradores)"""
     try:
         news_list = services.newsService.get_with_filters_clean(session, filters)

@@ -88,6 +88,22 @@ class CareerRead(CareerBase):
     creator_user: Optional["UserRead"] = None
     modifier_user: Optional["UserRead"] = None
     testimonies: List["TestimonyRead"] = []
+    
+class CareerFilterResponse(SQLModel):
+    careerId: Optional[int] = None
+    creationDate: Optional[date] = None
+    modificationDate: Optional[date] = None
+    publicationDate: Optional[date] = None
+    published: Optional[bool] = None
+    creator: Optional[int] = None
+    modifier: Optional[int] = None
+    creator_user: Optional["UserRead"] = None
+    modifier_user: Optional["UserRead"] = None
+    testimonies: List["TestimonyRead"] = []
+    
+class CareerFilterWithCountResponse(SQLModel):
+    data: List[CareerFilterResponse] = []
+    total_count: int = 0
 
 class CareerReadSimple(CareerBase):
     careerId: int

@@ -65,9 +65,14 @@ class FieldFilter:
         """
         if not data:
             return data
+        
+        # DEBUG: Imprimir los campos solicitados
+        logger.info(f"DEBUG - filter_response_fields - requested_fields: {requested_fields}")
+        logger.info(f"DEBUG - filter_response_fields - requested_relations: {requested_relations}")
             
         # Si no se especifican campos, retornar todo
         if not requested_fields and not requested_relations:
+            logger.info(f"DEBUG - Sin campos ni relaciones especificados, retornando todo")
             return data
             
         # Procesar lista de objetos
@@ -102,11 +107,8 @@ class FieldFilter:
             for field in requested_fields:
                 if field in obj and field not in relation_names:
                     filtered_obj[field] = obj[field]
-        else:
-            # Si no se especifican campos principales, incluir todos excepto relaciones
-            for key, value in obj.items():
-                if key not in relation_names:
-                    filtered_obj[key] = value
+        # NOTA: Si no se especifican campos, NO incluir campos automáticamente
+        # Solo incluir los campos explícitamente solicitados
         
         # Procesar relaciones de forma recursiva
         if requested_relations:
@@ -200,11 +202,8 @@ class FieldFilter:
             for field in requested_fields:
                 if field in obj and field not in nested_relation_names:
                     filtered_obj[field] = obj[field]
-        else:
-            # Si no se especifican campos, incluir todos excepto relaciones anidadas
-            for key, value in obj.items():
-                if key not in nested_relation_names:
-                    filtered_obj[key] = value
+        # NOTA: Si no se especifican campos, NO incluir campos automáticamente
+        # Solo incluir los campos explícitamente solicitados
         
         # Procesar relaciones anidadas recursivamente
         if nested_relations:
@@ -752,17 +751,53 @@ class BaseServiceWithFilters(Generic[T]):
             logger.error(f"Error ejecutando query con filtros: {str(e)}")
             raise Exception(f"Error ejecutando consulta: {str(e)}")
         
+
+    def clean_null_fields(self, data):
+        """
+        Limpia campos con valor null de los datos de respuesta
+        Funciona con objetos únicos, listas y estructuras anidadas
+        """
+        if isinstance(data, list):
+            # Procesar cada elemento de la lista
+            return [self.clean_null_fields(item) for item in data]
+        
+        elif isinstance(data, dict):
+            # Crear nuevo diccionario sin campos null
+            cleaned_dict = {}
+            for key, value in data.items():
+                if value is not None:
+                    # Si el valor no es null, verificar si es una estructura anidada
+                    if isinstance(value, (dict, list)):
+                        cleaned_value = self.clean_null_fields(value)
+                        # Solo agregar si la estructura limpiada no está vacía
+                        if cleaned_value or (isinstance(value, list) and len(value) == 0):
+                            cleaned_dict[key] = cleaned_value
+                    else:
+                        # Valor primitivo no null
+                        cleaned_dict[key] = value
+            return cleaned_dict
+        
+        else:
+            # Para otros tipos de datos, retornar tal como está
+            return data
     def get_with_filters_clean(self, session, filters: Filter):
         """
         Obtiene registros con filtros y aplica filtrado de campos en el post-procesamiento
         VERSIÓN CORREGIDA PARA ASEGURAR CARGA DE RELACIONES
+        Retorna un diccionario con 'data' y 'total_count'
         """
         try:
+            # Obtener el count total de registros que coinciden con los filtros
+            total_count = self.count_with_filters(session, filters)
+            
             # Obtener resultados completos con relaciones cargadas
             raw_results = self.get_with_filters(session, filters)
             
             if not raw_results:
-                return []
+                return {
+                    "data": [],
+                    "total_count": total_count
+                }
             
             # DEBUG: Inspeccionar primer resultado MÁS DETALLADAMENTE
             if raw_results:
@@ -831,16 +866,23 @@ class BaseServiceWithFilters(Generic[T]):
                 requested_relations
             )
             
-            logger.info(f"DEBUG - Resultado filtrado exitoso")
-            logger.info(f"Post-procesamiento completado. Registros filtrados: {len(filtered_results) if isinstance(filtered_results, list) else 1}")
+            cleaned_results = self.clean_null_fields(filtered_results)
+            
+            logger.info("DEBUG - Resultado filtrado exitoso")
+            logger.info(f"Post-procesamiento completado. Registros filtrados: {len(cleaned_results) if isinstance(filtered_results, list) else 1}")
             
             # DEBUG FINAL: Verificar resultado filtrado
-            if isinstance(filtered_results, list) and filtered_results:
+            if isinstance(cleaned_results, list) and cleaned_results:
                 first_filtered = filtered_results[0]
                 logger.info(f"DEBUG - Primer resultado filtrado: {first_filtered}")
                 logger.info(f"DEBUG - Claves en resultado filtrado: {list(first_filtered.keys()) if isinstance(first_filtered, dict) else 'No es dict'}")
             
-            return filtered_results
+            print(f"RESULTADOS -> {cleaned_results}")
+            print(f"TIPO DE RESULTADOS -> {type(cleaned_results[0])}")
+            return {
+                "data": cleaned_results,
+                "total_count": total_count
+            }
             
         except Exception as e:
             logger.error(f"Error en get_with_filters_clean: {str(e)}")
@@ -849,19 +891,27 @@ class BaseServiceWithFilters(Generic[T]):
     def count_with_filters(self, session, filters: Filter) -> int:
         """Cuenta registros que coinciden con los filtros"""
         try:
+            # SIMPLE: Contar usando la query principal pero sin paginación
             builder = QueryBuilder(self.model_class)
             
+            # Aplicar condiciones si existen
             if filters.conditions:
                 builder.apply_conditions(filters.conditions, filters.logical_operator)
             
-            # Para contar, no necesitamos relaciones, paginación ni ordenamiento
+            # Construir la query base sin paginación ni ordenamiento
             query = builder.build()
-            count_query = select(func.count()).select_from(query.subquery())
             
-            return session.exec(count_query).scalar()
+            # Obtener todos los resultados y contar
+            results = session.exec(query).all()
+            count = len(results)
+            
+            logger.info(f"DEBUG - Count directo: {count}")
+            return count
             
         except Exception as e:
             logger.error(f"Error contando registros: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return 0
 
 

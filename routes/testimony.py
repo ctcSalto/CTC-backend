@@ -7,7 +7,8 @@ from database.models.testimony import (
     TestimonyRead, 
     TestimonyUpdate, 
     TestimonyInList, 
-    TestimonyPublic
+    TestimonyPublic,
+    TestimonyFilterWithCountResponse
 )
 from database.models.user import UserRead
 from database.services.filter.filters import Filter
@@ -261,13 +262,13 @@ async def delete_testimony(
 
 # =================== ENDPOINTS DE BÚSQUEDA ===================
 
-@router.post("/filters/testimonies", response_model=List[TestimonyRead], status_code=status.HTTP_200_OK)
+@router.post("/filters/testimonies", status_code=status.HTTP_200_OK)
 async def get_testimonies_by_filters(
     filter: Filter,
     current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
-) -> List[TestimonyRead]:
+):
     """Obtener testimonios por filtros (solo administradores)"""
     try:
         testimonies = services.testimonyService.get_with_filters_clean(session, filter)

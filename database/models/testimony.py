@@ -54,6 +54,20 @@ class TestimonyRead(TestimonyBase):
     modifier_user: Optional["UserRead"] = None
     career: Optional[int] = None
 
+
+class TestimonyFilterResponse(SQLModel):
+    testimonyId: Optional[int] = None
+    creationDate: Optional[date] = None
+    modificationDate: Optional[date] = None
+    creator: Optional[int] = None
+    modifier: Optional[int] = None
+    creator_user: Optional["UserRead"] = None
+    modifier_user: Optional["UserRead"] = None
+    career: Optional[int] = None
+    
+class TestimonyFilterWithCountResponse(SQLModel):
+    data: List[TestimonyFilterResponse] = []
+    total_count: int = 0
 # Modelo para respuestas de lista
 class TestimonyInList(SQLModel):
     testimonyId: int
