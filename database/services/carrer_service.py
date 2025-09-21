@@ -1,5 +1,5 @@
 from sqlmodel import Session, select, func, and_, or_
-from ..models.career import Career, CareerCreate, CareerRead, CareerSimple, CareerUpdate, CareerInList, CareerReadOptimized, UserSimple, TestimonyForCareer, Area
+from ..models.career import Career, CareerCreate, CareerRead, CareerSimple, CareerUpdate, CareerInList, CareerReadOptimized, UserSimple, TestimonyForCareer, Area, CarrerDropdown
 from typing import List, Optional
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlalchemy.orm import selectinload
@@ -202,6 +202,22 @@ class CareerService(BaseServiceWithFilters[Career]):
             if not career:
                 return None
             return CareerRead.model_validate(career)
+        
+    def get_careers_for_dropdown(self, session: Session) -> List[CarrerDropdown]:
+        """Obtener carreras para un dropdown (solo id y name)"""
+        with session:
+            statement = select(Career).order_by(Career.careerId)
+            careers = session.exec(statement).all()
+            if not careers:
+                return []
+            
+            return [
+                CarrerDropdown(
+                    careerId=career.careerId,
+                    name=career.name
+                ) 
+                for career in careers
+            ]
         
     def career_exists(self, career_id: int, session: Session) -> bool:
         with session:

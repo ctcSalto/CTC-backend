@@ -2,6 +2,7 @@ from external_services.moodle_api.controllers.moodle_user_controller import User
 from external_services.moodle_api.controllers.moodle_course_controller import CourseController
 from external_services.moodle_api.controllers.moodle_category_controller import CategoryController
 from external_services.moodle_api.controllers.moodle_enrolment_controller import EnrolmentController
+from external_services.moodle_api.payloads.moodle_course import Course
 from external_services.moodle_api.moodle_config import MoodleConfig
 from external_services.moodle_api.moodle_config import EnrolmentRole
 from typing import Dict

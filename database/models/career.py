@@ -28,10 +28,10 @@ class CareerBase(SQLModel):
     area: Area = Field(description="Área de la carrera")
     name: str = Field(max_length=100, description="Nombre de la carrera")
     subtitle: str = Field(max_length=130, description="Subtítulo de la carrera")
-    aboutCourse1: str = Field(max_length=600, description="Descripción del curso parte 1")
-    aboutCourse2: Optional[str] = Field(default=None, max_length=2000, description="Descripción del curso parte 2")
-    graduateProfile: Optional[str] = Field(default=None, max_length=1500, description="Perfil del egresado")
-    studyPlan: Optional[str] = Field(default=None, max_length=2500, description="Plan de estudios")
+    aboutCourse1: str = Field(description="Descripción del curso parte 1")
+    aboutCourse2: Optional[str] = Field(default=None, description="Descripción del curso parte 2")
+    graduateProfile: Optional[str] = Field(default=None, description="Perfil del egresado")
+    studyPlan: Optional[str] = Field(default=None,description="Plan de estudios")
     imageLink: str = Field(description="Enlace de la imagen")
 
 # Modelo para la tabla (con relaciones)
@@ -121,6 +121,11 @@ class CareerSimple(SQLModel):
     aboutCourse1: str = Field(description="Descripción del curso parte 1")
     careerType: CareerType = Field(description="Tipo de carrera")
     area: Area = Field(description="Área de la carrera")
+    name: str = Field(description="Nombre de la carrera")
+    
+class CarrerDropdown(SQLModel):
+    """Modelo para dropdown de carreras (id, name)"""
+    careerId: int = Field(description="ID único de la carrera")
     name: str = Field(description="Nombre de la carrera")
     
 class TestimonyForCareer(SQLModel):

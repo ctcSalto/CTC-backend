@@ -1,7 +1,7 @@
 from external_services.moodle_api.controllers.moodle_base_controller import BaseMoodleController
 from external_services.moodle_api.moodle_config import UserField
 from external_services.moodle_api.payloads.moodle_user import User
-from typing import List, Dict
+from typing import List, Dict, Any
 
 class UserController(BaseMoodleController):
     

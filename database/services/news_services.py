@@ -1,5 +1,6 @@
 from sqlmodel import Session, select
 from ..models.news import News, NewsCreate, NewsRead, NewsUpdate, NewsInList, NewsPublic, Area
+from ..models.career import Career
 from typing import List, Optional
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from datetime import datetime, date, timedelta
@@ -209,6 +210,13 @@ class NewsService(BaseServiceWithFilters[News]):
     def update_news(self, news_id: int, news_update: NewsUpdate, session: Session) -> NewsRead:
         """Actualizar una noticia existente"""
         with session:
+            # Validar que la carrera existe si se está actualizando
+            if news_update.career is not None:
+                career_statement = select(Career).where(Career.careerId == news_update.career)
+                career = session.exec(career_statement).first()
+                if not career:
+                    raise ValueError(f"La carrera con ID {news_update.career} no existe")
+            
             statement = select(News).where(News.newsId == news_id)
             old_news = session.exec(statement).one()
             
@@ -216,7 +224,6 @@ class NewsService(BaseServiceWithFilters[News]):
             for key, value in update_data.items():
                 setattr(old_news, key, value)
             
-            # La fecha de modificación se actualiza automáticamente en NewsUpdate.__init__
             old_news.modificationDate = datetime.now().date()
                 
             session.commit()

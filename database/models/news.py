@@ -24,7 +24,7 @@ class NewsBase(SQLModel):
     area: Area = Field(description="Área de la noticia")
     career: Optional[int] = Field(default=None, foreign_key="career.careerId", description="ID de la carrera (opcional)")
     title: str = Field(max_length=150, description="Título de la noticia")
-    text: str = Field(max_length=5000, description="Contenido de la noticia")
+    text: str = Field(description="Contenido de la noticia")
     videoLink: Optional[str] = Field(default=None, description="Enlace del video")
 
 # Modelo para la tabla (con relaciones)
@@ -33,7 +33,7 @@ class News(NewsBase, table=True):
     creationDate: date = Field(default_factory=lambda: datetime.now().date(), description="Fecha de creación")
     modificationDate: Optional[date] = Field(default=None, description="Fecha de modificación")
     publicationDate: Optional[date] = Field(default=None, description="Fecha de publicación")
-    published: bool = Field(default=True, description="Estado de publicación")
+    published: bool = Field(default=False, description="Estado de publicación")
     creator: int = Field(foreign_key="user.userId", description="ID del usuario creador")
     modifier: Optional[int] = Field(default=None, foreign_key="user.userId", description="ID del usuario modificador")
     
@@ -91,7 +91,7 @@ class NewsCreate(NewsBase):
 # Modelo para actualizar una noticia (PUT/PATCH)
 class NewsUpdate(SQLModel):
     area: Optional[Area] = None
-    career: Optional["CareerRead"] = None
+    career: Optional[int] = None
     title: Optional[str] = Field(default=None, max_length=150)
     text: Optional[str] = Field(default=None, max_length=5000)
     videoLink: Optional[str] = None

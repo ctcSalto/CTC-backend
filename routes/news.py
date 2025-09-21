@@ -154,6 +154,7 @@ async def create_news(
     area: Area = Form(...),
     title: str = Form(...),
     text: str = Form(...),
+    published: bool = Form(...),
     career_id: Optional[int] = Form(None),
     video_url: Optional[str] = Form(None, description="Enlace del video (opcional)"),
     images: Optional[List[UploadFile]] = File(None),
@@ -199,7 +200,8 @@ async def create_news(
             text=text,
             videoLink=video_url,
             imagesLink=image_urls,
-            creator=current_user.userId
+            creator=current_user.userId,
+            published=published
         )
 
         new_news = services.newsService.create_news(news_data, session)
@@ -337,6 +339,7 @@ async def update_news(
                 detail="Noticia no encontrada"
             )
 
+        print(f"Noticia actual: {current_news}")
         updated_news = services.newsService.update_news(news_id, news_update, session)
         
         show(f"Noticia actualizada: {updated_news}")

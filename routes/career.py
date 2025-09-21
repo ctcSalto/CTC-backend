@@ -5,7 +5,7 @@ from datetime import datetime
 from datetime import date
 from database.database import Services, get_services, get_session
 from database.services.filter.filters import Filter
-from database.models.career import Area, CareerType, CareerCreate, CareerRead, CareerSimple,  CareerUpdate, CareerInList, CareerType, CareerReadOptimized, CareerFilterWithCountResponse
+from database.models.career import Area, CareerType, CareerCreate, CareerRead, CareerSimple,  CareerUpdate, CareerInList, CareerType, CareerReadOptimized, CareerFilterWithCountResponse, CarrerDropdown
 from database.models.user import UserRead
 from database.services.auth.dependencies import get_current_user, require_admin_role
 from exceptions import AppException
@@ -45,6 +45,7 @@ async def create_career(
     name: str,
     subtitle: str,
     aboutCourse1: str,
+    published: bool,
     aboutCourse2: Optional[str],
     graduateProfile: Optional[str],
     studyPlan: Optional[str],
@@ -85,7 +86,8 @@ async def create_career(
             imageLink=image_url,
             careerType=careerType,
             area=area,
-            creator=creator
+            creator=creator,
+            published=published
         )
         
         # Crear la carrera
@@ -133,7 +135,26 @@ async def get_careers(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail=f"Error interno del servidor: {str(e)}"
         )
-        
+      
+      
+@router.get("/admin/dropdown", response_model=List[CarrerDropdown])  # Cambiar a CarrerDropdown
+async def get_careers_dropdown_admin(
+    current_user: UserRead = Depends(require_admin_role),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> List[CarrerDropdown]:  # Cambiar el tipo de retorno
+    """Obtener lista de carreras para dropdown (solo id y nombre)"""
+    try:
+        careers = services.careerService.get_careers_for_dropdown(session)
+        return careers
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+  
 @router.get("/admin/careers", response_model=List[CareerInList])
 async def get_careers_admin(
     offset: int = Query(0, ge=0, description="Número de registros a saltar"),
@@ -156,7 +177,7 @@ async def get_careers_admin(
         
 # TODO: SACAR TESTIMONIOS, USUARIOS Y QUEDAR SOLO CON TITULO, AREA TIPO ABOUT1 LINK CAREERID 
 @router.post("/filters")
-async def get_careers(
+async def get_careers_with_filters(
     filters: Filter,
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
@@ -194,7 +215,7 @@ async def get_careers_admin_filters(
         )
 
 @router.get("/careers-optimized", response_model=List[CareerReadOptimized])
-async def get_careers(
+async def get_careers_optimized(
     offset: int = Query(0, ge=0, description="Número de registros a saltar"),
     limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
     services: Services = Depends(get_services),
