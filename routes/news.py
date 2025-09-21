@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Query, UploadFile, File, Form
 from sqlmodel import Session
 from typing import List, Optional
-from datetime import date
+from datetime import date, datetime
 from database.database import Services, get_services, get_session
 from database.models.news import (
     NewsCreate, 
@@ -9,13 +9,11 @@ from database.models.news import (
     NewsUpdate, 
     NewsInList, 
     NewsPublic,
-    NewsFilterResponse,
-    NewsFilterWithCountResponse,
     Area
 )
 from database.services.filter.filters import Filter
 from database.models.user import UserRead
-from database.services.auth.dependencies import get_current_user, require_admin_role
+from database.services.auth.dependencies import require_admin_role
 from exceptions import AppException
 from sqlalchemy.exc import NoResultFound
 
@@ -157,7 +155,7 @@ async def create_news(
     published: bool = Form(...),
     career_id: Optional[int] = Form(None),
     video_url: Optional[str] = Form(None, description="Enlace del video (opcional)"),
-    images: Optional[List[UploadFile]] = File(None),
+    images: Optional[List[UploadFile]] = File(default=None, description="Imágenes (opcional, máximo 6)"),
     current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
@@ -174,11 +172,17 @@ async def create_news(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Carrera no encontrada"
                 )
-            
+        
+        print(f"tipo de images: {type(images)}, valor: {images}")
         # Subir imágenes si existen
-        if images and len(images) > 0:
-            # Filtrar archivos vacíos
-            valid_images = [img for img in images if img.size > 0]
+        if images:
+            # Filtrar archivos válidos
+            valid_images = [
+                img for img in images 
+                if isinstance(img, UploadFile) and 
+                hasattr(img, 'size') and img.size > 0 and 
+                hasattr(img, 'filename') and img.filename and img.filename.strip() != ''
+            ]
             if valid_images:
                 if len(valid_images) > 6:
                     raise HTTPException(
@@ -201,7 +205,8 @@ async def create_news(
             videoLink=video_url,
             imagesLink=image_urls,
             creator=current_user.userId,
-            published=published
+            published=published,
+            publicationDate=datetime.now().date() if published else None
         )
 
         new_news = services.newsService.create_news(news_data, session)
@@ -464,6 +469,23 @@ async def filter_news(
     """Buscar noticias por título (solo administradores)"""
     try:
         news_list = services.newsService.get_with_filters_clean(session, filters)
+        return news_list
+    except Exception as e:
+        show(f"Error al buscar noticias por título: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+        
+@router.post("/public/filters", status_code=status.HTTP_200_OK)
+async def publicfilter_news(
+    filters: Filter,
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+):
+    """Buscar noticias por título (solo administradores)"""
+    try:
+        news_list = services.newsService.get_with_filters_clean_public(session, filters)
         return news_list
     except Exception as e:
         show(f"Error al buscar noticias por título: {e}")

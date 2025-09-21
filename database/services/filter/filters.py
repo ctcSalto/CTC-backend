@@ -1,9 +1,8 @@
 from pydantic import BaseModel, Field, validator
 from typing import Optional, List, Dict, Any, TypeVar, Generic, Union
 from sqlmodel import select, SQLModel
-from sqlalchemy.orm import selectinload, joinedload, load_only
-from sqlalchemy import and_, or_, desc, asc, func
-from sqlalchemy.inspection import inspect
+from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy import and_, or_, desc, asc
 from enum import Enum
 import logging
 
@@ -887,6 +886,92 @@ class BaseServiceWithFilters(Generic[T]):
         except Exception as e:
             logger.error(f"Error en get_with_filters_clean: {str(e)}")
             raise
+        
+    def get_with_filters_clean_public(self, session, filters: Filter):
+        """
+        Obtiene registros con filtros aplicando restricciones públicas
+        Solo retorna noticias con published=True y publicationDate <= hoy (o null)
+        """
+        try:
+            # Agregar filtros públicos automáticamente
+            public_filters = self._add_public_constraints(filters)
+            
+            # Reutilizar la lógica existente con los filtros públicos
+            return self.get_with_filters_clean(session, public_filters)
+            
+        except Exception as e:
+            logger.error(f"Error en get_with_filters_clean_public: {str(e)}")
+            raise
+
+    def _add_public_constraints(self, original_filters: Filter) -> Filter:
+        """
+        Agrega restricciones de visibilidad pública a los filtros existentes
+        """
+        from copy import deepcopy
+        from datetime import datetime
+        
+        # Crear una copia de los filtros originales
+        public_filters = deepcopy(original_filters)
+        
+        # Asegurar que existe la lista de condiciones
+        if public_filters.conditions is None:
+            public_filters.conditions = []
+        
+        # Condición 1: published = True
+        published_condition = Condition(
+            attribute="published",
+            operator="eq",
+            value=True
+        )
+        
+        # Condición 2: publicationDate <= hoy OR publicationDate IS NULL
+        today = datetime.now().date().isoformat()  # Convertir a string para el filtro
+        
+        # Crear grupo de condiciones para (publicationDate <= hoy OR publicationDate IS NULL)
+        date_condition_group = ConditionGroup(
+            conditions=[
+                Condition(
+                    attribute="publicationDate",
+                    operator="lte",
+                    value=today
+                ),
+                Condition(
+                    attribute="publicationDate", 
+                    operator="is_null",
+                    value=True
+                )
+            ],
+            logical_operator=LogicalOperator.OR
+        )
+        
+        # Agregar las condiciones públicas
+        public_filters.conditions.extend([
+            published_condition,
+            date_condition_group
+        ])
+        
+        return public_filters
+
+    # Alternativa más simple si solo quieres filtrar por published:
+    def _add_public_constraints_simple(self, original_filters: Filter) -> Filter:
+        """Versión simplificada que solo filtra por published = True"""
+        from copy import deepcopy
+        
+        public_filters = deepcopy(original_filters)
+        
+        if public_filters.conditions is None:
+            public_filters.conditions = []
+        
+        # Solo agregar condición de published = True
+        published_condition = Condition(
+            attribute="published",
+            operator="eq", 
+            value=True
+        )
+        
+        public_filters.conditions.append(published_condition)
+        
+        return public_filters
     
     def count_with_filters(self, session, filters: Filter) -> int:
         """Cuenta registros que coinciden con los filtros"""
@@ -913,8 +998,6 @@ class BaseServiceWithFilters(Generic[T]):
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             return 0
-
-
 
 class QueryBuilderErrorType(Enum):
     """Tipos de errores específicos del QueryBuilder"""

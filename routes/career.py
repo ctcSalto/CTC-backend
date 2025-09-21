@@ -46,9 +46,9 @@ async def create_career(
     subtitle: str,
     aboutCourse1: str,
     published: bool,
-    aboutCourse2: Optional[str],
-    graduateProfile: Optional[str],
-    studyPlan: Optional[str],
+    aboutCourse2: Optional[str] = None,
+    graduateProfile: Optional[str] = None,
+    studyPlan: Optional[str] = None,
     image: UploadFile = File(...),
     careerType: str = "career",
     area: str = "it",
@@ -61,10 +61,12 @@ async def create_career(
         # Asignar el usuario actual como creador
         creator = current_user.userId
         
+        print(f"Es para publicar: {published}")
+        
         if image:
             image_url = None
             try:
-                image_url = await services.supabaseService.upload_image(image, folder=f"images")
+                image_url = await services.supabaseService.upload_image(image, folder="images")
             except Exception as e:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -87,7 +89,8 @@ async def create_career(
             careerType=careerType,
             area=area,
             creator=creator,
-            published=published
+            published=published,
+            publicationDate=datetime.now().date() if published else None
         )
         
         # Crear la carrera
@@ -176,7 +179,7 @@ async def get_careers_admin(
         )
         
 # TODO: SACAR TESTIMONIOS, USUARIOS Y QUEDAR SOLO CON TITULO, AREA TIPO ABOUT1 LINK CAREERID 
-@router.post("/filters")
+@router.post("/public/filters")
 async def get_careers_with_filters(
     filters: Filter,
     services: Services = Depends(get_services),
@@ -184,9 +187,8 @@ async def get_careers_with_filters(
 ):
     """Obtener lista de carreras (público)"""
     try:
-        careers = services.careerService.get_with_filters_clean(session, filters)
-        published_careers = [career for career in careers if career.get("published")]
-        return published_careers
+        careers = services.careerService.get_with_filters_clean_public(session, filters)
+        return careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:

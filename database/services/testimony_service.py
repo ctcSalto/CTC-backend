@@ -1,7 +1,7 @@
 from sqlmodel import Session, select, func
 from ..models.testimony import Testimony, TestimonyCreate, TestimonyRead, TestimonyUpdate, TestimonyInList, TestimonyPublic
-from typing import List, Optional
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from ..models.career import Career
+from typing import List
 from sqlalchemy.orm import joinedload
 from datetime import datetime
 
@@ -37,7 +37,7 @@ class TestimonyService(BaseServiceWithFilters[Testimony]):
             return [TestimonyRead.model_validate(testimony) for testimony in testimonies]
         
     def get_random_testimonies(self, session: Session, count: int = 6) -> List[TestimonyPublic]:
-        """Obtener testimonios aleatorios de forma eficiente"""
+        """Obtener testimonios aleatorios de forma eficiente con información de carrera"""
         import random
         
         with session:
@@ -47,8 +47,10 @@ class TestimonyService(BaseServiceWithFilters[Testimony]):
             
             if total_count <= count:
                 # Si hay menos testimonios que los solicitados, devolver todos
-                stmt = select(Testimony)
-                testimonies = session.exec(stmt).all()
+                stmt = select(Testimony, Career.name.label('career_name')).join(
+                    Career, Testimony.career == Career.careerId
+                )
+                results = session.exec(stmt).all()
             else:
                 # Generar IDs aleatorios y buscarlos
                 # Obtener todos los IDs disponibles
@@ -58,11 +60,20 @@ class TestimonyService(BaseServiceWithFilters[Testimony]):
                 # Seleccionar IDs aleatorios
                 random_ids = random.sample(all_ids, count)
                 
-                # Buscar los testimonios por esos IDs
-                stmt = select(Testimony).where(Testimony.testimonyId.in_(random_ids))
-                testimonies = session.exec(stmt).all()
+                # Buscar los testimonios por esos IDs con JOIN
+                stmt = select(Testimony, Career.name.label('career_name')).join(
+                    Career, Testimony.career == Career.careerId
+                ).where(Testimony.testimonyId.in_(random_ids))
+                results = session.exec(stmt).all()
             
-            return [TestimonyPublic.model_validate(testimony) for testimony in testimonies]
+            # Convertir los resultados al modelo público
+            testimonies_public = []
+            for testimony, career_name in results:
+                testimony_dict = testimony.model_dump()
+                testimony_dict['career_name'] = career_name
+                testimonies_public.append(TestimonyPublic.model_validate(testimony_dict))
+            
+            return testimonies_public
 
     def get_testimonies_in_list(self, session: Session, offset: int = 0, limit: int = 10) -> List[TestimonyInList]:
         """Obtener lista simplificada de testimonios para listados"""

@@ -1,19 +1,18 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from sqlmodel import Session
-from typing import List, Optional
+from typing import List
 from database.database import Services, get_services, get_session
 from database.models.testimony import (
     TestimonyCreate, 
     TestimonyRead, 
     TestimonyUpdate, 
     TestimonyInList, 
-    TestimonyPublic,
-    TestimonyFilterWithCountResponse
+    TestimonyPublic
 )
 from database.models.user import UserRead
 from database.services.filter.filters import Filter
 
-from database.services.auth.dependencies import get_current_user, require_admin_role
+from database.services.auth.dependencies import require_admin_role
 from exceptions import AppException
 from sqlalchemy.exc import NoResultFound
 
@@ -272,6 +271,23 @@ async def get_testimonies_by_filters(
     """Obtener testimonios por filtros (solo administradores)"""
     try:
         testimonies = services.testimonyService.get_with_filters_clean(session, filter)
+        return testimonies
+    except Exception as e:
+        show(f"Error al obtener testimonios por filtros: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+        
+@router.post("/public/filters", status_code=status.HTTP_200_OK)
+async def get_public_testimonies_by_filters(
+    filter: Filter,
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+):
+    """Obtener testimonios por filtros (solo administradores)"""
+    try:
+        testimonies = services.testimonyService.get_with_filters_clean_public(session, filter)
         return testimonies
     except Exception as e:
         show(f"Error al obtener testimonios por filtros: {e}")

@@ -87,6 +87,8 @@ class News(NewsBase, table=True):
 class NewsCreate(NewsBase):
     creator: int
     imagesLink: Optional[List[str]] = Field(default=None, max_items=6, description="URLs de las imágenes (máximo 6)")
+    published: bool = False
+    publicationDate: Optional[date] = None
 
 # Modelo para actualizar una noticia (PUT/PATCH)
 class NewsUpdate(SQLModel):

@@ -59,6 +59,8 @@ class Career(CareerBase, table=True):
 # Modelo para crear una carrera (POST)
 class CareerCreate(CareerBase):
     creator: int
+    published: bool = False
+    publicationDate: Optional[date] = None
 
 # Modelo para actualizar una carrera (PUT/PATCH)
 class CareerUpdate(SQLModel):

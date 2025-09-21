@@ -83,7 +83,8 @@ class TestimonyPublic(SQLModel):
     text: str
     name: str
     lastname: str
-    # career_name: Optional[str] = None  # Se puede agregar con join
+    career: int
+    career_name: str
     
 from .user import UserRead
 from .career import CareerRead

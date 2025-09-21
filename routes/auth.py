@@ -404,17 +404,16 @@ async def get_all_users(
             detail=f"Error interno del servidor: {str(e)}"
         )
         
-@router.post("/filters/users")
+@router.post("/filters")
 async def get_all_users_with_filters(
     filters: Filter,
-    #current_user: UserRead = Depends(require_admin_role),
+    current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ):
     """Obtiene todos los usuarios (solo administradores)"""
     try:
         result = services.userService.get_with_filters_clean(session, filters)
-        show(result)
         return result
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
