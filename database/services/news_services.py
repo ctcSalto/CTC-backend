@@ -42,11 +42,12 @@ class NewsService(BaseServiceWithFilters[News]):
         """Obtener noticias públicas (solo publicadas)"""
         with session:
             statement = select(News).where(
-                News.published == True,
+                News.published,
                 News.publicationDate <= datetime.now().date()
             ).offset(offset).limit(limit).order_by(News.publicationDate.desc())
             news_list = session.exec(statement).all()
             if not news_list:
+                print("No se encontraron noticias públicas")
                 return []
             return [NewsPublic.model_validate(news) for news in news_list]
 
@@ -64,7 +65,7 @@ class NewsService(BaseServiceWithFilters[News]):
         with session:
             statement = select(News).where(
                 News.newsId == news_id,
-                News.published == True,
+                News.published,
                 News.publicationDate <= datetime.now().date()
             )
             news = session.exec(statement).one()
@@ -86,7 +87,7 @@ class NewsService(BaseServiceWithFilters[News]):
         with session:
             statement = select(News).where(
                 News.area == area,
-                News.published == True,
+                News.published,
                 News.publicationDate <= datetime.now().date()
             ).offset(offset).limit(limit).order_by(News.publicationDate.desc())
             news_list = session.exec(statement).all()
@@ -108,7 +109,7 @@ class NewsService(BaseServiceWithFilters[News]):
         with session:
             statement = select(News).where(
                 News.career == career_id,
-                News.published == True,
+                News.published,
                 News.publicationDate <= datetime.now().date()
             ).offset(offset).limit(limit).order_by(News.publicationDate.desc())
             news_list = session.exec(statement).all()
@@ -151,7 +152,7 @@ class NewsService(BaseServiceWithFilters[News]):
         """Buscar noticias publicadas por título o contenido"""
         with session:
             statement = select(News).where(
-                News.published == True,
+                News.published,
                 News.publicationDate <= datetime.now().date(),
                 (News.title.ilike(f"%{search_term}%") | News.text.ilike(f"%{search_term}%"))
             ).offset(offset).limit(limit).order_by(News.publicationDate.desc())
@@ -176,7 +177,7 @@ class NewsService(BaseServiceWithFilters[News]):
         """Obtener las noticias publicadas más recientes (para mostrar en homepage)"""
         with session:
             statement = select(News).where(
-                News.published == True,
+                News.published,
                 News.publicationDate <= datetime.now().date()
             ).order_by(News.publicationDate.desc()).limit(limit)
             news_list = session.exec(statement).all()
@@ -188,7 +189,7 @@ class NewsService(BaseServiceWithFilters[News]):
         """Obtener noticias pendientes de publicación"""
         with session:
             statement = select(News).where(
-                News.published == False
+                News.published
             ).offset(offset).limit(limit).order_by(News.creationDate.desc())
             news_list = session.exec(statement).all()
             if not news_list:
@@ -199,7 +200,7 @@ class NewsService(BaseServiceWithFilters[News]):
         """Obtener noticias programadas para publicación futura"""
         with session:
             statement = select(News).where(
-                News.published == True,
+                News.published,
                 News.publicationDate > datetime.now().date()
             ).offset(offset).limit(limit).order_by(News.publicationDate.asc())
             news_list = session.exec(statement).all()

@@ -32,7 +32,7 @@ async def get_public_news(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[NewsPublic]:
-    """Obtener noticias públicas (solo publicadas) con paginación"""
+    """Obtener noticias públicas (solo publicadas por atributo published y publicationDate) con paginación"""
     try:
         news_list = services.newsService.get_news_public(session, offset, limit)
         return news_list
@@ -252,7 +252,7 @@ async def get_news(
             detail=f"Error interno del servidor: {str(e)}"
         )
 
-@router.get("/admin/simple-list", response_model=List[NewsInList], status_code=status.HTTP_200_OK)
+@router.get("/admin/news-list", response_model=List[NewsInList], status_code=status.HTTP_200_OK)
 async def get_news_list(
     offset: int = Query(0, ge=0, description="Número de registros a omitir"),
     limit: int = Query(10, ge=1, le=100, description="Número máximo de registros a devolver"),
@@ -715,12 +715,12 @@ async def update_news_files(
             # En modo agregar, solo eliminar video anterior si se reemplaza
             old_images_to_delete = []
 
-        # Actualizar la noticia en la base de datos
-        updated_news = services.newsService.update_news_files(
-            news_id=news_id,
-            image_urls=final_image_urls,
-            session=session
+        news_update_data = NewsUpdate(
+            imagesLink=final_image_urls,
+            modifier=current_user.userId  # Asumiendo que current_user tiene userId
         )
+        # Actualizar la noticia en la base de datos
+        updated_news = services.newsService.update_news(news_id, news_update_data, session)
         
         # Si la actualización fue exitosa, eliminar archivos antiguos
         if replace_files:
