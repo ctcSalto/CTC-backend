@@ -540,7 +540,7 @@ async def update_career(
         )
         
 @router.put("/image/{career_id}", response_model=CareerRead)
-async def update_career(
+async def update_career_image(
     career_id: int,
     image: UploadFile = File(...),
     current_user: UserRead = Depends(require_admin_role),
@@ -558,7 +558,7 @@ async def update_career(
         # Subir la imagen
         image_url = None
         try:
-            image_url = await services.supabaseService.upload_image(image, folder=f"images")
+            image_url = await services.supabaseService.upload_image(image, folder="images")
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
