@@ -177,12 +177,7 @@ async def create_news(
         # Subir imágenes si existen
         if images:
             # Filtrar archivos válidos
-            valid_images = [
-                img for img in images 
-                if isinstance(img, UploadFile) and 
-                hasattr(img, 'size') and img.size > 0 and 
-                hasattr(img, 'filename') and img.filename and img.filename.strip() != ''
-            ]
+            valid_images = [img for img in images if img.size > 0]
             if valid_images:
                 if len(valid_images) > 6:
                     raise HTTPException(
