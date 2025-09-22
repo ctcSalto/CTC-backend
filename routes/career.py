@@ -598,7 +598,7 @@ async def update_career(
             )
         
         # Actualizar la carrera
-        updated_career = services.careerService.update_career(career_id, career_update, session, services.supabaseService)
+        updated_career = services.careerService.update_career(career_id, career_update, session, None)
         
         show(f"Carrera {career_id} actualizada por usuario {current_user.email}")
         

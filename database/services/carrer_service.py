@@ -430,7 +430,7 @@ class CareerService(BaseServiceWithFilters[Career]):
                 return []
             return [CareerRead.from_orm(career) for career in careers]
 
-    def update_career(self, career_id: int, career_update: CareerUpdate, session: Session, supabaseService: SupabaseService) -> CareerRead:
+    def update_career(self, career_id: int, career_update: CareerUpdate, session: Session, supabaseService: SupabaseService = None) -> CareerRead:
         """Actualizar una carrera existente"""
         with session:
             statement = select(Career).where(Career.careerId == career_id)
@@ -448,7 +448,8 @@ class CareerService(BaseServiceWithFilters[Career]):
             
             try:
                 # boorrar imagen antigua si se actualizó el enlace y no es el por defecto
-                supabaseService.delete_image(old_image)
+                if supabaseService is not None:
+                    supabaseService.delete_image(old_image)
             except Exception as e:
                 print(f"Error al borrar imagen antigua: {e}")
                 # No interrumpir la actualización por este error
