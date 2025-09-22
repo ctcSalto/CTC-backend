@@ -39,7 +39,7 @@ def get_career_areas(current_user: UserRead = Depends(require_admin_role)) -> Li
             detail=f"Error interno del servidor: {str(e)}"
         )
 
-"""
+
 @router.post("/create", response_model=CareerRead, status_code=status.HTTP_201_CREATED)
 async def create_career(
     career_form: CareerCreateForm = Depends(CareerCreateForm.as_form),
@@ -48,7 +48,7 @@ async def create_career(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> CareerRead:
-    ""Crear una nueva carrera (solo admins)""
+    """Crear una nueva carrera (solo admins)"""
     try:
         creator = current_user.userId
         
@@ -123,7 +123,7 @@ async def create_career(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> CareerRead:
-    """Crear una nueva carrera (solo admins)"""
+    ""Crear una nueva carrera (solo admins)""
     try:
         # Asignar el usuario actual como creador
         creator = current_user.userId
@@ -186,7 +186,7 @@ async def create_career(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail=f"Error interno del servidor: {str(e)}"
         )
-
+"""
 @router.get("/careers", response_model=List[CareerInList])
 async def get_careers(
     offset: int = Query(0, ge=0, description="Número de registros a saltar"),
