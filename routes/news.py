@@ -155,7 +155,7 @@ async def create_news(
     published: bool = Form(...),
     career_id: Optional[int] = Form(None),
     video_url: Optional[str] = Form(None, description="Enlace del video (opcional)"),
-    images: Optional[List[UploadFile]] = File(default=None, description="Imágenes (opcional, máximo 6)"),
+    images: Optional[List[UploadFile]] = File(None),
     current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)

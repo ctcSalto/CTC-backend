@@ -247,6 +247,12 @@ async def get_careers_admin(
     """Obtener lista de carreras (público)"""
     try:
         careers = services.careerService.get_careers_optimized(session, offset, limit)
+        
+        if not careers:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Carreras no encontradas"
+            )
         return careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -264,9 +270,14 @@ async def get_careers_by_id(
 ) -> CareerReadOptimized:
     """Obtener lista de carreras (público)"""
     try:
-        careers = services.careerService.get_career_optimized_by_id(session, career_id)
-        published_careers = [career for career in careers if career.published]
-        return published_careers
+        careers = services.careerService.get_public_career_optimized_by_id(session, career_id)
+        
+        if not careers:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Carrera no encontrada o no disponible públicamente"
+            )
+        return careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:

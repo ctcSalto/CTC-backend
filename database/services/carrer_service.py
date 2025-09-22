@@ -1,7 +1,7 @@
 from sqlmodel import Session, select, func, and_, or_
 from ..models.career import Career, CareerCreate, CareerRead, CareerSimple, CareerUpdate, CareerInList, CareerReadOptimized, UserSimple, TestimonyForCareer, Area, CarrerDropdown
 from typing import List, Optional
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from datetime import date 
 from sqlalchemy.orm import selectinload
 from datetime import datetime
 import random
@@ -33,7 +33,7 @@ class CareerService(BaseServiceWithFilters[Career]):
     def get_careers_in_list(self, session: Session, offset: int = 0, limit: int = 10) -> List[CareerInList]:
         """Obtener lista simplificada de carreras para listados"""
         with session:
-            statement = select(Career).where(Career.published == True).offset(offset).limit(limit)
+            statement = select(Career).where(Career.published).offset(offset).limit(limit)
             careers = session.exec(statement).all()
             if not careers:
                 return []
@@ -175,11 +175,79 @@ class CareerService(BaseServiceWithFilters[Career]):
                 modifier_user=modifier_user,
                 testimonies=testimonies
             )
+            
+    def get_public_career_optimized_by_id(self, session: Session, career_id: int) -> Optional[CareerReadOptimized]:
+        """Obtener una carrera específica con información optimizada"""
+        with session:
+            statement = (
+                select(Career)
+                .options(
+                    selectinload(Career.creator_user),
+                    selectinload(Career.modifier_user),
+                    selectinload(Career.testimonies)
+                )
+                .where(and_(Career.published, or_(Career.publicationDate <= date.today(), Career.publicationDate.is_(None)), Career.careerId == career_id))
+            )
+            
+            career = session.exec(statement).first()
+            
+            if not career:
+                return None
+            
+            # Usar la misma lógica de transformación que en get_careers_optimized
+            creator_user = None
+            if career.creator_user:
+                creator_user = UserSimple(
+                    userId=career.creator_user.userId,
+                    name=career.creator_user.name,
+                    lastname=career.creator_user.lastname
+                )
+            
+            modifier_user = None
+            if career.modifier_user:
+                modifier_user = UserSimple(
+                    userId=career.modifier_user.userId,
+                    name=career.modifier_user.name,
+                    lastname=career.modifier_user.lastname
+                )
+            
+            testimonies = [
+                TestimonyForCareer(
+                    testimonyId=t.testimonyId,
+                    text=t.text,
+                    name=t.name,
+                    lastname=t.lastname,
+                    creationDate=t.creationDate
+                )
+                for t in career.testimonies
+            ]
+            
+            return CareerReadOptimized(
+                careerId=career.careerId,
+                careerType=career.careerType,
+                area=career.area,
+                name=career.name,
+                subtitle=career.subtitle,
+                aboutCourse1=career.aboutCourse1,
+                aboutCourse2=career.aboutCourse2,
+                graduateProfile=career.graduateProfile,
+                studyPlan=career.studyPlan,
+                imageLink=career.imageLink,
+                creationDate=career.creationDate,
+                modificationDate=career.modificationDate,
+                publicationDate=career.publicationDate,
+                published=career.published,
+                creator=career.creator,
+                modifier=career.modifier,
+                creator_user=creator_user,
+                modifier_user=modifier_user,
+                testimonies=testimonies
+            )
 
     def get_published_careers(self, session: Session, offset: int = 0, limit: int = 10) -> List[CareerRead]:
         """Obtener solo las carreras publicadas"""
         with session:
-            statement = select(Career).where(Career.published == True).offset(offset).limit(limit)
+            statement = select(Career).where(Career.published).offset(offset).limit(limit)
             careers = session.exec(statement).all()
             if not careers:
                 return []
