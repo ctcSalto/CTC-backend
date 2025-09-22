@@ -9,7 +9,8 @@ from database.models.news import (
     NewsUpdate, 
     NewsInList, 
     NewsPublic,
-    Area
+    Area,
+    NewsCreateForm
 )
 from database.services.filter.filters import Filter
 from database.models.user import UserRead
@@ -146,7 +147,95 @@ async def search_published_news(
         )
 
 # =================== ENDPOINTS ADMINISTRATIVOS ===================
+"""
+@router.post("/create", response_model=NewsRead, status_code=status.HTTP_201_CREATED)
+async def create_news(
+    news_form: NewsCreateForm = Depends(NewsCreateForm.as_form),
+    images: Optional[List[UploadFile]] = File(None),
+    current_user: UserRead = Depends(require_admin_role),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> NewsRead:
+    ""Crear una nueva noticia con imágenes (solo administradores)""
+    image_urls = None
+    career = None
+    
+    try:
+        # Validar carrera si se especifica
+        if news_form.career_id is not None:
+            career = services.careerService.get_career_by_id(news_form.career_id, session)
+            if career is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Carrera no encontrada"
+                )
+        
+        print(f"tipo de images: {type(images)}, valor: {images}")
+        
+        # Subir imágenes si existen
+        if images:
+            # Filtrar archivos válidos
+            valid_images = [img for img in images if img.size > 0]
+            if valid_images:
+                if len(valid_images) > 6:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Máximo 6 imágenes permitidas"
+                    )
+                print(f"📸 Subiendo {len(valid_images)} imágenes...")
+                image_urls = await services.supabaseService.upload_multiple_images(
+                    valid_images
+                )
+                
+        show(image_urls)
 
+        # Crear el objeto NewsCreate
+        news_data = NewsCreate(
+            area=news_form.area,
+            career=career.careerId if career else None,
+            title=news_form.title,
+            text=news_form.text,
+            videoLink=news_form.video_url,
+            imagesLink=image_urls,
+            creator=current_user.userId,
+            published=news_form.published,
+            publicationDate=datetime.now().date() if news_form.published else None
+        )
+
+        new_news = services.newsService.create_news(news_data, session)
+        
+        show(f"Noticia creada: {new_news}")
+        
+        if not new_news:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error al crear la noticia"
+            )
+        
+        return new_news
+        
+    except ValueError as e:
+        if image_urls:
+            services.supabaseService.rollback(image_urls=image_urls, video_url=news_form.video_url)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail=str(e)
+        )
+    except AppException as e:
+        if image_urls:
+            services.supabaseService.rollback(image_urls=image_urls, video_url=news_form.video_url)
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        if image_urls:
+            services.supabaseService.rollback(image_urls=image_urls, video_url=news_form.video_url)
+        show(f"Error al crear noticia: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+
+
+"""
 @router.post("/create", response_model=NewsRead, status_code=status.HTTP_201_CREATED)
 async def create_news(
     area: Area = Form(...),
@@ -232,6 +321,7 @@ async def create_news(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error interno del servidor: {str(e)}"
         )
+
 
 @router.get("/admin/news", response_model=List[NewsRead], status_code=status.HTTP_200_OK)
 async def get_news(

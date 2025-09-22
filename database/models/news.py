@@ -1,4 +1,6 @@
 from sqlmodel import SQLModel, Field, Relationship, Column
+from fastapi import Form
+from pydantic import BaseModel
 from sqlalchemy import JSON
 from datetime import date, datetime
 from typing import Optional, List, TYPE_CHECKING
@@ -89,6 +91,33 @@ class NewsCreate(NewsBase):
     imagesLink: Optional[List[str]] = Field(default=None, max_items=6, description="URLs de las imágenes (máximo 6)")
     published: bool = False
     publicationDate: Optional[date] = None
+    
+class NewsCreateForm(BaseModel):
+    area: Area
+    title: str
+    text: str
+    published: bool
+    career_id: Optional[int] = None
+    video_url: Optional[str] = None
+
+    @classmethod
+    def as_form(
+        cls,
+        area: Area = Form(...),
+        title: str = Form(..., max_length=150),
+        text: str = Form(...),
+        published: bool = Form(...),
+        career_id: Optional[int] = Form(None),
+        video_url: Optional[str] = Form(None, description="Enlace del video (opcional)")
+    ) -> 'NewsCreateForm':
+        return cls(
+            area=area,
+            title=title,
+            text=text,
+            published=published,
+            career_id=career_id,
+            video_url=video_url
+        )
 
 # Modelo para actualizar una noticia (PUT/PATCH)
 class NewsUpdate(SQLModel):

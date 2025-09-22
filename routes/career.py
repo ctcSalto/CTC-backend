@@ -1,13 +1,12 @@
-from fastapi import APIRouter, HTTPException, status, Form, UploadFile, File, Depends, Query
+from fastapi import APIRouter, HTTPException, status, UploadFile, File, Depends, Query
 from sqlmodel import Session
 from typing import List, Optional
 from datetime import datetime
-from datetime import date
 from database.database import Services, get_services, get_session
 from database.services.filter.filters import Filter
-from database.models.career import Area, CareerType, CareerCreate, CareerRead, CareerSimple,  CareerUpdate, CareerInList, CareerType, CareerReadOptimized, CareerFilterWithCountResponse, CarrerDropdown
+from database.models.career import Area, CareerType, CareerCreate, CareerRead, CareerSimple,  CareerUpdate, CareerInList, CareerReadOptimized, CarrerDropdown, CareerCreateForm
 from database.models.user import UserRead
-from database.services.auth.dependencies import get_current_user, require_admin_role
+from database.services.auth.dependencies import require_admin_role
 from exceptions import AppException
 
 from utils.logger import show
@@ -40,6 +39,74 @@ def get_career_areas(current_user: UserRead = Depends(require_admin_role)) -> Li
             detail=f"Error interno del servidor: {str(e)}"
         )
 
+"""
+@router.post("/create", response_model=CareerRead, status_code=status.HTTP_201_CREATED)
+async def create_career(
+    career_form: CareerCreateForm = Depends(CareerCreateForm.as_form),
+    image: UploadFile = File(...),
+    current_user: UserRead = Depends(require_admin_role),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> CareerRead:
+    ""Crear una nueva carrera (solo admins)""
+    try:
+        creator = current_user.userId
+        
+        print(f"Es para publicar: {career_form.published}")
+        
+        # Upload image
+        image_url = None
+        try:
+            image_url = await services.supabaseService.upload_image(image, folder="images")
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error al subir la imagen: {str(e)}"
+            )
+                
+        career_data = CareerCreate(
+            name=career_form.name,
+            subtitle=career_form.subtitle,
+            aboutCourse1=career_form.aboutCourse1,
+            aboutCourse2=career_form.aboutCourse2,
+            graduateProfile=career_form.graduateProfile,
+            studyPlan=career_form.studyPlan,
+            imageLink=image_url,
+            careerType=career_form.careerType,
+            area=career_form.area,
+            creator=creator,
+            published=career_form.published,
+            publicationDate=datetime.now().date() if career_form.published else None
+        )
+        
+        # Crear la carrera
+        new_career = services.careerService.create_career(career_data, session)
+        
+        show(f"Carrera creada: {new_career.name} por usuario {current_user.email}")
+        
+        if not new_career:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error al crear la carrera"
+            )
+        
+        return new_career
+        
+    except ValueError as e:
+        if image_url:
+            services.supabaseService.rollback(image_url=image_url)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail=str(e)
+        )
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+"""
 @router.post("/create", response_model=CareerRead, status_code=status.HTTP_201_CREATED)
 async def create_career(
     name: str,
@@ -531,7 +598,7 @@ async def update_career(
             )
         
         # Actualizar la carrera
-        updated_career = services.careerService.update_career(career_id, career_update, session)
+        updated_career = services.careerService.update_career(career_id, career_update, session, services.supabaseService)
         
         show(f"Carrera {career_id} actualizada por usuario {current_user.email}")
         

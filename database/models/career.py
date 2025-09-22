@@ -1,14 +1,16 @@
 from sqlmodel import SQLModel, Field, Relationship
 from datetime import date, datetime
 from typing import Optional, List, TYPE_CHECKING
-from pydantic import field_validator
 from enum import Enum
+
+from fastapi import Form
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     # Importación condicional de las clases relacionadas para evitar importación circular
     from database.models.user import User, UserRead
     from database.models.testimony import Testimony, TestimonyRead
-    from database.models.news import News, NewsRead
+    from database.models.news import News
 
 # Enums
 class CareerType(str, Enum):
@@ -61,6 +63,42 @@ class CareerCreate(CareerBase):
     creator: int
     published: bool = False
     publicationDate: Optional[date] = None
+    
+class CareerCreateForm(BaseModel):
+    name: str
+    subtitle: str
+    aboutCourse1: str
+    published: bool
+    aboutCourse2: Optional[str] = None
+    graduateProfile: Optional[str] = None
+    studyPlan: Optional[str] = None
+    careerType: str = "career"
+    area: str = "it"
+
+    @classmethod
+    def as_form(
+        cls,
+        name: str = Form(..., max_length=100),
+        subtitle: str = Form(..., max_length=130),
+        aboutCourse1: str = Form(...),
+        published: bool = Form(...),
+        aboutCourse2: Optional[str] = Form(None),
+        graduateProfile: Optional[str] = Form(None),
+        studyPlan: Optional[str] = Form(None),
+        careerType: str = Form("career"),
+        area: str = Form("it")
+    ) -> 'CareerCreateForm':
+        return cls(
+            name=name,
+            subtitle=subtitle,
+            aboutCourse1=aboutCourse1,
+            published=published,
+            aboutCourse2=aboutCourse2,
+            graduateProfile=graduateProfile,
+            studyPlan=studyPlan,
+            careerType=careerType,
+            area=area
+        )
 
 # Modelo para actualizar una carrera (PUT/PATCH)
 class CareerUpdate(SQLModel):
