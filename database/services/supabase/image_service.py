@@ -203,7 +203,7 @@ class SupabaseService:
             file_path = path_parts[1]
             
             response = self.client.storage.from_(self.bucket_name).remove([file_path])
-            return response.status_code == 200
+            return response
             
         except Exception as e:
             print(f"Error eliminando archivo: {str(e)}")

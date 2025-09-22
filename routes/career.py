@@ -570,8 +570,9 @@ async def update_career_image(
         
         # Subir la imagen
         image_url = None
+        supabaseService = services.supabaseService
         try:
-            image_url = await services.supabaseService.upload_image(image, folder="images")
+            image_url = await supabaseService.upload_image(image, folder="images")
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -587,9 +588,9 @@ async def update_career_image(
             )
             
         # Actualizar el enlace de la imagen
-        career_update = CareerUpdate(imagesLink=image_url)
+        career_update = CareerUpdate(imageLink=image_url)
         # Actualizar la carrera
-        updated_career = services.careerService.update_career(career_id, career_update, session)
+        updated_career = services.careerService.update_career(career_id, career_update, session, supabaseService)
         
         show(f"Carrera {career_id} actualizada por usuario {current_user.email}")
         

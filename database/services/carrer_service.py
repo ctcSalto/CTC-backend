@@ -1,5 +1,6 @@
 from sqlmodel import Session, select, func, and_, or_
 from ..models.career import Career, CareerCreate, CareerRead, CareerSimple, CareerUpdate, CareerInList, CareerReadOptimized, UserSimple, TestimonyForCareer, Area, CarrerDropdown
+from ..services.supabase.image_service import SupabaseService
 from typing import List, Optional
 from datetime import date 
 from sqlalchemy.orm import selectinload
@@ -429,12 +430,12 @@ class CareerService(BaseServiceWithFilters[Career]):
                 return []
             return [CareerRead.from_orm(career) for career in careers]
 
-    def update_career(self, career_id: int, career_update: CareerUpdate, session: Session) -> CareerRead:
+    def update_career(self, career_id: int, career_update: CareerUpdate, session: Session, supabaseService: SupabaseService) -> CareerRead:
         """Actualizar una carrera existente"""
         with session:
             statement = select(Career).where(Career.careerId == career_id)
             old_career = session.exec(statement).first()  # Usar first() en lugar de one()
-            
+            old_image = old_career.imageLink if old_career else None
             if not old_career:
                 return None
             
@@ -445,6 +446,12 @@ class CareerService(BaseServiceWithFilters[Career]):
             for key, value in update_data.items():
                 setattr(old_career, key, value)
             
+            try:
+                # boorrar imagen antigua si se actualizó el enlace y no es el por defecto
+                supabaseService.delete_image(old_image)
+            except Exception as e:
+                print(f"Error al borrar imagen antigua: {e}")
+                # No interrumpir la actualización por este error
             # Actualizar fecha de modificación automáticamente
             old_career.modificationDate = datetime.now().date()
                 
