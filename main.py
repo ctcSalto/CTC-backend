@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from scalar_fastapi import get_scalar_api_reference, Layout
 
 # from contextlib import asynccontextmanager
-# from datetime import datetime
 
 from routes import auth, career, testimony, news
 from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_enrolment
@@ -14,6 +13,8 @@ from pages.welcome import html
 from database.database import reset_database, create_db_and_tables
 
 import os
+from datetime import datetime
+
 try:
     from dotenv import load_dotenv
     # Solo carga .env si existe el archivo
@@ -30,6 +31,8 @@ except Exception as e:
 
 from routes.test import test_filters
 from utils.logger import show
+
+os.environ['TZ'] = os.getenv('TIME_ZONE')
 
 """
 @asynccontextmanager
@@ -80,7 +83,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Backend CTC",
     description="Backend para la aplicación CTC",
-    version="0.0.1",
+    version="0.0.15",
     #lifespan=lifespan  # Para iniciar la base de datos
 )
 
@@ -110,6 +113,15 @@ def reset_db():
     reset_database()
     return {"message": "Database reset successfully"}
 
+@app.get("/health")
+async def health():
+    return {
+        "status": "OK", 
+        "version": app.version, 
+        "time": datetime.now().isoformat(),
+        "timezone": os.getenv('TIME_ZONE', 'UTC')
+    }
+
 # Routers
 app.include_router(auth.router)
 app.include_router(career.router)
@@ -137,5 +149,6 @@ if __name__ == "__main__":
     # run command -> python main.py
     import uvicorn
     port = int(os.getenv("PORT", 8000))
-    show(port)
+    show(f"🕐 Timezone configurado: {os.getenv('TIME_ZONE', 'UTC')}")
+    show(f"🕐 Hora actual: {datetime.now()}")
     uvicorn.run("main:app", port=port, host="0.0.0.0")
