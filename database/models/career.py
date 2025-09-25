@@ -6,6 +6,12 @@ from enum import Enum
 from fastapi import Form
 from pydantic import BaseModel
 
+import os
+from zoneinfo import ZoneInfo
+
+uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
+
+
 if TYPE_CHECKING:
     # Importación condicional de las clases relacionadas para evitar importación circular
     from database.models.user import User, UserRead
@@ -39,7 +45,7 @@ class CareerBase(SQLModel):
 # Modelo para la tabla (con relaciones)
 class Career(CareerBase, table=True):
     careerId: Optional[int] = Field(default=None, primary_key=True, description="ID único de la carrera")
-    creationDate: date = Field(default_factory=lambda: datetime.now().date(), description="Fecha de creación")
+    creationDate: date = Field(default_factory=lambda: datetime.now(uruguay_tz).date(), description="Fecha de creación")
     modificationDate: Optional[date] = Field(default=None, description="Fecha de modificación")
     publicationDate: Optional[date] = Field(default=None, description="Fecha de publicación")
     published: bool = Field(default=False, description="Estado de publicación")
@@ -114,7 +120,7 @@ class CareerUpdate(SQLModel):
     publicationDate: Optional[date] = None
     published: Optional[bool] = None
     modifier: Optional[int] = None
-    modificationDate: Optional[date] = Field(default_factory=lambda: datetime.now().date())
+    modificationDate: Optional[date] = Field(default_factory=lambda: datetime.now(uruguay_tz).date())
 
 # Modelo para leer una carrera (GET) - incluye todos los campos
 class CareerRead(CareerBase):

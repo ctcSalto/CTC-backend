@@ -8,6 +8,11 @@ from pydantic import field_validator
 from enum import Enum
 import json
 
+import os
+from zoneinfo import ZoneInfo
+
+uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
+
 if TYPE_CHECKING:
     # Importación condicional de las clases relacionadas para evitar importación circular
     from database.models.user import User, UserRead
@@ -32,7 +37,7 @@ class NewsBase(SQLModel):
 # Modelo para la tabla (con relaciones)
 class News(NewsBase, table=True):
     newsId: Optional[int] = Field(default=None, primary_key=True, description="ID único de la noticia")
-    creationDate: date = Field(default_factory=lambda: datetime.now().date(), description="Fecha de creación")
+    creationDate: date = Field(default_factory=lambda: datetime.now(uruguay_tz).date(), description="Fecha de creación")
     modificationDate: Optional[date] = Field(default=None, description="Fecha de modificación")
     publicationDate: Optional[date] = Field(default=None, description="Fecha de publicación")
     published: bool = Field(default=False, description="Estado de publicación")
@@ -130,7 +135,7 @@ class NewsUpdate(SQLModel):
     publicationDate: Optional[date] = None
     published: Optional[bool] = None
     modifier: Optional[int] = None
-    modificationDate: Optional[date] = Field(default_factory=lambda: datetime.now().date())
+    modificationDate: Optional[date] = Field(default_factory=lambda: datetime.now(uruguay_tz).date())
     
     @field_validator('imagesLink')
     @classmethod
@@ -142,7 +147,7 @@ class NewsUpdate(SQLModel):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Actualizar fecha de modificación automáticamente
-        self.modificationDate = datetime.now().date()
+        self.modificationDate = datetime.now(uruguay_tz).date()
 
 # Modelo para leer una noticia (GET) - incluye todos los campos
 class NewsRead(NewsBase):

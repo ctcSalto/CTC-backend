@@ -11,6 +11,11 @@ from exceptions import AppException
 
 from utils.logger import show
 
+import os
+from zoneinfo import ZoneInfo
+
+uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
+
 router = APIRouter(prefix="/careers", tags=["Careers"])
 
 @router.get("/types", response_model=List[CareerType])
@@ -76,7 +81,7 @@ async def create_career(
             area=career_form.area,
             creator=creator,
             published=career_form.published,
-            publicationDate=datetime.now().date() if career_form.published else None
+            publicationDate=datetime.now(uruguay_tz).date() if career_form.published else None
         )
         
         # Crear la carrera
@@ -157,7 +162,7 @@ async def create_career(
             area=area,
             creator=creator,
             published=published,
-            publicationDate=datetime.now().date() if published else None
+            publicationDate=datetime.now(uruguay_tz).date() if published else None
         )
         
         # Crear la carrera

@@ -13,6 +13,7 @@ from pages.welcome import html
 from database.database import reset_database, create_db_and_tables
 
 import os
+from zoneinfo import ZoneInfo
 from datetime import datetime
 
 try:
@@ -32,7 +33,7 @@ except Exception as e:
 from routes.test import test_filters
 from utils.logger import show
 
-os.environ['TZ'] = os.getenv('TIME_ZONE')
+uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
 
 """
 @asynccontextmanager
@@ -118,7 +119,7 @@ async def health():
     return {
         "status": "OK", 
         "version": app.version, 
-        "time": datetime.now().isoformat(),
+        "time": datetime.now(uruguay_tz).isoformat(),
         "timezone": os.getenv('TIME_ZONE', 'UTC')
     }
 
@@ -150,5 +151,5 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     show(f"🕐 Timezone configurado: {os.getenv('TIME_ZONE', 'UTC')}")
-    show(f"🕐 Hora actual: {datetime.now()}")
+    show(f"🕐 Hora actual: {datetime.now(uruguay_tz)}")
     uvicorn.run("main:app", port=port, host="0.0.0.0")

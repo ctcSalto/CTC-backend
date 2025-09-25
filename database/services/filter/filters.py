@@ -6,6 +6,11 @@ from sqlalchemy import and_, or_, desc, asc
 from enum import Enum
 import logging
 
+import os
+from zoneinfo import ZoneInfo
+
+uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
+
 logger = logging.getLogger(__name__)
 
 class LogicalOperator(str, Enum):
@@ -925,7 +930,7 @@ class BaseServiceWithFilters(Generic[T]):
         )
         
         # Condición 2: publicationDate <= hoy OR publicationDate IS NULL
-        today = datetime.now().date().isoformat()  # Convertir a string para el filtro
+        today = datetime.now(uruguay_tz).date().isoformat()  # Convertir a string para el filtro
         
         # Crear grupo de condiciones para (publicationDate <= hoy OR publicationDate IS NULL)
         date_condition_group = ConditionGroup(

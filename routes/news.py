@@ -20,6 +20,11 @@ from sqlalchemy.exc import NoResultFound
 
 from utils.logger import show
 
+import os
+from zoneinfo import ZoneInfo
+
+uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
+
 router = APIRouter(prefix="/news", tags=["News"])
 
 # =================== ENDPOINTS PÚBLICOS ===================
@@ -199,7 +204,7 @@ async def create_news(
             imagesLink=image_urls,
             creator=current_user.userId,
             published=news_form.published,
-            publicationDate=datetime.now().date() if news_form.published else None
+            publicationDate=datetime.now(uruguay_tz).date() if news_form.published else None
         )
 
         new_news = services.newsService.create_news(news_data, session)
@@ -290,7 +295,7 @@ async def create_news(
             imagesLink=image_urls,
             creator=current_user.userId,
             published=published,
-            publicationDate=datetime.now().date() if published else None
+            publicationDate=datetime.now(uruguay_tz).date() if published else None
         )
 
         new_news = services.newsService.create_news(news_data, session)

@@ -9,6 +9,11 @@ import random
 
 from database.services.filter.filters import BaseServiceWithFilters
 
+import os
+from zoneinfo import ZoneInfo
+
+uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
+
 class CareerService(BaseServiceWithFilters[Career]):
     def __init__(self):
         super().__init__(Career)
@@ -454,7 +459,7 @@ class CareerService(BaseServiceWithFilters[Career]):
                 print(f"Error al borrar imagen antigua: {e}")
                 # No interrumpir la actualización por este error
             # Actualizar fecha de modificación automáticamente
-            old_career.modificationDate = datetime.now().date()
+            old_career.modificationDate = datetime.now(uruguay_tz).date()
                 
             session.commit()
             session.refresh(old_career)
@@ -467,8 +472,8 @@ class CareerService(BaseServiceWithFilters[Career]):
             career = session.exec(statement).one()
             
             career.published = True
-            career.publicationDate = datetime.now().date()
-            career.modificationDate = datetime.now().date()
+            career.publicationDate = datetime.now(uruguay_tz).date()
+            career.modificationDate = datetime.now(uruguay_tz).date()
             
             session.commit()
             session.refresh(career)
@@ -481,7 +486,7 @@ class CareerService(BaseServiceWithFilters[Career]):
             career = session.exec(statement).one()
             
             career.published = False
-            career.modificationDate = datetime.now().date()
+            career.modificationDate = datetime.now(uruguay_tz).date()
             
             session.commit()
             session.refresh(career)
