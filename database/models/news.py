@@ -159,6 +159,7 @@ class NewsRead(NewsBase):
     creator: int
     modifier: Optional[int] = None
     imagesLink: Optional[List[str]] = None
+    career_name: Optional[str] = None
 
 
 class NewsFilterResponse(SQLModel):

@@ -59,24 +59,63 @@ class NewsService(BaseServiceWithFilters[News]):
     def get_news_by_id(self, news_id: int, session: Session) -> NewsRead:
         """Obtener una noticia por su ID"""
         with session:
-            statement = select(News).where(News.newsId == news_id)
-            news = session.exec(statement).one()
-            if not news:
+            statement = select(News, Career.name).outerjoin(
+                Career, News.career == Career.careerId
+            ).where(News.newsId == news_id)
+            
+            result = session.exec(statement).first()
+            
+            if not result:
                 return None
-            return NewsRead.model_validate(news)
+                
+            news, career_name = result
+            
+            # Crear el modelo NewsRead manualmente
+            return NewsRead(
+                newsId=news.newsId,
+                area=news.area,
+                career=news.career,
+                title=news.title,
+                text=news.text,
+                videoLink=news.videoLink,
+                creationDate=news.creationDate,
+                modificationDate=news.modificationDate,
+                publicationDate=news.publicationDate,
+                published=news.published,
+                creator=news.creator,
+                modifier=news.modifier,
+                imagesLink=news.images_list,
+                career_name=career_name
+            )
 
     def get_published_news_by_id(self, news_id: int, session: Session) -> NewsPublic:
         """Obtener una noticia publicada por su ID (para público)"""
         with session:
-            statement = select(News).where(
+            statement = select(News, Career.name).outerjoin(
+                Career, News.career == Career.careerId
+            ).where(
                 News.newsId == news_id,
                 News.published,
                 News.publicationDate <= datetime.now(uruguay_tz).date()
             )
-            news = session.exec(statement).one()
-            if not news:
+            result = session.exec(statement).first()
+            
+            if not result:
                 return None
-            return NewsPublic.model_validate(news)
+                
+            news, career_name = result
+            
+            # Crear el modelo NewsPublic manualmente
+            return NewsPublic(
+                newsId=news.newsId,
+                title=news.title,
+                text=news.text,
+                area=news.area,
+                publicationDate=news.publicationDate,
+                videoLink=news.videoLink,
+                imagesLink=news.images_list,
+                career_name=career_name
+            )
 
     def get_news_by_area(self, area: Area, session: Session, offset: int = 0, limit: int = 10) -> List[NewsRead]:
         """Obtener noticias por área"""
