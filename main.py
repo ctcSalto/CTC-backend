@@ -35,7 +35,7 @@ from utils.logger import show
 
 uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
 
-"""
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI):
         print(f"⚠️ [SHUTDOWN] Error: {e}")
     
     print("👋 [SHUTDOWN] Aplicación cerrada")
-"""  
+
     
 app = FastAPI(
     title="Backend CTC",
