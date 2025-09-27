@@ -283,7 +283,7 @@ async def create_news(
                     valid_images
                 )
                 
-        show(image_urls)
+        show(f"current_user: {current_user}")
 
         # Crear el objeto NewsCreate
         news_data = NewsCreate(

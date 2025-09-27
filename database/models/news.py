@@ -158,8 +158,8 @@ class NewsRead(NewsBase):
     modificationDate: Optional[date] = None
     publicationDate: Optional[date] = None
     published: bool
-    creator_user: int
-    modifier_user: Optional[int] = None
+    creator_user: UserRead
+    modifier_user: Optional[UserRead] = None
     imagesLink: Optional[List[str]] = None
     career_name: Optional[str] = None
     

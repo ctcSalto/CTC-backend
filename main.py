@@ -150,6 +150,4 @@ if __name__ == "__main__":
     # run command -> python main.py
     import uvicorn
     port = int(os.getenv("PORT", 8000))
-    show(f"🕐 Timezone configurado: {os.getenv('TIME_ZONE', 'UTC')}")
-    show(f"🕐 Hora actual: {datetime.now(uruguay_tz)}")
     uvicorn.run("main:app", port=port, host="0.0.0.0")
