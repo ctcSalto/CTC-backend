@@ -394,13 +394,10 @@ async def get_news_by_id(
 ) -> NewsRead:
     """Obtener una noticia por ID (solo administradores)"""
     try:
-        news = services.newsService.get_news_by_id(news_id, session)
+        news = services.newsService.get_news_by_id_with_users(news_id, session)
         
         if not news:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Noticia no encontrada"
-            )
+            return []
         
         return news
         

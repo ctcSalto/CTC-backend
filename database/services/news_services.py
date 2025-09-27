@@ -1,11 +1,14 @@
 from sqlmodel import Session, select
-from ..models.news import News, NewsCreate, NewsRead, NewsUpdate, NewsInList, NewsPublic, Area
+from ..models.news import News, NewsCreate, NewsRead, NewsUpdate, NewsInList, NewsPublic, NewsReadWithUsers, Area
 from ..models.career import Career
 from typing import List, Optional
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.exc import NoResultFound
+from sqlalchemy.orm import selectinload
+
 from datetime import datetime, date, timedelta
 
 from database.services.filter.filters import BaseServiceWithFilters
+from database.models.user import UserRead
 
 import os
 from zoneinfo import ZoneInfo
@@ -56,6 +59,7 @@ class NewsService(BaseServiceWithFilters[News]):
                 return []
             return [NewsPublic.model_validate(news) for news in news_list]
 
+
     def get_news_by_id(self, news_id: int, session: Session) -> NewsRead:
         """Obtener una noticia por su ID"""
         with session:
@@ -86,6 +90,37 @@ class NewsService(BaseServiceWithFilters[News]):
                 modifier=news.modifier,
                 imagesLink=news.images_list,
                 career_name=career_name
+            )
+            
+    def get_news_by_id_with_users(self, news_id: int, session: Session) -> NewsReadWithUsers:
+        """Obtener una noticia por su ID"""
+        with session:
+            statement = select(News).options(
+                selectinload(News.career_ref),
+                selectinload(News.creator_user),
+                selectinload(News.modifier_user)
+            ).where(News.newsId == news_id)
+            
+            news = session.exec(statement).first()
+            
+            if not news:
+                return None
+            
+            return NewsReadWithUsers(
+                newsId=news.newsId,
+                area=news.area,
+                career=news.career,
+                title=news.title,
+                text=news.text,
+                videoLink=news.videoLink,
+                creationDate=news.creationDate,
+                modificationDate=news.modificationDate,
+                publicationDate=news.publicationDate,
+                published=news.published,
+                creator_user=UserRead.model_validate(news.creator_user),
+                modifier_user=UserRead.model_validate(news.modifier_user) if news.modifier_user else None,
+                imagesLink=news.images_list,
+                career_name=news.career_ref.name if news.career_ref else None
             )
 
     def get_published_news_by_id(self, news_id: int, session: Session) -> NewsPublic:
