@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from scalar_fastapi import get_scalar_api_reference, Layout
 
-# from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager
 
 from routes import auth, career, testimony, news
 from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_enrolment
@@ -35,7 +35,7 @@ from utils.logger import show
 
 uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
 
-"""
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI):
         print(f"⚠️ [SHUTDOWN] Error: {e}")
     
     print("👋 [SHUTDOWN] Aplicación cerrada")
-"""  
+
     
 app = FastAPI(
     title="Backend CTC",
@@ -150,6 +150,4 @@ if __name__ == "__main__":
     # run command -> python main.py
     import uvicorn
     port = int(os.getenv("PORT", 8000))
-    show(f"🕐 Timezone configurado: {os.getenv('TIME_ZONE', 'UTC')}")
-    show(f"🕐 Hora actual: {datetime.now(uruguay_tz)}")
     uvicorn.run("main:app", port=port, host="0.0.0.0")

@@ -8,6 +8,8 @@ from pydantic import field_validator
 from enum import Enum
 import json
 
+from .user import UserRead
+
 import os
 from zoneinfo import ZoneInfo
 
@@ -156,8 +158,19 @@ class NewsRead(NewsBase):
     modificationDate: Optional[date] = None
     publicationDate: Optional[date] = None
     published: bool
-    creator: int
-    modifier: Optional[int] = None
+    creator_user: UserRead
+    modifier_user: Optional[UserRead] = None
+    imagesLink: Optional[List[str]] = None
+    career_name: Optional[str] = None
+    
+class NewsReadWithUsers(NewsBase):
+    newsId: int
+    creationDate: date
+    modificationDate: Optional[date] = None
+    publicationDate: Optional[date] = None
+    published: bool
+    creator_user: UserRead
+    modifier_user: Optional[UserRead] = None
     imagesLink: Optional[List[str]] = None
     career_name: Optional[str] = None
 

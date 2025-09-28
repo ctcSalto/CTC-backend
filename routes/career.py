@@ -388,10 +388,7 @@ async def get_random_careers(
         careers = services.careerService.get_random_careers_by_area(session, count)
         
         if not careers:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No se encontraron carreras"
-            )
+            return []
         
         return careers
     except HTTPException:
@@ -442,10 +439,7 @@ async def get_careers_of_interest(
         )
         
         if not careers:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No se encontraron carreras que cumplan los criterios"
-            )
+            return []
         
         return careers
         
