@@ -4,8 +4,15 @@ from fastapi import UploadFile, HTTPException
 import uuid
 from typing import List, Literal
 import mimetypes
+import io
+from PIL import Image
 
-from utils.logger import show
+try:
+    from PIL import Image, ImageOps
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("⚠️  Pillow no está instalado. La conversión a WebP no estará disponible.")
 
 try:
     from dotenv import load_dotenv
@@ -40,7 +47,84 @@ class SupabaseService:
             "image": ["image/jpeg", "image/png", "image/gif", "image/webp"],
             "video": ["video/mp4", "video/avi", "video/mov", "video/wmv", "video/webm", "video/mkv"],
         }
+        
+        self.webp_quality = 85  # Calidad por defecto (0-100)
+        self.webp_method = 6    # Método de compresión (0-6, 6 es el mejor pero más lento)
     
+    
+    def _convert_to_webp(self, file_content: bytes, quality: int = None, optimize: bool = True) -> bytes:
+        """
+        Convierte una imagen a formato WebP
+        Args:
+            file_content: Contenido del archivo original
+            quality: Calidad de compresión (0-100)
+            optimize: Si optimizar la imagen
+        Returns:
+            Contenido de la imagen en formato WebP
+        """
+        if not PIL_AVAILABLE:
+            raise HTTPException(
+                status_code=500, 
+                detail="Pillow no está instalado. No se puede convertir a WebP"
+            )
+        
+        try:
+            # Cargar imagen desde bytes
+            image = Image.open(io.BytesIO(file_content))
+            
+            # Convertir a RGB si es necesario (WebP no soporta algunos modos)
+            if image.mode in ('RGBA', 'LA', 'P'):
+                # Para imágenes con transparencia, mantener el canal alpha
+                if image.mode == 'P':
+                    image = image.convert('RGBA')
+            elif image.mode not in ('RGB', 'RGBA'):
+                image = image.convert('RGB')
+            
+            # Aplicar rotación automática basada en EXIF
+            image = ImageOps.exif_transpose(image)
+            
+            # Crear buffer para la imagen WebP
+            webp_buffer = io.BytesIO()
+            
+            # Configurar calidad
+            webp_quality = quality or self.webp_quality
+            
+            # Guardar como WebP
+            save_kwargs = {
+                'format': 'WebP',
+                'quality': webp_quality,
+                'optimize': optimize,
+                'method': self.webp_method
+            }
+            
+            # Si la imagen tiene transparencia, mantenerla
+            if image.mode == 'RGBA':
+                save_kwargs['lossless'] = False  # Usar compresión lossy para mejor tamaño
+            
+            image.save(webp_buffer, **save_kwargs)
+            
+            # Obtener bytes de la imagen WebP
+            webp_bytes = webp_buffer.getvalue()
+            
+            print(f"🔄 Conversión WebP completada:")
+            print(f"   📊 Tamaño original: {len(file_content)} bytes")
+            print(f"   📈 Tamaño WebP: {len(webp_bytes)} bytes")
+            print(f"   💾 Reducción: {((len(file_content) - len(webp_bytes)) / len(file_content) * 100):.1f}%")
+            
+            return webp_bytes
+            
+        except Exception as e:
+            print(f"❌ Error en conversión WebP: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Error al convertir imagen a WebP: {str(e)}"
+            )
+
+    def _generate_webp_filename(self, original_filename: str) -> str:
+        """Genera un nombre único para el archivo WebP"""
+        # Mantener el nombre base pero cambiar extensión a .webp
+        base_name = original_filename.rsplit('.', 1)[0] if '.' in original_filename else original_filename
+        return f"{uuid.uuid4()}.webp"
     def _validate_file(self, file: UploadFile, file_type: FileType = "any") -> bool:
         """Valida que el archivo sea del tipo especificado"""
         if file_type == "any":
@@ -82,6 +166,14 @@ class SupabaseService:
         }
         return folder_mapping.get(file_type, "uploads")
 
+    def _clean_url(self, url: str) -> str:
+        """Limpia parámetros de consulta de una URL"""
+        if url.endswith('?'):
+            return url[:-1]  # Quita el último caracter si es ?
+        elif '?' in url:
+            return url.split('?')[0]  # Quita todo después del ?
+        return url
+
     async def upload_file(self, file: UploadFile, folder: str = None, file_type: FileType = "any") -> str:
         """
         Sube un archivo a Supabase Storage
@@ -110,10 +202,29 @@ class SupabaseService:
                 folder = self._get_default_folder(detected_type)
             
             print(f"📂 Carpeta destino: {folder}")
-            print(f"📊 Tamaño archivo: {len(file_content)} bytes")
+            print(f"📊 Tamaño archivo original: {len(file_content)} bytes")
             
-            # Generar nombre único
-            filename = self._generate_filename(file.filename or "file")
+            # 🔄 CONVERSIÓN AUTOMÁTICA A WEBP PARA IMÁGENES
+            content_type = file.content_type
+            is_image = self._get_file_type(file) == "image"
+            
+            if is_image and file.content_type != "image/webp":
+                print("🔄 Convirtiendo imagen a WebP...")
+                try:
+                    file_content = self._convert_to_webp(file_content)
+                    content_type = "image/webp"
+                    # Generar nombre con extensión .webp
+                    filename = self._generate_webp_filename(file.filename or "image")
+                    print(f"✅ Conversión a WebP completada - nuevo tamaño: {len(file_content)} bytes")
+                except Exception as webp_error:
+                    print(f"⚠️  Error en conversión WebP: {webp_error}")
+                    print("📁 Subiendo archivo original sin conversión")
+                    filename = self._generate_filename(file.filename or "file")
+            else:
+                filename = self._generate_filename(file.filename or "file")
+                if is_image and file.content_type == "image/webp":
+                    print("ℹ️  Imagen ya está en formato WebP")
+            
             file_path = f"{folder}/{filename}"
             print(f"🎯 Ruta completa: {file_path}")
             
@@ -122,7 +233,7 @@ class SupabaseService:
             response = self.client.storage.from_(self.bucket_name).upload(
                 path=file_path,
                 file=file_content,
-                file_options={"content-type": file.content_type}
+                file_options={"content-type": content_type}
             )
             
             print(f"📤 Respuesta upload: {response}")
@@ -139,6 +250,7 @@ class SupabaseService:
             # Obtener URL pública
             print("🔗 Obteniendo URL pública...")
             public_url = self.client.storage.from_(self.bucket_name).get_public_url(file_path)
+            public_url = self._clean_url(public_url)
             print(f"🌐 URL pública: {public_url}")
             
             return public_url
