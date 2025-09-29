@@ -30,12 +30,26 @@ class NewsService(BaseServiceWithFilters[News]):
 
     def get_news(self, session: Session, offset: int = 0, limit: int = 10) -> List[NewsRead]:
         """Obtener lista de noticias con paginación"""
-        with session:
-            statement = select(News).offset(offset).limit(limit).order_by(News.creationDate.desc())
-            news_list = session.exec(statement).all()
-            if not news_list:
-                return []
-            return [NewsRead.model_validate(news) for news in news_list]
+        
+        # Remover "with session:" - la sesión ya está manejada por FastAPI
+        statement = (
+            select(News)
+            .options(
+                selectinload(News.creator_user),
+                selectinload(News.modifier_user),
+                selectinload(News.career_ref)
+            )
+            .order_by(News.creationDate.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        
+        news_list = session.exec(statement).all()
+        
+        if not news_list:
+            return []
+        
+        return [NewsRead.model_validate(news) for news in news_list]
 
     def get_news_in_list(self, session: Session, offset: int = 0, limit: int = 10) -> List[NewsInList]:
         """Obtener lista simplificada de noticias para listados"""
@@ -61,36 +75,25 @@ class NewsService(BaseServiceWithFilters[News]):
 
 
     def get_news_by_id(self, news_id: int, session: Session) -> NewsRead:
-        """Obtener una noticia por su ID"""
-        with session:
-            statement = select(News, Career.name).outerjoin(
-                Career, News.career == Career.careerId
-            ).where(News.newsId == news_id)
-            
-            result = session.exec(statement).first()
-            
-            if not result:
-                return None
-                
-            news, career_name = result
-            
-            # Crear el modelo NewsRead manualmente
-            return NewsRead(
-                newsId=news.newsId,
-                area=news.area,
-                career=news.career,
-                title=news.title,
-                text=news.text,
-                videoLink=news.videoLink,
-                creationDate=news.creationDate,
-                modificationDate=news.modificationDate,
-                publicationDate=news.publicationDate,
-                published=news.published,
-                creator=news.creator,
-                modifier=news.modifier,
-                imagesLink=news.images_list,
-                career_name=career_name
+        """Obtener una noticia por ID"""  
+        statement = (
+            select(News)
+            .where(News.newsId == news_id)
+            .options(
+                selectinload(News.creator_user),
+                selectinload(News.modifier_user),
+                selectinload(News.career_ref)
             )
+        )
+        news = session.exec(statement).first()
+        
+        if not news:
+            raise ValueError(f"Noticia con ID {news_id} no encontrada")
+        
+        # DEBUG
+        print(f"DEBUG get_news_by_id - news.creator_user: {news.creator_user}")
+        
+        return NewsRead.model_validate(news)
             
     def get_news_by_id_with_users(self, news_id: int, session: Session) -> NewsReadWithUsers:
         """Obtener una noticia por su ID"""
@@ -153,9 +156,20 @@ class NewsService(BaseServiceWithFilters[News]):
             )
 
     def get_news_by_area(self, area: Area, session: Session, offset: int = 0, limit: int = 10) -> List[NewsRead]:
-        """Obtener noticias por área"""
+        """Obtener noticias por área""" 
         with session:
-            statement = select(News).where(News.area == area).offset(offset).limit(limit).order_by(News.creationDate.desc())
+            statement = (
+                select(News)
+                .where(News.area == area)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+                .order_by(News.creationDate.desc())
+                .offset(offset)
+                .limit(limit)
+            )
             news_list = session.exec(statement).all()
             if not news_list:
                 return []
@@ -175,9 +189,20 @@ class NewsService(BaseServiceWithFilters[News]):
             return [NewsPublic.model_validate(news) for news in news_list]
 
     def get_news_by_career(self, career_id: int, session: Session, offset: int = 0, limit: int = 10) -> List[NewsRead]:
-        """Obtener noticias por carrera"""
+        """Obtener noticias por carrera"""        
         with session:
-            statement = select(News).where(News.career == career_id).offset(offset).limit(limit).order_by(News.creationDate.desc())
+            statement = (
+                select(News)
+                .where(News.career == career_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+                .order_by(News.creationDate.desc())
+                .offset(offset)
+                .limit(limit)
+            )
             news_list = session.exec(statement).all()
             if not news_list:
                 return []
@@ -197,20 +222,40 @@ class NewsService(BaseServiceWithFilters[News]):
             return [NewsPublic.model_validate(news) for news in news_list]
 
     def get_news_by_creator(self, creator_id: int, session: Session, offset: int = 0, limit: int = 10) -> List[NewsRead]:
-        """Obtener noticias creadas por un usuario específico"""
+        """Obtener noticias creadas por un usuario específico"""        
         with session:
-            statement = select(News).where(News.creator == creator_id).offset(offset).limit(limit).order_by(News.creationDate.desc())
+            statement = (
+                select(News)
+                .where(News.creator == creator_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+                .order_by(News.creationDate.desc())
+                .offset(offset)
+                .limit(limit)
+            )
             news_list = session.exec(statement).all()
             if not news_list:
                 return []
             return [NewsRead.model_validate(news) for news in news_list]
 
     def search_news_by_title(self, search_term: str, session: Session, offset: int = 0, limit: int = 10) -> List[NewsRead]:
-        """Buscar noticias por título (búsqueda parcial)"""
+        """Buscar noticias por título (búsqueda parcial)"""        
         with session:
-            statement = select(News).where(
-                News.title.ilike(f"%{search_term}%")
-            ).offset(offset).limit(limit).order_by(News.creationDate.desc())
+            statement = (
+                select(News)
+                .where(News.title.ilike(f"%{search_term}%"))
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+                .order_by(News.creationDate.desc())
+                .offset(offset)
+                .limit(limit)
+            )
             news_list = session.exec(statement).all()
             if not news_list:
                 return []
@@ -218,10 +263,21 @@ class NewsService(BaseServiceWithFilters[News]):
 
     def search_news_by_content(self, search_term: str, session: Session, offset: int = 0, limit: int = 10) -> List[NewsRead]:
         """Buscar noticias por contenido (búsqueda parcial)"""
+        from sqlalchemy.orm import selectinload
+        
         with session:
-            statement = select(News).where(
-                News.text.ilike(f"%{search_term}%")
-            ).offset(offset).limit(limit).order_by(News.creationDate.desc())
+            statement = (
+                select(News)
+                .where(News.text.ilike(f"%{search_term}%"))
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+                .order_by(News.creationDate.desc())
+                .offset(offset)
+                .limit(limit)
+            )
             news_list = session.exec(statement).all()
             if not news_list:
                 return []
@@ -244,9 +300,18 @@ class NewsService(BaseServiceWithFilters[News]):
         """Obtener noticias recientes (últimos N días)"""
         with session:
             cutoff_date = datetime.now(uruguay_tz).date() - timedelta(days=days)
-            statement = select(News).where(
-                News.creationDate >= cutoff_date
-            ).order_by(News.creationDate.desc()).offset(offset).limit(limit)
+            statement = (
+                select(News)
+                .where(News.creationDate >= cutoff_date)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+                .order_by(News.creationDate.desc())
+                .offset(offset)
+                .limit(limit)
+            )
             news_list = session.exec(statement).all()
             if not news_list:
                 return []
@@ -267,9 +332,18 @@ class NewsService(BaseServiceWithFilters[News]):
     def get_pending_news(self, session: Session, offset: int = 0, limit: int = 10) -> List[NewsRead]:
         """Obtener noticias pendientes de publicación"""
         with session:
-            statement = select(News).where(
-                News.published
-            ).offset(offset).limit(limit).order_by(News.creationDate.desc())
+            statement = (
+                select(News)
+                .where(not News.published)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+                .order_by(News.creationDate.desc())
+                .offset(offset)
+                .limit(limit)
+            )
             news_list = session.exec(statement).all()
             if not news_list:
                 return []
@@ -278,17 +352,28 @@ class NewsService(BaseServiceWithFilters[News]):
     def get_scheduled_news(self, session: Session, offset: int = 0, limit: int = 10) -> List[NewsRead]:
         """Obtener noticias programadas para publicación futura"""
         with session:
-            statement = select(News).where(
-                News.published,
-                News.publicationDate > datetime.now(uruguay_tz).date()
-            ).offset(offset).limit(limit).order_by(News.publicationDate.asc())
+            statement = (
+                select(News)
+                .where(
+                    News.published,
+                    News.publicationDate > datetime.now(uruguay_tz).date()
+                )
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+                .order_by(News.publicationDate.asc())
+                .offset(offset)
+                .limit(limit)
+            )
             news_list = session.exec(statement).all()
             if not news_list:
                 return []
             return [NewsRead.model_validate(news) for news in news_list]
 
     def update_news(self, news_id: int, news_update: NewsUpdate, session: Session) -> NewsRead:
-        """Actualizar una noticia existente"""
+        """Actualizar una noticia existente"""        
         with session:
             # Validar que la carrera existe si se está actualizando
             if news_update.career is not None:
@@ -297,7 +382,16 @@ class NewsService(BaseServiceWithFilters[News]):
                 if not career:
                     raise ValueError(f"La carrera con ID {news_update.career} no existe")
             
-            statement = select(News).where(News.newsId == news_id)
+            # Cargar la noticia CON sus relaciones
+            statement = (
+                select(News)
+                .where(News.newsId == news_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+            )
             old_news = session.exec(statement).one()
             
             update_data = news_update.model_dump(exclude_unset=True)
@@ -307,13 +401,35 @@ class NewsService(BaseServiceWithFilters[News]):
             old_news.modificationDate = datetime.now(uruguay_tz).date()
                 
             session.commit()
-            session.refresh(old_news)
-            return NewsRead.model_validate(old_news)
+            
+            # VOLVER A CARGAR CON RELACIONES después del commit
+            statement = (
+                select(News)
+                .where(News.newsId == news_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+            )
+            refreshed_news = session.exec(statement).one()
+            
+            return NewsRead.model_validate(refreshed_news)
 
     def publish_news(self, news_id: int, publication_date: Optional[date], session: Session) -> NewsRead:
         """Publicar una noticia (cambiar estado y fecha de publicación)"""
+        from sqlalchemy.orm import selectinload
+        
         with session:
-            statement = select(News).where(News.newsId == news_id)
+            statement = (
+                select(News)
+                .where(News.newsId == news_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+            )
             news = session.exec(statement).one()
             
             news.published = True
@@ -321,13 +437,35 @@ class NewsService(BaseServiceWithFilters[News]):
             news.modificationDate = datetime.now(uruguay_tz).date()
             
             session.commit()
-            session.refresh(news)
-            return NewsRead.model_validate(news)
+            
+            # Recargar con relaciones después del commit
+            statement = (
+                select(News)
+                .where(News.newsId == news_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+            )
+            refreshed_news = session.exec(statement).one()
+            
+            return NewsRead.model_validate(refreshed_news)
 
     def unpublish_news(self, news_id: int, session: Session) -> NewsRead:
         """Despublicar una noticia"""
+        from sqlalchemy.orm import selectinload
+        
         with session:
-            statement = select(News).where(News.newsId == news_id)
+            statement = (
+                select(News)
+                .where(News.newsId == news_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+            )
             news = session.exec(statement).one()
             
             news.published = False
@@ -335,8 +473,20 @@ class NewsService(BaseServiceWithFilters[News]):
             news.modificationDate = datetime.now(uruguay_tz).date()
             
             session.commit()
-            session.refresh(news)
-            return NewsRead.model_validate(news)
+            
+            # Recargar con relaciones después del commit
+            statement = (
+                select(News)
+                .where(News.newsId == news_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+            )
+            refreshed_news = session.exec(statement).one()
+            
+            return NewsRead.model_validate(refreshed_news)
 
     def delete_news(self, news_id: int, session: Session) -> bool:
         """Eliminar una noticia"""
@@ -358,7 +508,7 @@ class NewsService(BaseServiceWithFilters[News]):
         """Obtener el conteo de noticias publicadas"""
         with session:
             statement = select(News).where(
-                News.published == True,
+                News.published,
                 News.publicationDate <= datetime.now(uruguay_tz).date()
             )
             news_list = session.exec(statement).all()
@@ -485,40 +635,100 @@ class NewsService(BaseServiceWithFilters[News]):
 
     # Métodos específicos para manejo de imágenes
     def add_image_to_news(self, news_id: int, image_url: str, session: Session) -> NewsRead:
-        """Agregar una imagen a una noticia"""
+        """Agregar una imagen a una noticia"""        
         with session:
-            statement = select(News).where(News.newsId == news_id)
+            statement = (
+                select(News)
+                .where(News.newsId == news_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+            )
             news = session.exec(statement).one()
             
             news.add_image_url(image_url)
             news.modificationDate = datetime.now(uruguay_tz).date()
             
             session.commit()
-            session.refresh(news)
-            return NewsRead.model_validate(news)
+            
+            # Recargar con relaciones después del commit
+            statement = (
+                select(News)
+                .where(News.newsId == news_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+            )
+            refreshed_news = session.exec(statement).one()
+            
+            return NewsRead.model_validate(refreshed_news)
 
     def remove_image_from_news(self, news_id: int, image_url: str, session: Session) -> NewsRead:
-        """Remover una imagen de una noticia"""
+        """Remover una imagen de una noticia"""  
         with session:
-            statement = select(News).where(News.newsId == news_id)
+            statement = (
+                select(News)
+                .where(News.newsId == news_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+            )
             news = session.exec(statement).one()
             
             news.remove_image_url(image_url)
             news.modificationDate = datetime.now(uruguay_tz).date()
             
             session.commit()
-            session.refresh(news)
-            return NewsRead.model_validate(news)
+            
+            # Recargar con relaciones después del commit
+            statement = (
+                select(News)
+                .where(News.newsId == news_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+            )
+            refreshed_news = session.exec(statement).one()
+            
+            return NewsRead.model_validate(refreshed_news)
 
     def update_news_images(self, news_id: int, image_urls: List[str], session: Session) -> NewsRead:
-        """Actualizar todas las imágenes de una noticia"""
+        """Actualizar todas las imágenes de una noticia"""        
         with session:
-            statement = select(News).where(News.newsId == news_id)
+            statement = (
+                select(News)
+                .where(News.newsId == news_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+            )
             news = session.exec(statement).one()
             
             news.set_images_list(image_urls)
             news.modificationDate = datetime.now(uruguay_tz).date()
             
             session.commit()
-            session.refresh(news)
-            return NewsRead.model_validate(news)
+            
+            # Recargar con relaciones después del commit
+            statement = (
+                select(News)
+                .where(News.newsId == news_id)
+                .options(
+                    selectinload(News.creator_user),
+                    selectinload(News.modifier_user),
+                    selectinload(News.career_ref)
+                )
+            )
+            refreshed_news = session.exec(statement).one()
+            
+            return NewsRead.model_validate(refreshed_news)
