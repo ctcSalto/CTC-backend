@@ -130,8 +130,8 @@ class NewsCreateForm(BaseModel):
 class NewsUpdate(SQLModel):
     area: Optional[Area] = None
     career: Optional[int] = None
-    title: Optional[str] = Field(default=None, max_length=150)
-    text: Optional[str] = Field(default=None, max_length=5000)
+    title: Optional[str] = None
+    text: Optional[str] = None
     videoLink: Optional[str] = None
     imagesLink: Optional[List[str]] = Field(default=None, max_items=6)
     publicationDate: Optional[date] = None
