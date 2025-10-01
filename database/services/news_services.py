@@ -719,7 +719,6 @@ class NewsService(BaseServiceWithFilters[News]):
             
             session.commit()
             
-            # Recargar con relaciones después del commit
             statement = (
                 select(News)
                 .where(News.newsId == news_id)

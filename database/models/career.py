@@ -112,10 +112,10 @@ class CareerUpdate(SQLModel):
     area: Optional[Area] = None
     name: Optional[str] = Field(default=None, max_length=100)
     subtitle: Optional[str] = Field(default=None, max_length=130)
-    aboutCourse1: Optional[str] = Field(default=None, max_length=600)
-    aboutCourse2: Optional[str] = Field(default=None, max_length=2000)
-    graduateProfile: Optional[str] = Field(default=None, max_length=1500)
-    studyPlan: Optional[str] = Field(default=None, max_length=2500)
+    aboutCourse1: Optional[str] = None
+    aboutCourse2: Optional[str] = None
+    graduateProfile: Optional[str] = None
+    studyPlan: Optional[str] = None
     imageLink: Optional[str] = None
     publicationDate: Optional[date] = None
     published: Optional[bool] = None
