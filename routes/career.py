@@ -14,7 +14,10 @@ from utils.logger import show
 import os
 from zoneinfo import ZoneInfo
 
-uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
+def get_uruguay_tz():
+    """Lee la variable cada vez que se llama"""
+    tz_name = os.getenv('TIME_ZONE', 'America/Montevideo')
+    return ZoneInfo(tz_name)
 
 router = APIRouter(prefix="/careers", tags=["Careers"])
 
@@ -81,7 +84,7 @@ async def create_career(
             area=career_form.area,
             creator=creator,
             published=career_form.published,
-            publicationDate=datetime.now(uruguay_tz).date() if career_form.published else None
+            publicationDate=datetime.now(get_uruguay_tz()).date() if career_form.published else None
         )
         
         # Crear la carrera

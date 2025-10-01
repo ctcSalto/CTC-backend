@@ -13,7 +13,10 @@ from database.models.user import UserRead
 import os
 from zoneinfo import ZoneInfo
 
-uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
+def get_uruguay_tz():
+    """Lee la variable cada vez que se llama"""
+    tz_name = os.getenv('TIME_ZONE', 'America/Montevideo')
+    return ZoneInfo(tz_name)
 
 class NewsService(BaseServiceWithFilters[News]):
     def __init__(self):
@@ -65,7 +68,7 @@ class NewsService(BaseServiceWithFilters[News]):
         with session:
             statement = select(News).where(
                 News.published,
-                News.publicationDate <= datetime.now(uruguay_tz).date()
+                News.publicationDate <= datetime.now(get_uruguay_tz()).date()
             ).offset(offset).limit(limit).order_by(News.publicationDate.desc())
             news_list = session.exec(statement).all()
             if not news_list:
@@ -134,7 +137,7 @@ class NewsService(BaseServiceWithFilters[News]):
             ).where(
                 News.newsId == news_id,
                 News.published,
-                News.publicationDate <= datetime.now(uruguay_tz).date()
+                News.publicationDate <= datetime.now(get_uruguay_tz()).date()
             )
             result = session.exec(statement).first()
             
@@ -181,7 +184,7 @@ class NewsService(BaseServiceWithFilters[News]):
             statement = select(News).where(
                 News.area == area,
                 News.published,
-                News.publicationDate <= datetime.now(uruguay_tz).date()
+                News.publicationDate <= datetime.now(get_uruguay_tz()).date()
             ).offset(offset).limit(limit).order_by(News.publicationDate.desc())
             news_list = session.exec(statement).all()
             if not news_list:
@@ -214,7 +217,7 @@ class NewsService(BaseServiceWithFilters[News]):
             statement = select(News).where(
                 News.career == career_id,
                 News.published,
-                News.publicationDate <= datetime.now(uruguay_tz).date()
+                News.publicationDate <= datetime.now(get_uruguay_tz()).date()
             ).offset(offset).limit(limit).order_by(News.publicationDate.desc())
             news_list = session.exec(statement).all()
             if not news_list:
@@ -288,7 +291,7 @@ class NewsService(BaseServiceWithFilters[News]):
         with session:
             statement = select(News).where(
                 News.published,
-                News.publicationDate <= datetime.now(uruguay_tz).date(),
+                News.publicationDate <= datetime.now(get_uruguay_tz()).date(),
                 (News.title.ilike(f"%{search_term}%") | News.text.ilike(f"%{search_term}%"))
             ).offset(offset).limit(limit).order_by(News.publicationDate.desc())
             news_list = session.exec(statement).all()
@@ -299,7 +302,7 @@ class NewsService(BaseServiceWithFilters[News]):
     def get_recent_news(self, session: Session, days: int = 30, offset: int = 0, limit: int = 10) -> List[NewsRead]:
         """Obtener noticias recientes (últimos N días)"""
         with session:
-            cutoff_date = datetime.now(uruguay_tz).date() - timedelta(days=days)
+            cutoff_date = datetime.now(get_uruguay_tz()).date() - timedelta(days=days)
             statement = (
                 select(News)
                 .where(News.creationDate >= cutoff_date)
@@ -322,7 +325,7 @@ class NewsService(BaseServiceWithFilters[News]):
         with session:
             statement = select(News).where(
                 News.published,
-                News.publicationDate <= datetime.now(uruguay_tz).date()
+                News.publicationDate <= datetime.now(get_uruguay_tz()).date()
             ).order_by(News.publicationDate.desc()).limit(limit)
             news_list = session.exec(statement).all()
             if not news_list:
@@ -356,7 +359,7 @@ class NewsService(BaseServiceWithFilters[News]):
                 select(News)
                 .where(
                     News.published,
-                    News.publicationDate > datetime.now(uruguay_tz).date()
+                    News.publicationDate > datetime.now(get_uruguay_tz()).date()
                 )
                 .options(
                     selectinload(News.creator_user),
@@ -398,7 +401,7 @@ class NewsService(BaseServiceWithFilters[News]):
             for key, value in update_data.items():
                 setattr(old_news, key, value)
             
-            old_news.modificationDate = datetime.now(uruguay_tz).date()
+            old_news.modificationDate = datetime.now(get_uruguay_tz()).date()
                 
             session.commit()
             
@@ -433,8 +436,8 @@ class NewsService(BaseServiceWithFilters[News]):
             news = session.exec(statement).one()
             
             news.published = True
-            news.publicationDate = publication_date or datetime.now(uruguay_tz).date()
-            news.modificationDate = datetime.now(uruguay_tz).date()
+            news.publicationDate = publication_date or datetime.now(get_uruguay_tz()).date()
+            news.modificationDate = datetime.now(get_uruguay_tz()).date()
             
             session.commit()
             
@@ -470,7 +473,7 @@ class NewsService(BaseServiceWithFilters[News]):
             
             news.published = False
             news.publicationDate = None
-            news.modificationDate = datetime.now(uruguay_tz).date()
+            news.modificationDate = datetime.now(get_uruguay_tz()).date()
             
             session.commit()
             
@@ -509,7 +512,7 @@ class NewsService(BaseServiceWithFilters[News]):
         with session:
             statement = select(News).where(
                 News.published,
-                News.publicationDate <= datetime.now(uruguay_tz).date()
+                News.publicationDate <= datetime.now(get_uruguay_tz()).date()
             )
             news_list = session.exec(statement).all()
             return len(news_list)
@@ -597,7 +600,7 @@ class NewsService(BaseServiceWithFilters[News]):
     def bulk_publish_news(self, news_ids: List[int], publication_date: Optional[date], session: Session) -> int:
         """Publicar múltiples noticias en lote"""
         with session:
-            pub_date = publication_date or datetime.now(uruguay_tz).date()
+            pub_date = publication_date or datetime.now(get_uruguay_tz()).date()
             count = 0
             
             for news_id in news_ids:
@@ -606,7 +609,7 @@ class NewsService(BaseServiceWithFilters[News]):
                     news = session.exec(statement).one()
                     news.published = True
                     news.publicationDate = pub_date
-                    news.modificationDate = datetime.now(uruguay_tz).date()
+                    news.modificationDate = datetime.now(get_uruguay_tz()).date()
                     count += 1
                 except NoResultFound:
                     continue
@@ -625,7 +628,7 @@ class NewsService(BaseServiceWithFilters[News]):
                     news = session.exec(statement).one()
                     news.published = False
                     news.publicationDate = None
-                    news.modificationDate = datetime.now(uruguay_tz).date()
+                    news.modificationDate = datetime.now(get_uruguay_tz()).date()
                     count += 1
                 except NoResultFound:
                     continue
@@ -649,7 +652,7 @@ class NewsService(BaseServiceWithFilters[News]):
             news = session.exec(statement).one()
             
             news.add_image_url(image_url)
-            news.modificationDate = datetime.now(uruguay_tz).date()
+            news.modificationDate = datetime.now(get_uruguay_tz()).date()
             
             session.commit()
             
@@ -682,7 +685,7 @@ class NewsService(BaseServiceWithFilters[News]):
             news = session.exec(statement).one()
             
             news.remove_image_url(image_url)
-            news.modificationDate = datetime.now(uruguay_tz).date()
+            news.modificationDate = datetime.now(get_uruguay_tz()).date()
             
             session.commit()
             
@@ -715,7 +718,7 @@ class NewsService(BaseServiceWithFilters[News]):
             news = session.exec(statement).one()
             
             news.set_images_list(image_urls)
-            news.modificationDate = datetime.now(uruguay_tz).date()
+            news.modificationDate = datetime.now(get_uruguay_tz()).date()
             
             session.commit()
             

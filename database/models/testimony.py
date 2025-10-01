@@ -5,11 +5,14 @@ from typing import Optional, List, TYPE_CHECKING
 import os
 from zoneinfo import ZoneInfo
 
-uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
-
 if TYPE_CHECKING:
     from database.models.user import User, UserRead
     from database.models.career import Career, CareerRead
+    
+def get_uruguay_tz():
+    """Lee la variable cada vez que se llama"""
+    tz_name = os.getenv('TIME_ZONE', 'America/Montevideo')
+    return ZoneInfo(tz_name)
 
 # Modelo base para la tabla
 class TestimonyBase(SQLModel):
@@ -21,7 +24,7 @@ class TestimonyBase(SQLModel):
 # Modelo para la tabla (con relaciones)
 class Testimony(TestimonyBase, table=True):
     testimonyId: Optional[int] = Field(default=None, primary_key=True, description="ID único del testimonio")
-    creationDate: date = Field(default_factory=lambda: datetime.now(uruguay_tz).date(), description="Fecha de creación")
+    creationDate: date = Field(default_factory=lambda: datetime.now(get_uruguay_tz()).date(), description="Fecha de creación")
     modificationDate: Optional[date] = Field(default=None, description="Fecha de modificación")
     creator: int = Field(foreign_key="user.userId", description="ID del usuario creador")
     modifier: Optional[int] = Field(default=None, foreign_key="user.userId", description="ID del usuario modificador")
@@ -40,12 +43,12 @@ class TestimonyUpdate(SQLModel):
     lastname: Optional[str] = Field(default=None, max_length=50)
     career: Optional[int] = None
     modifier: Optional[int] = None
-    modificationDate: Optional[date] = Field(default_factory=lambda: datetime.now(uruguay_tz).date())
+    modificationDate: Optional[date] = Field(default_factory=lambda: datetime.now(get_uruguay_tz()).date())
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Actualizar fecha de modificación automáticamente
-        self.modificationDate = datetime.now(uruguay_tz).date()
+        self.modificationDate = datetime.now(get_uruguay_tz()).date()
 
 # Modelo para leer un testimonio (GET) - incluye todos los campos
 class TestimonyRead(TestimonyBase):
