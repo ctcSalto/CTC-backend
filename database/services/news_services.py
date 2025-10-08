@@ -66,8 +66,7 @@ class NewsService(BaseServiceWithFilters[News]):
     def get_news_public(self, session: Session, offset: int = 0, limit: int = 10) -> List[NewsPublic]:
         """Obtener noticias públicas (solo publicadas)"""
         with session:
-            # Obtener la fecha/hora actual en UTC para comparar consistentemente
-            now_utc = datetime.now(timezone.utc)
+            now_utc = datetime.now(timezone.utc) + timedelta(days=1)
             
             statement = select(News).where(
                 News.published,
