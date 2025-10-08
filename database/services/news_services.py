@@ -5,7 +5,7 @@ from typing import List, Optional
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import selectinload
 
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 from database.services.filter.filters import BaseServiceWithFilters
 from database.models.user import UserRead
@@ -66,14 +66,20 @@ class NewsService(BaseServiceWithFilters[News]):
     def get_news_public(self, session: Session, offset: int = 0, limit: int = 10) -> List[NewsPublic]:
         """Obtener noticias públicas (solo publicadas)"""
         with session:
+            # Obtener la fecha/hora actual en UTC para comparar consistentemente
+            now_utc = datetime.now(timezone.utc)
+            
             statement = select(News).where(
                 News.published,
-                News.publicationDate <= datetime.now(get_uruguay_tz()).date()
+                News.publicationDate <= now_utc
             ).offset(offset).limit(limit).order_by(News.publicationDate.desc())
+            
             news_list = session.exec(statement).all()
+            
             if not news_list:
                 print("No se encontraron noticias públicas")
                 return []
+                
             return [NewsPublic.model_validate(news) for news in news_list]
 
 
