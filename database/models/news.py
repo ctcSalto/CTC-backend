@@ -140,7 +140,7 @@ class NewsUpdate(SQLModel):
     publicationDate: Optional[date] = None
     published: Optional[bool] = None
     modifier: Optional[int] = None
-    modificationDate: Optional[date] = Field(default_factory=lambda: datetime.now(get_uruguay_tz()).date())
+    modificationDate: Optional[date] = None
     
     @field_validator('imagesLink')
     @classmethod

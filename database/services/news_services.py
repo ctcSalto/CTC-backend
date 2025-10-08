@@ -65,9 +65,12 @@ class NewsService(BaseServiceWithFilters[News]):
 
     def get_news_public(self, session: Session, offset: int = 0, limit: int = 10) -> List[NewsPublic]:
         """Obtener noticias públicas (solo publicadas)"""
-        with session:            
+        with session:
+            today_uruguay = datetime.now(get_uruguay_tz()).date()
+            
             statement = select(News).where(
-                News.published
+                News.published,
+                News.publicationDate <= today_uruguay
             ).offset(offset).limit(limit).order_by(News.publicationDate.desc())
             
             news_list = session.exec(statement).all()
@@ -134,12 +137,13 @@ class NewsService(BaseServiceWithFilters[News]):
     def get_published_news_by_id(self, news_id: int, session: Session) -> NewsPublic:
         """Obtener una noticia publicada por su ID (para público)"""
         with session:
+            today_uruguay = datetime.now(get_uruguay_tz()).date()
             statement = select(News, Career.name).outerjoin(
                 Career, News.career == Career.careerId
             ).where(
                 News.newsId == news_id,
                 News.published,
-                News.publicationDate <= datetime.now(get_uruguay_tz()).date()
+                News.publicationDate <= today_uruguay
             )
             result = session.exec(statement).first()
             
@@ -406,6 +410,7 @@ class NewsService(BaseServiceWithFilters[News]):
             old_news.modificationDate = datetime.now(get_uruguay_tz()).date()
                 
             session.commit()
+            session.refresh(old_news)
             
             # VOLVER A CARGAR CON RELACIONES después del commit
             statement = (
