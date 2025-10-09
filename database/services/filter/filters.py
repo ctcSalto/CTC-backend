@@ -933,7 +933,7 @@ class BaseServiceWithFilters(Generic[T]):
         )
         
         # Condición 2: publicationDate <= hoy OR publicationDate IS NULL
-        today = datetime.now(get_uruguay_tz()).date().isoformat()  # Convertir a string para el filtro
+        today = datetime.now(get_uruguay_tz()).date()
         
         # Crear grupo de condiciones para (publicationDate <= hoy OR publicationDate IS NULL)
         date_condition_group = ConditionGroup(

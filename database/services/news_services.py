@@ -66,11 +66,11 @@ class NewsService(BaseServiceWithFilters[News]):
     def get_news_public(self, session: Session, offset: int = 0, limit: int = 10) -> List[NewsPublic]:
         """Obtener noticias públicas (solo publicadas)"""
         with session:
-            # today_uruguay = datetime.now(get_uruguay_tz()).date()
+            today_uruguay = datetime.now(get_uruguay_tz()).date()
             
             statement = select(News).where(
-                News.published
-                # News.publicationDate <= today_uruguay
+                News.published,
+                News.publicationDate <= today_uruguay
             ).offset(offset).limit(limit).order_by(News.publicationDate.desc())
             
             news_list = session.exec(statement).all()

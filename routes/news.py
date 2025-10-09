@@ -548,7 +548,6 @@ async def delete_news(
 
 # =================== ENDPOINTS DE BÚSQUEDA ADMINISTRATIVA ===================
 
-# TODO: Hacer otro endpoint para usuarios (Filtrar que esten publicadas las carreras)
 @router.post("/filters", status_code=status.HTTP_200_OK)
 async def filter_news(
     filters: Filter,
