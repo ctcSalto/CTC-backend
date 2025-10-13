@@ -10,7 +10,10 @@ from database.services.filter.filters import BaseServiceWithFilters
 import os
 from zoneinfo import ZoneInfo
 
-uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
+def get_uruguay_tz():
+    """Lee la variable cada vez que se llama"""
+    tz_name = os.getenv('TIME_ZONE', 'America/Montevideo')
+    return ZoneInfo(tz_name)
 
 class TestimonyService(BaseServiceWithFilters[Testimony]):
     def __init__(self):
@@ -175,7 +178,7 @@ class TestimonyService(BaseServiceWithFilters[Testimony]):
         from datetime import timedelta
         
         with session:
-            cutoff_date = datetime.now(uruguay_tz).date() - timedelta(days=days)
+            cutoff_date = datetime.now(get_uruguay_tz()).date() - timedelta(days=days)
             statement = select(Testimony).where(
                 Testimony.creationDate >= cutoff_date
             ).order_by(Testimony.creationDate.desc()).offset(offset).limit(limit)
@@ -206,7 +209,7 @@ class TestimonyService(BaseServiceWithFilters[Testimony]):
                 setattr(old_testimony, key, value)
             
             # La fecha de modificación se actualiza automáticamente en TestimonyUpdate.__init__
-            old_testimony.modificationDate = datetime.now(uruguay_tz).date()
+            old_testimony.modificationDate = datetime.now(get_uruguay_tz()).date()
                 
             session.commit()
             session.refresh(old_testimony)

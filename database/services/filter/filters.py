@@ -9,7 +9,10 @@ import logging
 import os
 from zoneinfo import ZoneInfo
 
-uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
+def get_uruguay_tz():
+    """Lee la variable cada vez que se llama"""
+    tz_name = os.getenv('TIME_ZONE', 'America/Montevideo')
+    return ZoneInfo(tz_name)
 
 logger = logging.getLogger(__name__)
 
@@ -930,7 +933,7 @@ class BaseServiceWithFilters(Generic[T]):
         )
         
         # Condición 2: publicationDate <= hoy OR publicationDate IS NULL
-        today = datetime.now(uruguay_tz).date().isoformat()  # Convertir a string para el filtro
+        today = datetime.now(get_uruguay_tz()).date()
         
         # Crear grupo de condiciones para (publicationDate <= hoy OR publicationDate IS NULL)
         date_condition_group = ConditionGroup(

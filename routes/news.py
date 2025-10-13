@@ -23,7 +23,10 @@ from utils.logger import show
 import os
 from zoneinfo import ZoneInfo
 
-uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
+def get_uruguay_tz():
+    """Lee la variable cada vez que se llama"""
+    tz_name = os.getenv('TIME_ZONE', 'America/Montevideo')
+    return ZoneInfo(tz_name)
 
 router = APIRouter(prefix="/news", tags=["News"])
 
@@ -295,7 +298,7 @@ async def create_news(
             imagesLink=image_urls,
             creator=current_user.userId,
             published=published,
-            publicationDate=datetime.now(uruguay_tz).date() if published else None
+            publicationDate=datetime.now(get_uruguay_tz()).date() if published else None
         )
 
         new_news = services.newsService.create_news(news_data, session)
@@ -545,7 +548,6 @@ async def delete_news(
 
 # =================== ENDPOINTS DE BÚSQUEDA ADMINISTRATIVA ===================
 
-# TODO: Hacer otro endpoint para usuarios (Filtrar que esten publicadas las carreras)
 @router.post("/filters", status_code=status.HTTP_200_OK)
 async def filter_news(
     filters: Filter,

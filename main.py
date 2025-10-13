@@ -33,8 +33,10 @@ except Exception as e:
 from routes.test import test_filters
 from utils.logger import show
 
-uruguay_tz = ZoneInfo(os.getenv('TIME_ZONE')) if os.getenv('TIME_ZONE') else ZoneInfo('America/Montevideo')
-
+def get_uruguay_tz():
+    """Lee la variable cada vez que se llama"""
+    tz_name = os.getenv('TIME_ZONE', 'America/Montevideo')
+    return ZoneInfo(tz_name)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -119,7 +121,7 @@ async def health():
     return {
         "status": "OK", 
         "version": app.version, 
-        "time": datetime.now(uruguay_tz).isoformat(),
+        "time": datetime.now(get_uruguay_tz()).isoformat(),
         "timezone": os.getenv('TIME_ZONE', 'UTC')
     }
 
