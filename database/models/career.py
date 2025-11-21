@@ -20,6 +20,7 @@ class CareerType(str, Enum):
     CAREER = "career"
     COURSE = "course"
     WORKSHOP = "workshop"
+    DIPLOMA = "diploma"
 
 class Area(str, Enum):
     ADMINISTRATION = "administration"
@@ -44,6 +45,13 @@ class CareerBase(SQLModel):
     graduateProfile: Optional[str] = Field(default=None, description="Perfil del egresado")
     studyPlan: Optional[str] = Field(default=None,description="Plan de estudios")
     imageLink: str = Field(description="Enlace de la imagen")
+    
+    # Campos de fase 2, al ser agregados posteriormente son opcionales
+    duration: Optional[str] = Field(default=None, description="Duración")
+    hourlyLoad: Optional[str] = Field(default=None, description="Carga horaria")
+    cost: Optional[str] = Field(default=None, description="Costo")
+    startClasses: Optional[date] = Field(default=None, description="Próximo inicio de clases")
+    certificationType: Optional[str] = Field(default=None, description="Tipo certificación")
 
 # Modelo para la tabla (con relaciones)
 class Career(CareerBase, table=True):
@@ -83,6 +91,13 @@ class CareerCreateForm(BaseModel):
     studyPlan: Optional[str] = None
     careerType: str = "career"
     area: str = "it"
+    
+    # NUEVOS CAMPOS
+    duration: Optional[str] = None
+    hourlyLoad: Optional[str] = None
+    cost: Optional[str] = None
+    startClasses: Optional[date] = None
+    certificationType: Optional[str] = None
 
     @classmethod
     def as_form(
@@ -95,7 +110,13 @@ class CareerCreateForm(BaseModel):
         graduateProfile: Optional[str] = Form(None),
         studyPlan: Optional[str] = Form(None),
         careerType: str = Form("career"),
-        area: str = Form("it")
+        area: str = Form("it"),
+        # NUEVOS CAMPOS
+        duration: Optional[str] = Form(None),
+        hourlyLoad: Optional[str] = Form(None),
+        cost: Optional[str] = Form(None),
+        startClasses: Optional[date] = Form(None),
+        certificationType: Optional[str] = Form(None)
     ) -> 'CareerCreateForm':
         return cls(
             name=name,
@@ -106,7 +127,13 @@ class CareerCreateForm(BaseModel):
             graduateProfile=graduateProfile,
             studyPlan=studyPlan,
             careerType=careerType,
-            area=area
+            area=area,
+            # NUEVOS CAMPOS
+            duration=duration,
+            hourlyLoad=hourlyLoad,
+            cost=cost,
+            startClasses=startClasses,
+            certificationType=certificationType
         )
 
 # Modelo para actualizar una carrera (PUT/PATCH)
@@ -124,6 +151,12 @@ class CareerUpdate(SQLModel):
     published: Optional[bool] = None
     modifier: Optional[int] = None
     modificationDate: Optional[date] = Field(default_factory=lambda: datetime.now(get_uruguay_tz()).date())
+    
+    duration: Optional[str] = None
+    hourlyLoad: Optional[str] = None
+    cost: Optional[str] = None
+    startClasses: Optional[date] = None
+    certificationType: Optional[str] = None
 
 # Modelo para leer una carrera (GET) - incluye todos los campos
 class CareerRead(CareerBase):
@@ -150,6 +183,12 @@ class CareerFilterResponse(SQLModel):
     modifier_user: Optional["UserRead"] = None
     testimonies: List["TestimonyRead"] = []
     
+    duration: Optional[str] = None
+    hourlyLoad: Optional[str] = None
+    cost: Optional[str] = None
+    startClasses: Optional[date] = None
+    certificationType: Optional[str] = None
+    
 class CareerFilterWithCountResponse(SQLModel):
     data: List[CareerFilterResponse] = []
     total_count: int = 0
@@ -171,6 +210,12 @@ class CareerSimple(SQLModel):
     careerType: CareerType = Field(description="Tipo de carrera")
     area: Area = Field(description="Área de la carrera")
     name: str = Field(description="Nombre de la carrera")
+    
+    duration: Optional[str] = None
+    hourlyLoad: Optional[str] = None
+    cost: Optional[str] = None
+    startClasses: Optional[date] = None
+    certificationType: Optional[str] = None
     
 class CarrerDropdown(SQLModel):
     """Modelo para dropdown de carreras (id, name)"""
@@ -216,6 +261,10 @@ class CareerInList(SQLModel):
     published: bool
     publicationDate: Optional[date] = None
     imageLink: str
+    
+    duration: Optional[str] = None
+    cost: Optional[str] = None
+    startClasses: Optional[date] = None
     
     
 from .user import UserRead
