@@ -442,25 +442,25 @@ class CareerService(BaseServiceWithFilters[Career]):
         """Actualizar una carrera existente"""
         with session:
             statement = select(Career).where(Career.careerId == career_id)
-            old_career = session.exec(statement).first()  # Usar first() en lugar de one()
+            old_career = session.exec(statement).first()
             old_image = old_career.imageLink if old_career else None
             if not old_career:
                 return None
             
-            # Obtener solo los campos que no son None
-            update_data = career_update.model_dump(exclude_unset=True, exclude_none=True)
+            # Obtener solo los campos que fueron enviados (exclude_unset=True)
+            update_data = career_update.model_dump(exclude_unset=True)
             
             # Actualizar los campos
             for key, value in update_data.items():
                 setattr(old_career, key, value)
             
             try:
-                # boorrar imagen antigua si se actualizó el enlace y no es el por defecto
-                if supabaseService is not None:
+                # Borrar imagen antigua si se actualizó el enlace y no es el por defecto
+                if supabaseService is not None and 'imageLink' in update_data and old_image != update_data.get('imageLink'):
                     supabaseService.delete_image(old_image)
             except Exception as e:
                 print(f"Error al borrar imagen antigua: {e}")
-                # No interrumpir la actualización por este error
+            
             # Actualizar fecha de modificación automáticamente
             old_career.modificationDate = datetime.now(get_uruguay_tz()).date()
                 
