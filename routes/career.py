@@ -84,7 +84,13 @@ async def create_career(
             area=career_form.area,
             creator=creator,
             published=career_form.published,
-            publicationDate=datetime.now(get_uruguay_tz()).date() if career_form.published else None
+            publicationDate=datetime.now(get_uruguay_tz()).date() if career_form.published else None,
+            
+            duration=career_form.duration,
+            hourlyLoad=career_form.hourlyLoad,
+            cost=career_form.cost,
+            startClasses=career_form.startClasses,
+            certificationType=career_form.certificationType
         )
         
         # Crear la carrera
@@ -114,87 +120,7 @@ async def create_career(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail=f"Error interno del servidor: {str(e)}"
         )
-"""
-@router.post("/create", response_model=CareerRead, status_code=status.HTTP_201_CREATED)
-async def create_career(
-    name: str,
-    subtitle: str,
-    aboutCourse1: str,
-    published: bool,
-    aboutCourse2: Optional[str] = None,
-    graduateProfile: Optional[str] = None,
-    studyPlan: Optional[str] = None,
-    image: UploadFile = File(...),
-    careerType: str = "career",
-    area: str = "it",
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> CareerRead:
-    ""Crear una nueva carrera (solo admins)""
-    try:
-        # Asignar el usuario actual como creador
-        creator = current_user.userId
-        
-        print(f"Es para publicar: {published}")
-        
-        if image:
-            image_url = None
-            try:
-                image_url = await services.supabaseService.upload_image(image, folder="images")
-            except Exception as e:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Error al subir la imagen: {str(e)}"
-                )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La imagen es requerida"
-            )
-                
-        career_data: CareerCreate = CareerCreate(
-            name=name,
-            subtitle=subtitle,
-            aboutCourse1=aboutCourse1,
-            aboutCourse2=aboutCourse2,
-            graduateProfile=graduateProfile,
-            studyPlan=studyPlan,
-            imageLink=image_url,
-            careerType=careerType,
-            area=area,
-            creator=creator,
-            published=published,
-            publicationDate=datetime.now(uruguay_tz).date() if published else None
-        )
-        
-        # Crear la carrera
-        new_career = services.careerService.create_career(career_data, session)
-        
-        show(f"Carrera creada: {new_career.name} por usuario {current_user.email}")
-        
-        if not new_career:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error al crear la carrera"
-            )
-        
-        return new_career
-        
-    except ValueError as e:
-        services.supabaseService.rollback(image_url=image_url)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail=str(e)
-        )
-    except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=f"Error interno del servidor: {str(e)}"
-        )
-"""
+
 @router.get("/careers", response_model=List[CareerInList])
 async def get_careers(
     offset: int = Query(0, ge=0, description="Número de registros a saltar"),
@@ -268,7 +194,7 @@ async def get_careers_with_filters(
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error interno del servidor: {str(e)}"
         )
 
