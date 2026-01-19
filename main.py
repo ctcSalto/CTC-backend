@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from routes import auth, career, testimony, news
 from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_enrolment
 from routes.mercadopago import mercadopago
+from routes.google import google_test, google_analytics
 
 from pages.welcome import html
 from database.database import reset_database, create_db_and_tables
@@ -44,33 +45,50 @@ async def lifespan(app: FastAPI):
     startup_success = False
     try:
         print("🔄 [STARTUP] Iniciando configuración de base de datos...")
-        from database.database import engine
+        from database.database import engine, get_services, get_db_session
         from sqlalchemy import text
-        
+
         print("🔄 [STARTUP] Probando conexión a PostgreSQL...")
         with engine.connect() as conn:
             result = conn.execute(text("SELECT 1"))
             print("✅ [STARTUP] Conexión a PostgreSQL exitosa")
-        
+
         print("🔄 [STARTUP] Creando tablas...")
         create_db_and_tables()
         print("✅ [STARTUP] Base de datos y tablas creadas/verificadas")
-        
+
+        # Cache warmup for careers
+        print("🔄 [STARTUP] Iniciando precarga de cache para carreras...")
+        try:
+            services = get_services()
+            with get_db_session() as session:
+                warmup_result = services.cacheService.warmup_published_careers(
+                    session=session,
+                    career_service=services.careerService
+                )
+                if warmup_result:
+                    print("✅ [STARTUP] Cache de carreras precargado exitosamente")
+                else:
+                    print("⚠️ [STARTUP] No se encontraron carreras para precargar en cache")
+        except Exception as cache_error:
+            print(f"⚠️ [STARTUP] Error precargando cache (no crítico): {cache_error}")
+            # No lanzamos el error porque el cache no es crítico para el startup
+
         startup_success = True
         print("🎉 [STARTUP] TODO EL STARTUP COMPLETADO EXITOSAMENTE")
-        
+
     except Exception as e:
         print(f"❌ [STARTUP] ERROR CRÍTICO: {e}")
         print(f"❌ [STARTUP] Tipo: {type(e).__name__}")
         import traceback
         traceback.print_exc()
         raise e  # Esto hará que falle el startup
-    
+
     if startup_success:
         print("🚀 [LIFESPAN] Aplicación lista para recibir requests")
-    
+
     yield  # La aplicación funciona aquí
-    
+
     # Shutdown
     print("🔄 [SHUTDOWN] Iniciando proceso de cierre...")
     try:
@@ -79,7 +97,7 @@ async def lifespan(app: FastAPI):
         print("✅ [SHUTDOWN] Recursos liberados correctamente")
     except Exception as e:
         print(f"⚠️ [SHUTDOWN] Error: {e}")
-    
+
     print("👋 [SHUTDOWN] Aplicación cerrada")
 
     
@@ -87,7 +105,7 @@ app = FastAPI(
     title="Backend CTC",
     description="Backend para la aplicación CTC",
     version="0.0.15",
-    #lifespan=lifespan  # Para iniciar la base de datos
+    lifespan=lifespan  # Para iniciar la base de datos y cache
 )
 
 @app.get("/docs-scalar", include_in_schema=False)
@@ -139,6 +157,12 @@ app.include_router(moodle_enrolment.router)
 app.include_router(mercadopago.router)
 app.include_router(test_filters.router)
 
+# Google Workspace
+app.include_router(google_test.router)
+
+# Google Analytics
+app.include_router(google_analytics.router)
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -153,64 +177,3 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     uvicorn.run("main:app", port=port, host="0.0.0.0")
-    
-    
-"""
-MIGRACION:
-
-# PRODUCCION
-# Cambiar el URL_DATABASE a postgresql+psycopg2://postgres:ctcSalto2025@86.48.5.197:5432/postgres?sslmode=disable
-
-----------------------------------------------------------------------------------
-
-Archivos: 055950855a1a_add_diploma_type_and_new_career_fields.py
-
-""add_diploma_type_and_new_career_fields
-
-Revision ID: 055950855a1a
-Revises: a736aaa18a0f
-Create Date: 2025-11-19 22:58:36.048466
-
-""
-from typing import Sequence, Union
-
-from alembic import op
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
-import sqlmodel
-
-# revision identifiers, used by Alembic.
-revision: str = '055950855a1a'
-down_revision: Union[str, None] = 'a736aaa18a0f'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
-
-
-def upgrade() -> None:
-    # Agregar el nuevo valor al enum PRIMERO (en minúsculas)
-    op.execute("ALTER TYPE careertype ADD VALUE IF NOT EXISTS 'diploma'")
-    
-    # Luego agregar las columnas
-    op.add_column('career', sa.Column('duration', sa.String(), nullable=True))
-    op.add_column('career', sa.Column('hourlyLoad', sa.String(), nullable=True))
-    op.add_column('career', sa.Column('cost', sa.String(), nullable=True))
-    op.add_column('career', sa.Column('startClasses', sa.Date(), nullable=True))
-    op.add_column('career', sa.Column('certificationType', sa.String(), nullable=True))
-
-
-def downgrade() -> None:
-    # Eliminar las columnas (el enum no se puede revertir fácilmente)
-    op.drop_column('career', 'certificationType')
-    op.drop_column('career', 'startClasses')
-    op.drop_column('career', 'cost')
-    op.drop_column('career', 'hourlyLoad')
-    op.drop_column('career', 'duration')
-    # Nota: No podemos eliminar 'DIPLOMA' del enum sin recrear el tipo completo
-    
-----------------------------------------------------------------------------------
-
-Aplica la migración
-# Primero en tu entorno de desarrollo/staging
-alembic upgrade head
-
-"""

@@ -1,0 +1,582 @@
+"""
+Endpoints de testing para Google Workspace API vía n8n
+"""
+from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel, EmailStr, Field
+from typing import Optional
+
+from external_services.google.google_service import google_workspace_service
+from external_services.google.utils import generate_secure_password
+
+router = APIRouter(
+    prefix="/google/test",
+    tags=["Google Workspace - Testing"]
+)
+
+
+# ========== Schemas ==========
+
+class CreateGoogleAccountRequest(BaseModel):
+    """Schema para crear cuenta de Google"""
+    primaryEmail: EmailStr = Field(..., description="Email del usuario @ctcsalto.edu.uy")
+    givenName: str = Field(..., min_length=1, max_length=50, description="Nombre")
+    familyName: str = Field(..., min_length=1, max_length=50, description="Apellido")
+    orgUnitPath: str = Field(default="/Alumnos", description="Unidad organizativa")
+    generatePassword: bool = Field(default=True, description="Generar contraseña automáticamente")
+    password: Optional[str] = Field(None, description="Contraseña personalizada (opcional)")
+
+
+class UpdateGoogleAccountRequest(BaseModel):
+    """Schema para actualizar cuenta de Google"""
+    primaryEmail: EmailStr = Field(..., description="Email del usuario")
+    givenName: Optional[str] = Field(None, min_length=1, max_length=50)
+    familyName: Optional[str] = Field(None, min_length=1, max_length=50)
+    orgUnitPath: Optional[str] = None
+    suspended: Optional[bool] = None
+
+
+class UserEmailRequest(BaseModel):
+    """Schema para peticiones que solo requieren email"""
+    primaryEmail: EmailStr = Field(..., description="Email del usuario")
+
+
+class AddToGroupRequest(BaseModel):
+    """Schema para agregar/remover usuario de grupo"""
+    primaryEmail: EmailStr = Field(..., description="Email del usuario")
+    groupId: str = Field(..., description="ID del grupo o email del grupo")
+
+
+class CreateGroupRequest(BaseModel):
+    """Schema para crear grupo"""
+    groupEmail: EmailStr = Field(..., description="Email del grupo")
+    groupName: str = Field(..., min_length=1, description="Nombre del grupo")
+    description: Optional[str] = Field(None, description="Descripción del grupo")
+
+
+class GroupIdRequest(BaseModel):
+    """Schema para peticiones que requieren ID o email de grupo"""
+    groupId: str = Field(..., description="ID del grupo o email del grupo")
+
+
+class UpdateGroupRequest(BaseModel):
+    """Schema para actualizar grupo"""
+    groupId: str = Field(..., description="ID del grupo o email del grupo")
+    name: Optional[str] = Field(None, description="Nuevo nombre del grupo")
+    description: Optional[str] = Field(None, description="Nueva descripción")
+    email: Optional[EmailStr] = Field(None, description="Nuevo email del grupo")
+
+
+class GroupEmailRequest(BaseModel):
+    """Schema para peticiones que requieren email de grupo"""
+    groupEmail: EmailStr = Field(..., description="Email del grupo")
+
+
+# ========== Endpoints de Usuarios ==========
+
+@router.post("/create-account", status_code=status.HTTP_201_CREATED)
+async def create_google_account(request: CreateGoogleAccountRequest):
+    """
+    TEST: Crear una cuenta de Google Workspace
+
+    Crea un nuevo usuario en Google Workspace con los datos proporcionados.
+    La contraseña se genera automáticamente de forma segura.
+    """
+    try:
+        # Generar contraseña si es necesario
+        password = request.password if request.password else generate_secure_password(12)
+
+        # Llamar al servicio de Google
+        result = google_workspace_service.create_google_account(
+            primary_email=request.primaryEmail,
+            given_name=request.givenName,
+            family_name=request.familyName,
+            password=password,
+            org_unit_path=request.orgUnitPath
+        )
+
+        # Incluir la contraseña generada en la respuesta (solo para testing)
+        return {
+            "status": "success",
+            "message": "Usuario creado exitosamente en Google Workspace",
+            "data": result,
+            "temporaryPassword": password if request.generatePassword else None
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.post("/update-account")
+async def update_google_account(request: UpdateGoogleAccountRequest):
+    """
+    TEST: Actualizar una cuenta de Google Workspace
+
+    Actualiza los datos de un usuario existente en Google Workspace.
+    """
+    try:
+        result = google_workspace_service.update_google_account(
+            user_email=request.primaryEmail,
+            given_name=request.givenName,
+            family_name=request.familyName,
+            org_unit_path=request.orgUnitPath,
+            suspended=request.suspended
+        )
+
+        return {
+            "status": "success",
+            "message": "Usuario actualizado exitosamente",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.post("/delete-account")
+async def delete_google_account(request: UserEmailRequest):
+    """
+    TEST: Eliminar una cuenta de Google Workspace
+
+    CUIDADO: Esta operación elimina permanentemente el usuario de Google Workspace.
+    """
+    try:
+        result = google_workspace_service.delete_google_account(
+            user_email=request.primaryEmail
+        )
+
+        return {
+            "status": "success",
+            "message": "Usuario eliminado exitosamente de Google Workspace",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.post("/suspend-account")
+async def suspend_google_account(request: UserEmailRequest):
+    """
+    TEST: Suspender una cuenta de Google Workspace
+
+    Suspende el acceso del usuario sin eliminarlo.
+    """
+    try:
+        result = google_workspace_service.suspend_google_account(
+            user_email=request.primaryEmail
+        )
+
+        return {
+            "status": "success",
+            "message": "Usuario suspendido exitosamente",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.post("/unsuspend-account")
+async def unsuspend_google_account(request: UserEmailRequest):
+    """
+    TEST: Reactivar una cuenta suspendida de Google Workspace
+    """
+    try:
+        result = google_workspace_service.unsuspend_google_account(
+            user_email=request.primaryEmail
+        )
+
+        return {
+            "status": "success",
+            "message": "Usuario reactivado exitosamente",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.post("/get-account")
+async def get_google_account(request: UserEmailRequest):
+    """
+    TEST: Obtener información de una cuenta de Google Workspace
+    """
+    try:
+        result = google_workspace_service.get_google_account(
+            user_email=request.primaryEmail
+        )
+
+        return {
+            "status": "success",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.get("/list-accounts")
+async def list_google_accounts(
+    max_results: int = 100,
+    page_token: Optional[str] = None,
+    query: Optional[str] = None
+):
+    """
+    TEST: Listar cuentas de Google Workspace
+
+    Parámetros:
+    - max_results: Número máximo de resultados (default: 100)
+    - page_token: Token para paginación
+    - query: Filtro de búsqueda (opcional)
+    """
+    try:
+        result = google_workspace_service.list_google_accounts(
+            max_results=max_results,
+            page_token=page_token,
+            query=query
+        )
+
+        return {
+            "status": "success",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+# ========== Endpoints de Grupos ==========
+
+@router.post("/add-to-group")
+async def add_user_to_group(request: AddToGroupRequest):
+    """
+    TEST: Agregar usuario a un grupo de Google Workspace
+    """
+    try:
+        result = google_workspace_service.add_user_to_group(
+            user_email=request.primaryEmail,
+            group_id=request.groupId
+        )
+
+        return {
+            "status": "success",
+            "message": f"Usuario agregado al grupo {request.groupId}",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.post("/remove-from-group")
+async def remove_user_from_group(request: AddToGroupRequest):
+    """
+    TEST: Remover usuario de un grupo de Google Workspace
+    """
+    try:
+        result = google_workspace_service.remove_user_from_group(
+            user_email=request.primaryEmail,
+            group_id=request.groupId
+        )
+
+        return {
+            "status": "success",
+            "message": f"Usuario removido del grupo {request.groupId}",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.post("/create-group", status_code=status.HTTP_201_CREATED)
+async def create_google_group(request: CreateGroupRequest):
+    """
+    TEST: Crear un grupo en Google Workspace
+    """
+    try:
+        result = google_workspace_service.create_google_group(
+            group_email=request.groupEmail,
+            group_name=request.groupName,
+            description=request.description
+        )
+
+        return {
+            "status": "success",
+            "message": "Grupo creado exitosamente",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.get("/list-groups")
+async def list_google_groups(
+    max_results: int = 100,
+    page_token: Optional[str] = None
+):
+    """
+    TEST: Listar grupos de Google Workspace
+
+    Parámetros:
+    - max_results: Número máximo de resultados (default: 100)
+    - page_token: Token para paginación
+    """
+    try:
+        result = google_workspace_service.list_google_groups(
+            max_results=max_results,
+            page_token=page_token
+        )
+
+        return {
+            "status": "success",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.post("/get-group")
+async def get_google_group(request: GroupIdRequest):
+    """
+    TEST: Obtener información de un grupo de Google Workspace
+
+    Acepta tanto el ID del grupo como el email del grupo
+    """
+    try:
+        result = google_workspace_service.get_google_group(
+            group_id=request.groupId
+        )
+
+        return {
+            "status": "success",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.post("/update-group")
+async def update_google_group(request: UpdateGroupRequest):
+    """
+    TEST: Actualizar un grupo de Google Workspace
+
+    Actualiza los campos proporcionados del grupo.
+    """
+    try:
+        result = google_workspace_service.update_google_group(
+            group_id=request.groupId,
+            name=request.name,
+            description=request.description,
+            email=request.email
+        )
+
+        return {
+            "status": "success",
+            "message": "Grupo actualizado exitosamente",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.post("/delete-group")
+async def delete_google_group(request: GroupIdRequest):
+    """
+    TEST: Eliminar un grupo de Google Workspace
+
+    CUIDADO: Esta operación elimina permanentemente el grupo.
+    Acepta tanto el ID del grupo como el email del grupo.
+    """
+    try:
+        result = google_workspace_service.delete_google_group(
+            group_id=request.groupId
+        )
+
+        return {
+            "status": "success",
+            "message": "Grupo eliminado exitosamente",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.post("/list-group-members")
+async def list_group_members(request: GroupEmailRequest):
+    """
+    TEST: Listar miembros de un grupo de Google Workspace
+    """
+    try:
+        result = google_workspace_service.list_group_members(
+            group_email=request.groupEmail
+        )
+
+        return {
+            "status": "success",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+# ========== Utilidades ==========
+
+@router.get("/generate-password")
+async def generate_password(length: int = 12):
+    """
+    TEST: Generar una contraseña segura aleatoria
+
+    Útil para ver ejemplos de contraseñas que cumplan con los requisitos.
+    """
+    try:
+        if length < 8:
+            length = 8
+        if length > 50:
+            length = 50
+
+        password = generate_secure_password(length)
+
+        return {
+            "status": "success",
+            "password": password,
+            "length": len(password),
+            "requirements": {
+                "minLength": 8,
+                "hasUppercase": any(c.isupper() for c in password),
+                "hasNumber": any(c.isdigit() for c in password),
+                "hasSpecialChar": any(c in '@.*$' for c in password)
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generando contraseña: {str(e)}"
+        )
