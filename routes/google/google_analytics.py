@@ -351,6 +351,26 @@ async def get_complete_report(
         )
 
 
+@router.get("/debug-env")
+async def debug_environment_variables():
+    """
+    DEBUG: Muestra qué variables de entorno ve el servidor
+    """
+    import os
+
+    creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON', '')
+    creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
+
+    return {
+        "GOOGLE_APPLICATION_CREDENTIALS": creds_path if creds_path else "NO CONFIGURADO",
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON_length": len(creds_json) if creds_json else 0,
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON_preview": creds_json[:80] + '...' if len(creds_json) > 80 else (creds_json if creds_json else "NO CONFIGURADO"),
+        "GA4_PROPERTY_ID": os.getenv('GA4_PROPERTY_ID', 'NO CONFIGURADO'),
+        "all_google_vars": [k for k in os.environ.keys() if 'GOOGLE' in k.upper() or 'GA4' in k.upper() or 'ANALYTICS' in k.upper()],
+        "total_env_vars": len(os.environ)
+    }
+
+
 @router.get("/health")
 async def analytics_health_check():
     """
