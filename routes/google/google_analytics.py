@@ -381,15 +381,19 @@ async def analytics_health_check():
     try:
         import os
 
+        credentials_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
         credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
         property_id = os.getenv('GA4_PROPERTY_ID')
 
         issues = []
 
-        if not credentials_path:
-            issues.append("GOOGLE_APPLICATION_CREDENTIALS no está configurado")
-        elif not os.path.exists(credentials_path):
-            issues.append(f"Archivo de credenciales no encontrado: {credentials_path}")
+        # Verificar que al menos una forma de credenciales esté configurada
+        if not credentials_json and not credentials_path:
+            issues.append("Ni GOOGLE_APPLICATION_CREDENTIALS_JSON ni GOOGLE_APPLICATION_CREDENTIALS están configurados")
+        elif credentials_path and not credentials_json:
+            # Solo verificar archivo si no hay JSON
+            if not os.path.exists(credentials_path):
+                issues.append(f"Archivo de credenciales no encontrado: {credentials_path}")
 
         if not property_id:
             issues.append("GA4_PROPERTY_ID no está configurado")
