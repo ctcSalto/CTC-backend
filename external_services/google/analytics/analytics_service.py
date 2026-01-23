@@ -762,10 +762,15 @@ def get_analytics_service():
 
 # Mantener compatibilidad con código existente
 analytics_service = None
+_initialization_error = None
 
 try:
     analytics_service = GoogleAnalyticsService()
-except Exception:
+except Exception as e:
     # Si falla la inicialización, analytics_service será None
     # Los endpoints manejarán el error apropiadamente
-    pass
+    # Guardamos el error para debugging
+    _initialization_error = str(e)
+    import traceback
+    print(f"[GA4 Service] Error al inicializar servicio de Google Analytics: {str(e)}")
+    print(traceback.format_exc())

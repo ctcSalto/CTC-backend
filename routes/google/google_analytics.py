@@ -860,10 +860,16 @@ async def analytics_health_check():
 
         # Verificar que el servicio se haya inicializado
         if analytics_service is None:
+            from external_services.google.analytics import _initialization_error
+            error_detail = f"Error de inicialización: {_initialization_error}" if _initialization_error else "Causa desconocida"
             return {
                 "status": "error",
                 "configured": False,
-                "issues": ["El servicio de Google Analytics no pudo inicializarse. Verifica las credenciales."]
+                "issues": [
+                    "El servicio de Google Analytics no pudo inicializarse.",
+                    error_detail,
+                    "Verifica que GOOGLE_APPLICATION_CREDENTIALS_JSON y GA4_PROPERTY_ID estén correctamente configurados."
+                ]
             }
 
         # Intentar hacer una consulta simple para verificar que todo funciona
