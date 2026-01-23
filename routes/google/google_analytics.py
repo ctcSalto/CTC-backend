@@ -351,6 +351,421 @@ async def get_complete_report(
         )
 
 
+# ========== Dashboard Endpoints (Frontend Spec) ==========
+
+@router.get("/dashboard/overview")
+async def get_dashboard_overview(
+    start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
+    days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)")
+):
+    """
+    Dashboard Overview - Métricas generales del sitio
+
+    Retorna:
+    - totalSessions: Total de sesiones
+    - newUsers: Usuarios nuevos
+    - returningUsers: Usuarios recurrentes
+    - avgSessionDuration: Duración promedio de sesión (segundos)
+    - trafficSources: Top 5 fuentes de tráfico
+
+    Por defecto obtiene datos de los últimos 30 días.
+    """
+    try:
+        if start_date:
+            try:
+                datetime.strptime(start_date, '%Y-%m-%d')
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="start_date debe estar en formato YYYY-MM-DD"
+                )
+
+        if end_date:
+            try:
+                datetime.strptime(end_date, '%Y-%m-%d')
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="end_date debe estar en formato YYYY-MM-DD"
+                )
+
+        data = analytics_service.get_dashboard_overview(
+            start_date=start_date,
+            end_date=end_date,
+            days_ago=days_ago
+        )
+
+        return {
+            "status": "success",
+            "data": data
+        }
+
+    except ValueError as e:
+        error_msg = str(e)
+        if "GOOGLE_APPLICATION_CREDENTIALS" in error_msg or "GA4_PROPERTY_ID" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Servicio de Google Analytics no configurado correctamente: {error_msg}"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.get("/dashboard/courses")
+async def get_dashboard_courses(
+    start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
+    days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)"),
+    limit: int = Query(20, ge=1, le=100, description="Número máximo de resultados")
+):
+    """
+    Dashboard Cursos - Páginas de cursos más visitadas
+
+    Filtra automáticamente páginas que contienen "/cursos/" en su path.
+
+    Retorna lista con:
+    - rank: Posición en el ranking
+    - pageTitle: Título de la página
+    - pagePath: Ruta completa
+    - slug: Identificador del curso (extraído del path)
+    - pageViews: Número de visualizaciones
+    - users: Usuarios únicos
+    - avgSessionDuration: Duración promedio de sesión (segundos)
+    - avgEngagementTime: Tiempo de engagement promedio (segundos)
+
+    Por defecto obtiene top 20 cursos de los últimos 30 días.
+    """
+    try:
+        if start_date:
+            try:
+                datetime.strptime(start_date, '%Y-%m-%d')
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="start_date debe estar en formato YYYY-MM-DD"
+                )
+
+        if end_date:
+            try:
+                datetime.strptime(end_date, '%Y-%m-%d')
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="end_date debe estar en formato YYYY-MM-DD"
+                )
+
+        courses = analytics_service.get_pages_by_path_filter(
+            path_filter="/cursos/",
+            start_date=start_date,
+            end_date=end_date,
+            days_ago=days_ago,
+            limit=limit
+        )
+
+        return {
+            "status": "success",
+            "data": courses,
+            "count": len(courses)
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.get("/dashboard/news")
+async def get_dashboard_news(
+    start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
+    days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)"),
+    limit: int = Query(20, ge=1, le=100, description="Número máximo de resultados")
+):
+    """
+    Dashboard Noticias - Páginas de noticias más visitadas
+
+    Filtra automáticamente páginas que contienen "/noticias/" en su path.
+
+    Retorna lista con:
+    - rank: Posición en el ranking
+    - pageTitle: Título de la página
+    - pagePath: Ruta completa
+    - slug: Identificador de la noticia (extraído del path)
+    - pageViews: Número de visualizaciones
+    - users: Usuarios únicos
+    - avgSessionDuration: Duración promedio de sesión (segundos)
+    - avgEngagementTime: Tiempo de engagement promedio (segundos)
+
+    Por defecto obtiene top 20 noticias de los últimos 30 días.
+    """
+    try:
+        if start_date:
+            try:
+                datetime.strptime(start_date, '%Y-%m-%d')
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="start_date debe estar en formato YYYY-MM-DD"
+                )
+
+        if end_date:
+            try:
+                datetime.strptime(end_date, '%Y-%m-%d')
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="end_date debe estar en formato YYYY-MM-DD"
+                )
+
+        news = analytics_service.get_pages_by_path_filter(
+            path_filter="/noticias/",
+            start_date=start_date,
+            end_date=end_date,
+            days_ago=days_ago,
+            limit=limit
+        )
+
+        return {
+            "status": "success",
+            "data": news,
+            "count": len(news)
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+# ========== Geographic Endpoints ==========
+
+@router.get("/geographic/locations")
+async def get_geographic_locations(
+    start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
+    days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)"),
+    limit: int = Query(20, ge=1, le=100, description="Número máximo de resultados")
+):
+    """
+    Tráfico por Ubicación Geográfica (Ciudad y País)
+
+    Retorna lista con:
+    - rank: Posición en el ranking
+    - city: Ciudad
+    - country: País
+    - sessions: Sesiones desde esa ubicación
+    - users: Usuarios únicos
+    - pageViews: Páginas vistas
+
+    Por defecto obtiene top 20 ubicaciones de los últimos 30 días.
+    """
+    try:
+        if start_date:
+            try:
+                datetime.strptime(start_date, '%Y-%m-%d')
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="start_date debe estar en formato YYYY-MM-DD"
+                )
+
+        if end_date:
+            try:
+                datetime.strptime(end_date, '%Y-%m-%d')
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="end_date debe estar en formato YYYY-MM-DD"
+                )
+
+        locations = analytics_service.get_geographic_data(
+            start_date=start_date,
+            end_date=end_date,
+            days_ago=days_ago,
+            limit=limit
+        )
+
+        return {
+            "status": "success",
+            "data": locations,
+            "count": len(locations)
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.get("/geographic/local-vs-external")
+async def get_local_vs_external_traffic(
+    country: str = Query("Chile", description="País a considerar como local"),
+    start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
+    days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)")
+):
+    """
+    Desglose de Tráfico Local vs Externo
+
+    Compara el tráfico desde un país específico (local) contra el resto del mundo (externo).
+
+    Retorna:
+    - local: Métricas del país especificado (sessions, users, percentage)
+    - external: Métricas del resto de países (sessions, users, percentage)
+    - total: Totales generales
+
+    Por defecto usa Chile como país local y obtiene datos de los últimos 30 días.
+    """
+    try:
+        if start_date:
+            try:
+                datetime.strptime(start_date, '%Y-%m-%d')
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="start_date debe estar en formato YYYY-MM-DD"
+                )
+
+        if end_date:
+            try:
+                datetime.strptime(end_date, '%Y-%m-%d')
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="end_date debe estar en formato YYYY-MM-DD"
+                )
+
+        traffic_data = analytics_service.get_traffic_by_location_type(
+            country_filter=country,
+            start_date=start_date,
+            end_date=end_date,
+            days_ago=days_ago
+        )
+
+        return {
+            "status": "success",
+            "data": traffic_data
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+# ========== Historical Data Endpoint ==========
+
+@router.get("/historical")
+async def get_historical_data(
+    metric: str = Query(
+        "sessions",
+        description="Métrica a consultar (sessions, activeUsers, screenPageViews, etc.)"
+    ),
+    start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
+    days_ago: int = Query(90, ge=1, le=365, description="Días hacia atrás (default: 90)")
+):
+    """
+    Datos Históricos por Fecha
+
+    Obtiene valores día por día de una métrica específica.
+
+    Métricas disponibles:
+    - sessions: Sesiones
+    - activeUsers: Usuarios activos
+    - newUsers: Usuarios nuevos
+    - totalUsers: Total usuarios
+    - screenPageViews: Páginas vistas
+    - bounceRate: Tasa de rebote
+    - averageSessionDuration: Duración promedio de sesión
+    - averageEngagementTime: Tiempo de engagement promedio
+
+    Retorna lista con:
+    - date: Fecha (YYYY-MM-DD)
+    - value: Valor de la métrica
+    - metric: Nombre de la métrica
+
+    Por defecto obtiene "sessions" de los últimos 90 días.
+    """
+    try:
+        if start_date:
+            try:
+                datetime.strptime(start_date, '%Y-%m-%d')
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="start_date debe estar en formato YYYY-MM-DD"
+                )
+
+        if end_date:
+            try:
+                datetime.strptime(end_date, '%Y-%m-%d')
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="end_date debe estar en formato YYYY-MM-DD"
+                )
+
+        historical_data = analytics_service.get_historical_data(
+            metric_name=metric,
+            start_date=start_date,
+            end_date=end_date,
+            days_ago=days_ago
+        )
+
+        return {
+            "status": "success",
+            "data": historical_data,
+            "count": len(historical_data),
+            "metric": metric
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+# ========== Debug and Health Endpoints ==========
+
 @router.get("/debug-env")
 async def debug_environment_variables():
     """
