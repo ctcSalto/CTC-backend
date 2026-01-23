@@ -397,6 +397,343 @@ class GoogleAnalyticsService:
         except Exception as e:
             raise ValueError(f"Error generando reporte completo de GA4: {str(e)}")
 
+    def get_dashboard_overview(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        days_ago: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Obtiene métricas para el dashboard overview (según especificación frontend)
+
+        Args:
+            start_date: Fecha de inicio (formato YYYY-MM-DD)
+            end_date: Fecha de fin (formato YYYY-MM-DD)
+            days_ago: Días hacia atrás desde hoy (default: 30)
+
+        Returns:
+            Dict con totalSessions, newUsers, returningUsers, avgSessionDuration, trafficSources
+        """
+        try:
+            # Obtener métricas principales
+            request = RunReportRequest(
+                property=self.property_id,
+                date_ranges=[self._get_date_range(start_date, end_date, days_ago)],
+                metrics=[
+                    Metric(name="sessions"),
+                    Metric(name="newUsers"),
+                    Metric(name="totalUsers"),
+                    Metric(name="averageSessionDuration"),
+                ],
+            )
+
+            response = self.client.run_report(request)
+
+            if not response.rows:
+                total_sessions = 0
+                new_users = 0
+                total_users = 0
+                avg_session_duration = 0
+            else:
+                row = response.rows[0]
+                total_sessions = int(row.metric_values[0].value)
+                new_users = int(row.metric_values[1].value)
+                total_users = int(row.metric_values[2].value)
+                avg_session_duration = round(float(row.metric_values[3].value), 2)
+
+            # Calcular returning users
+            returning_users = max(0, total_users - new_users)
+
+            # Obtener top fuentes de tráfico (top 5)
+            traffic_sources = self.get_traffic_sources(start_date, end_date, days_ago, limit=5)
+
+            return {
+                "totalSessions": total_sessions,
+                "newUsers": new_users,
+                "returningUsers": returning_users,
+                "avgSessionDuration": avg_session_duration,
+                "trafficSources": [
+                    {
+                        "source": src["source"],
+                        "medium": src["medium"],
+                        "sessions": src["sessions"]
+                    }
+                    for src in traffic_sources
+                ]
+            }
+
+        except Exception as e:
+            raise ValueError(f"Error obteniendo dashboard overview: {str(e)}")
+
+    def get_pages_by_path_filter(
+        self,
+        path_filter: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        days_ago: int = 30,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene páginas filtradas por un patrón en el path
+
+        Args:
+            path_filter: Patrón para filtrar (ej: "/cursos/", "/noticias/")
+            start_date: Fecha de inicio (formato YYYY-MM-DD)
+            end_date: Fecha de fin (formato YYYY-MM-DD)
+            days_ago: Días hacia atrás desde hoy (default: 30)
+            limit: Número máximo de resultados (default: 20)
+
+        Returns:
+            Lista de páginas con métricas, filtradas y rankeadas
+        """
+        try:
+            request = RunReportRequest(
+                property=self.property_id,
+                date_ranges=[self._get_date_range(start_date, end_date, days_ago)],
+                dimensions=[
+                    Dimension(name="pageTitle"),
+                    Dimension(name="pagePath"),
+                ],
+                metrics=[
+                    Metric(name="screenPageViews"),
+                    Metric(name="activeUsers"),
+                    Metric(name="averageSessionDuration"),
+                    Metric(name="averageEngagementTime"),
+                ],
+                # Aumentar límite para filtrar después
+                limit=1000,
+                order_bys=[{
+                    "metric": {"metric_name": "screenPageViews"},
+                    "desc": True
+                }]
+            )
+
+            response = self.client.run_report(request)
+
+            # Filtrar páginas que contengan el patrón en el path
+            filtered_pages = []
+            for row in response.rows:
+                page_path = row.dimension_values[1].value
+
+                # Filtrar por el patrón especificado
+                if path_filter.lower() in page_path.lower():
+                    # Extraer slug (último segmento del path, sin parámetros)
+                    slug = page_path.rstrip('/').split('/')[-1].split('?')[0]
+
+                    filtered_pages.append({
+                        "pageTitle": row.dimension_values[0].value,
+                        "pagePath": page_path,
+                        "slug": slug,
+                        "pageViews": int(row.metric_values[0].value),
+                        "users": int(row.metric_values[1].value),
+                        "avgSessionDuration": round(float(row.metric_values[2].value), 2),
+                        "avgEngagementTime": round(float(row.metric_values[3].value), 2),
+                    })
+
+            # Limitar a top N y agregar ranking
+            top_pages = filtered_pages[:limit]
+            for idx, page in enumerate(top_pages, start=1):
+                page["rank"] = idx
+
+            return top_pages
+
+        except Exception as e:
+            raise ValueError(f"Error obteniendo páginas filtradas por path: {str(e)}")
+
+    def get_geographic_data(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        days_ago: int = 30,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene datos geográficos de tráfico (ciudad y país)
+
+        Args:
+            start_date: Fecha de inicio (formato YYYY-MM-DD)
+            end_date: Fecha de fin (formato YYYY-MM-DD)
+            days_ago: Días hacia atrás desde hoy (default: 30)
+            limit: Número máximo de resultados (default: 20)
+
+        Returns:
+            Lista de ubicaciones con métricas de tráfico
+        """
+        try:
+            request = RunReportRequest(
+                property=self.property_id,
+                date_ranges=[self._get_date_range(start_date, end_date, days_ago)],
+                dimensions=[
+                    Dimension(name="city"),
+                    Dimension(name="country"),
+                ],
+                metrics=[
+                    Metric(name="sessions"),
+                    Metric(name="activeUsers"),
+                    Metric(name="screenPageViews"),
+                ],
+                limit=limit,
+                order_bys=[{
+                    "metric": {"metric_name": "sessions"},
+                    "desc": True
+                }]
+            )
+
+            response = self.client.run_report(request)
+
+            locations = []
+            for idx, row in enumerate(response.rows, start=1):
+                locations.append({
+                    "rank": idx,
+                    "city": row.dimension_values[0].value,
+                    "country": row.dimension_values[1].value,
+                    "sessions": int(row.metric_values[0].value),
+                    "users": int(row.metric_values[1].value),
+                    "pageViews": int(row.metric_values[2].value),
+                })
+
+            return locations
+
+        except Exception as e:
+            raise ValueError(f"Error obteniendo datos geográficos: {str(e)}")
+
+    def get_traffic_by_location_type(
+        self,
+        country_filter: str = "Chile",
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        days_ago: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Obtiene desglose de tráfico local vs externo
+
+        Args:
+            country_filter: País a considerar como local (default: "Chile")
+            start_date: Fecha de inicio (formato YYYY-MM-DD)
+            end_date: Fecha de fin (formato YYYY-MM-DD)
+            days_ago: Días hacia atrás desde hoy (default: 30)
+
+        Returns:
+            Dict con tráfico local, externo y total
+        """
+        try:
+            request = RunReportRequest(
+                property=self.property_id,
+                date_ranges=[self._get_date_range(start_date, end_date, days_ago)],
+                dimensions=[
+                    Dimension(name="country"),
+                ],
+                metrics=[
+                    Metric(name="sessions"),
+                    Metric(name="activeUsers"),
+                ],
+                limit=100
+            )
+
+            response = self.client.run_report(request)
+
+            local_sessions = 0
+            local_users = 0
+            external_sessions = 0
+            external_users = 0
+
+            for row in response.rows:
+                country = row.dimension_values[0].value
+                sessions = int(row.metric_values[0].value)
+                users = int(row.metric_values[1].value)
+
+                if country == country_filter:
+                    local_sessions += sessions
+                    local_users += users
+                else:
+                    external_sessions += sessions
+                    external_users += users
+
+            total_sessions = local_sessions + external_sessions
+            total_users = local_users + external_users
+
+            return {
+                "local": {
+                    "country": country_filter,
+                    "sessions": local_sessions,
+                    "users": local_users,
+                    "percentage": round((local_sessions / total_sessions * 100) if total_sessions > 0 else 0, 2)
+                },
+                "external": {
+                    "sessions": external_sessions,
+                    "users": external_users,
+                    "percentage": round((external_sessions / total_sessions * 100) if total_sessions > 0 else 0, 2)
+                },
+                "total": {
+                    "sessions": total_sessions,
+                    "users": total_users
+                }
+            }
+
+        except Exception as e:
+            raise ValueError(f"Error obteniendo tráfico por tipo de ubicación: {str(e)}")
+
+    def get_historical_data(
+        self,
+        metric_name: str = "sessions",
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        days_ago: int = 90
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene datos históricos día por día para una métrica específica
+
+        Args:
+            metric_name: Nombre de la métrica GA4 (default: "sessions")
+            start_date: Fecha de inicio (formato YYYY-MM-DD)
+            end_date: Fecha de fin (formato YYYY-MM-DD)
+            days_ago: Días hacia atrás desde hoy (default: 90)
+
+        Returns:
+            Lista de datos por fecha con la métrica especificada
+        """
+        try:
+            request = RunReportRequest(
+                property=self.property_id,
+                date_ranges=[self._get_date_range(start_date, end_date, days_ago)],
+                dimensions=[
+                    Dimension(name="date"),
+                ],
+                metrics=[
+                    Metric(name=metric_name),
+                ],
+                order_bys=[{
+                    "dimension": {"dimension_name": "date"},
+                    "desc": False
+                }]
+            )
+
+            response = self.client.run_report(request)
+
+            historical_data = []
+            for row in response.rows:
+                date_str = row.dimension_values[0].value
+                # Formatear fecha de YYYYMMDD a YYYY-MM-DD
+                formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+
+                value = row.metric_values[0].value
+                # Intentar convertir a int, si falla usar float
+                try:
+                    numeric_value = int(value)
+                except ValueError:
+                    numeric_value = round(float(value), 2)
+
+                historical_data.append({
+                    "date": formatted_date,
+                    "value": numeric_value,
+                    "metric": metric_name
+                })
+
+            return historical_data
+
+        except Exception as e:
+            raise ValueError(f"Error obteniendo datos históricos: {str(e)}")
+
 
 # Instancia singleton del servicio
 analytics_service = GoogleAnalyticsService()
