@@ -824,6 +824,43 @@ async def debug_environment_variables():
     }
 
 
+@router.get("/debug-modules")
+async def debug_modules():
+    """
+    DEBUG: Verifica qué módulos de Google están instalados
+    """
+    import sys
+    from external_services.google.analytics import _initialization_error
+
+    modules_status = {}
+
+    # Verificar módulos necesarios
+    required_modules = [
+        'google.analytics.data_v1beta',
+        'google.oauth2.service_account',
+        'google.auth',
+    ]
+
+    for module_name in required_modules:
+        try:
+            __import__(module_name)
+            modules_status[module_name] = "Instalado"
+        except ImportError as e:
+            modules_status[module_name] = f"NO INSTALADO: {str(e)}"
+
+    # Información del servicio
+    service_status = {
+        "analytics_service_initialized": analytics_service is not None,
+        "initialization_error": _initialization_error if _initialization_error else "No hay error registrado",
+    }
+
+    return {
+        "python_version": sys.version,
+        "modules": modules_status,
+        "service": service_status
+    }
+
+
 @router.get("/health")
 async def analytics_health_check():
     """
