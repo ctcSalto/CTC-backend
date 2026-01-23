@@ -21,7 +21,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Agregar el nuevo valor al enum PRIMERO (en minúsculas)
-    op.execute("ALTER TYPE careertype ADD VALUE IF NOT EXISTS 'diploma'")
+    op.execute("ALTER TYPE careertype ADD VALUE IF NOT EXISTS 'DIPLOMA'")
     
     # Luego agregar las columnas
     op.add_column('career', sa.Column('duration', sa.String(), nullable=True))

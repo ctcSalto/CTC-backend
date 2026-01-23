@@ -15,6 +15,7 @@ from .services.news_services import NewsService
 
 from .services.supabase.image_service import SupabaseService
 from .services.redis.redis import RedisService
+from .services.cache.cache_service import CacheService
 
 #-------------------MERCADO PAGO------------------------------
 
@@ -48,13 +49,14 @@ class Services:
         self.careerService = CareerService()
         self.testimonyService = TestimonyService()
         self.newsService = NewsService()
-        
+
         # Utils Services
         self.supabaseService = SupabaseService()
         self.mercadoPagoController = MercadoPagoController(
             access_token=os.getenv("MERCADOPAGO_ACESS_TOKEN")
         )
         self.redisService = RedisService()
+        self.cacheService = CacheService(self.redisService)
 
 _services_instance: Services | None = None
 

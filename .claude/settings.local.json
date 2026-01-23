@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(alembic revision:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(where:*)",
+      "Bash(C:Python311python.exe test_ga4_connection.py)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

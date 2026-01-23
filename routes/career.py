@@ -95,15 +95,19 @@ async def create_career(
         
         # Crear la carrera
         new_career = services.careerService.create_career(career_data, session)
-        
+
         show(f"Carrera creada: {new_career.name} por usuario {current_user.email}")
-        
+
         if not new_career:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error al crear la carrera"
             )
-        
+
+        # Invalidate all career caches
+        services.cacheService.invalidate_all_careers()
+        show(f"[CACHE] Invalidated all career caches after creating career {new_career.careerId}")
+
         return new_career
         
     except ValueError as e:
@@ -128,15 +132,28 @@ async def get_careers(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[CareerInList]:
-    """Obtener lista de carreras (público)"""
+    """Obtener lista de carreras públicas - con cache Redis"""
     try:
+        # Try to get from cache first
+        cached_careers = services.cacheService.get_cached_careers_list(offset, limit)
+
+        if cached_careers is not None:
+            show(f"[CACHE HIT] Careers list (offset={offset}, limit={limit})")
+            return cached_careers
+
+        # Cache miss - get from database
+        show(f"[CACHE MISS] Careers list (offset={offset}, limit={limit}) - querying DB")
         careers = services.careerService.get_careers_in_list(session, offset, limit)
+
+        # Update cache
+        services.cacheService.cache_careers_list(offset, limit, careers)
+
         return careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error interno del servidor: {str(e)}"
         )
       
@@ -147,15 +164,36 @@ async def get_careers_dropdown_admin(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[CarrerDropdown]:  # Cambiar el tipo de retorno
-    """Obtener lista de carreras para dropdown (solo id y nombre)"""
+    """Obtener lista de carreras para dropdown (solo id y nombre) - con cache Redis"""
     try:
+        # Try to get from cache first
+        cached_dropdown = services.cacheService.get_cached_generic(
+            services.cacheService.CAREERS_DROPDOWN_PREFIX,
+            "all",
+            CarrerDropdown
+        )
+
+        if cached_dropdown is not None:
+            show("[CACHE HIT] Careers dropdown")
+            return cached_dropdown
+
+        # Cache miss - get from database
+        show("[CACHE MISS] Careers dropdown - querying DB")
         careers = services.careerService.get_careers_for_dropdown(session)
+
+        # Update cache
+        services.cacheService.cache_generic(
+            services.cacheService.CAREERS_DROPDOWN_PREFIX,
+            "all",
+            careers
+        )
+
         return careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error interno del servidor: {str(e)}"
         )
   
@@ -167,15 +205,36 @@ async def get_careers_admin(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[CareerInList]:
-    """Obtener lista de carreras (público)"""
+    """Obtener lista de carreras admin - con cache Redis"""
     try:
+        # Try to get from cache first
+        cached_careers = services.cacheService.get_cached_generic(
+            services.cacheService.CAREERS_LIST_PREFIX,
+            f"admin:{offset}:{limit}",
+            CareerInList
+        )
+
+        if cached_careers is not None:
+            show(f"[CACHE HIT] Admin careers list (offset={offset}, limit={limit})")
+            return cached_careers
+
+        # Cache miss - get from database
+        show(f"[CACHE MISS] Admin careers list (offset={offset}, limit={limit}) - querying DB")
         careers = services.careerService.get_careers_in_list_admin(session, offset, limit)
+
+        # Update cache
+        services.cacheService.cache_generic(
+            services.cacheService.CAREERS_LIST_PREFIX,
+            f"admin:{offset}:{limit}",
+            careers
+        )
+
         return careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error interno del servidor: {str(e)}"
         )
         
@@ -224,16 +283,38 @@ async def get_careers_optimized(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[CareerReadOptimized]:
-    """Obtener lista de carreras (público)"""
+    """Obtener lista de carreras publicadas (público) - con cache Redis"""
     try:
+        # Try to get from cache first
+        cached_careers = services.cacheService.get_cached_careers_optimized(
+            offset=offset,
+            limit=limit,
+            published_only=True
+        )
+
+        if cached_careers is not None:
+            show(f"[CACHE HIT] Careers optimized (offset={offset}, limit={limit})")
+            return cached_careers
+
+        # Cache miss - get from database
+        show(f"[CACHE MISS] Careers optimized (offset={offset}, limit={limit}) - querying DB")
         careers = services.careerService.get_careers_optimized(session, offset, limit)
-        published_carreers = [career for career in careers if career.published]
-        return published_carreers
+        published_careers = [career for career in careers if career.published]
+
+        # Update cache
+        services.cacheService.cache_careers_optimized(
+            offset=offset,
+            limit=limit,
+            published_only=True,
+            careers=published_careers
+        )
+
+        return published_careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error interno del servidor: {str(e)}"
         )
 
@@ -245,21 +326,43 @@ async def get_careers_admin(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[CareerReadOptimized]:
-    """Obtener lista de carreras (público)"""
+    """Obtener lista de carreras para admin - con cache Redis"""
     try:
+        # Try to get from cache first
+        cached_careers = services.cacheService.get_cached_careers_optimized(
+            offset=offset,
+            limit=limit,
+            published_only=False
+        )
+
+        if cached_careers is not None:
+            show(f"[CACHE HIT] Admin careers optimized (offset={offset}, limit={limit})")
+            return cached_careers
+
+        # Cache miss - get from database
+        show(f"[CACHE MISS] Admin careers optimized (offset={offset}, limit={limit}) - querying DB")
         careers = services.careerService.get_careers_optimized(session, offset, limit)
-        
+
         if not careers:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Carreras no encontradas"
             )
+
+        # Update cache
+        services.cacheService.cache_careers_optimized(
+            offset=offset,
+            limit=limit,
+            published_only=False,
+            careers=careers
+        )
+
         return careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error interno del servidor: {str(e)}"
         )
 
@@ -269,21 +372,36 @@ async def get_careers_by_id(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session),
 ) -> CareerReadOptimized:
-    """Obtener lista de carreras (público)"""
+    """Obtener carrera por ID (público) - con cache Redis"""
     try:
-        careers = services.careerService.get_public_career_optimized_by_id(session, career_id)
-        
-        if not careers:
+        # Try to get from cache first
+        cached_career = services.cacheService.get_cached_career_optimized(career_id)
+
+        if cached_career is not None:
+            # Verify it's published before returning
+            if cached_career.published:
+                show(f"[CACHE HIT] Career {career_id}")
+                return cached_career
+
+        # Cache miss or not published - get from database
+        show(f"[CACHE MISS] Career {career_id} - querying DB")
+        career = services.careerService.get_public_career_optimized_by_id(session, career_id)
+
+        if not career:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Carrera no encontrada o no disponible públicamente"
             )
-        return careers
+
+        # Update cache
+        services.cacheService.cache_career_optimized(career_id, career)
+
+        return career
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error interno del servidor: {str(e)}"
         )
         
@@ -312,13 +430,25 @@ async def get_random_careers(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[CareerSimple]:
-    """Obtener carreras aleatorias, una de cada área cuando sea posible"""
+    """Obtener carreras aleatorias, una de cada área cuando sea posible - con cache Redis"""
     try:
+        # Try to get from cache first
+        cached_careers = services.cacheService.get_cached_simple_careers(f"random:{count}")
+
+        if cached_careers is not None:
+            show(f"[CACHE HIT] Random careers (count={count})")
+            return cached_careers
+
+        # Cache miss - get from database
+        show(f"[CACHE MISS] Random careers (count={count}) - querying DB")
         careers = services.careerService.get_random_careers_by_area(session, count)
-        
+
         if not careers:
             return []
-        
+
+        # Update cache with shorter TTL for random results (5 minutes)
+        services.cacheService.cache_simple_careers(f"random:{count}", careers, ttl=300)
+
         return careers
     except HTTPException:
         raise  # Re-lanzar HTTPExceptions
@@ -329,7 +459,7 @@ async def get_random_careers(
             detail=f"Error interno del servidor: {str(e)}"
         )
      
-# TODO: Trae mucha info de testimonios y demas, sacar entidades relacionadas?   
+# TODO: Trae mucha info de testimonios y demas, sacar entidades relacionadas?
 @router.get("/public/random-for-area", response_model=List[CareerSimple], status_code=status.HTTP_200_OK)
 async def get_careers_of_interest(
     count: int = Query(4, ge=1, le=20, description="Número de carreras a devolver"),
@@ -340,7 +470,7 @@ async def get_careers_of_interest(
     session: Session = Depends(get_session)
 ) -> List[CareerSimple]:
     """
-    Obtener carreras de interés con filtros flexibles
+    Obtener carreras de interés con filtros flexibles - con cache Redis
     - areas: Lista de áreas específicas (opcional)
     - include_career_id: Carrera que debe estar incluida sí o sí (opcional)
     - exclude_career_id: Carrera a excluir (opcional)
@@ -358,7 +488,19 @@ async def get_careers_of_interest(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Áreas inválidas: {', '.join(invalid_areas)}. Áreas válidas: {', '.join(valid_areas)}"
                 )
-        
+
+        # Build cache key based on parameters
+        cache_key = f"interest:{count}:{areas or 'all'}:{include_career_id or 'none'}:{exclude_career_id or 'none'}"
+
+        # Try to get from cache first
+        cached_careers = services.cacheService.get_cached_simple_careers(cache_key)
+
+        if cached_careers is not None:
+            show(f"[CACHE HIT] Careers of interest ({cache_key})")
+            return cached_careers
+
+        # Cache miss - get from database
+        show(f"[CACHE MISS] Careers of interest ({cache_key}) - querying DB")
         careers = services.careerService.get_careers_of_interest(
             session=session,
             count=count,
@@ -366,12 +508,15 @@ async def get_careers_of_interest(
             include_career_id=include_career_id,
             exclude_career_id=exclude_career_id
         )
-        
+
         if not careers:
             return []
-        
+
+        # Update cache with shorter TTL (5 minutes) for dynamic results
+        services.cacheService.cache_simple_careers(cache_key, careers, ttl=300)
+
         return careers
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -388,9 +533,31 @@ async def get_published_careers(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[CareerRead]:
-    """Obtener solo carreras publicadas (público)"""
+    """Obtener solo carreras publicadas (público) - con cache Redis"""
     try:
+        # Try to get from cache first
+        from database.models.career import CareerRead
+        cached_careers = services.cacheService.get_cached_generic(
+            services.cacheService.CAREERS_PUBLISHED_PREFIX,
+            f"full:{offset}:{limit}",
+            CareerRead
+        )
+
+        if cached_careers is not None:
+            show(f"[CACHE HIT] Published careers (offset={offset}, limit={limit})")
+            return cached_careers
+
+        # Cache miss - get from database
+        show(f"[CACHE MISS] Published careers (offset={offset}, limit={limit}) - querying DB")
         careers = services.careerService.get_published_careers(session, offset, limit)
+
+        # Update cache
+        services.cacheService.cache_generic(
+            services.cacheService.CAREERS_PUBLISHED_PREFIX,
+            f"full:{offset}:{limit}",
+            careers
+        )
+
         return careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -403,9 +570,31 @@ async def get_all_careers_admin(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[CareerRead]:
-    """Obtener todas las carreras con información completa (solo admins)"""
+    """Obtener todas las carreras con información completa (solo admins) - con cache Redis"""
     try:
+        # Try to get from cache first
+        from database.models.career import CareerRead
+        cached_careers = services.cacheService.get_cached_generic(
+            services.cacheService.CAREERS_LIST_PREFIX,
+            f"admin_full:{offset}:{limit}",
+            CareerRead
+        )
+
+        if cached_careers is not None:
+            show(f"[CACHE HIT] Admin all careers (offset={offset}, limit={limit})")
+            return cached_careers
+
+        # Cache miss - get from database
+        show(f"[CACHE MISS] Admin all careers (offset={offset}, limit={limit}) - querying DB")
         careers = services.careerService.get_careers(session, offset, limit)
+
+        # Update cache
+        services.cacheService.cache_generic(
+            services.cacheService.CAREERS_LIST_PREFIX,
+            f"admin_full:{offset}:{limit}",
+            careers
+        )
+
         return careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -418,9 +607,31 @@ async def get_careers_by_area(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[CareerRead]:
-    """Obtener carreras por área (público)"""
+    """Obtener carreras por área (público) - con cache Redis"""
     try:
+        # Try to get from cache first
+        from database.models.career import CareerRead
+        cached_careers = services.cacheService.get_cached_generic(
+            services.cacheService.CAREERS_BY_AREA_PREFIX,
+            f"{area.value}:{offset}:{limit}",
+            CareerRead
+        )
+
+        if cached_careers is not None:
+            show(f"[CACHE HIT] Careers by area {area.value} (offset={offset}, limit={limit})")
+            return cached_careers
+
+        # Cache miss - get from database
+        show(f"[CACHE MISS] Careers by area {area.value} (offset={offset}, limit={limit}) - querying DB")
         careers = services.careerService.get_careers_by_area(area.value, session, offset, limit)
+
+        # Update cache
+        services.cacheService.cache_generic(
+            services.cacheService.CAREERS_BY_AREA_PREFIX,
+            f"{area.value}:{offset}:{limit}",
+            careers
+        )
+
         return careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -434,9 +645,31 @@ async def get_careers_by_type_admin(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[CareerRead]:
-    """Obtener carreras por tipo (público)"""
+    """Obtener carreras por tipo admin - con cache Redis"""
     try:
+        # Try to get from cache first
+        from database.models.career import CareerRead
+        cached_careers = services.cacheService.get_cached_generic(
+            services.cacheService.CAREERS_BY_TYPE_PREFIX,
+            f"admin:{career_type.value}:{offset}:{limit}",
+            CareerRead
+        )
+
+        if cached_careers is not None:
+            show(f"[CACHE HIT] Admin careers by type {career_type.value} (offset={offset}, limit={limit})")
+            return cached_careers
+
+        # Cache miss - get from database
+        show(f"[CACHE MISS] Admin careers by type {career_type.value} (offset={offset}, limit={limit}) - querying DB")
         careers = services.careerService.get_careers_by_type(career_type.value, session, offset, limit)
+
+        # Update cache
+        services.cacheService.cache_generic(
+            services.cacheService.CAREERS_BY_TYPE_PREFIX,
+            f"admin:{career_type.value}:{offset}:{limit}",
+            careers
+        )
+
         return careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -449,10 +682,32 @@ async def get_careers_by_type(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> List[CareerRead]:
-    """Obtener carreras por tipo (público)"""
+    """Obtener carreras por tipo (público) - con cache Redis"""
     try:
+        # Try to get from cache first
+        from database.models.career import CareerRead
+        cached_careers = services.cacheService.get_cached_generic(
+            services.cacheService.CAREERS_BY_TYPE_PREFIX,
+            f"public:{career_type.value}:{offset}:{limit}",
+            CareerRead
+        )
+
+        if cached_careers is not None:
+            show(f"[CACHE HIT] Public careers by type {career_type.value} (offset={offset}, limit={limit})")
+            return cached_careers
+
+        # Cache miss - get from database
+        show(f"[CACHE MISS] Public careers by type {career_type.value} (offset={offset}, limit={limit}) - querying DB")
         careers = services.careerService.get_careers_by_type(career_type.value, session, offset, limit)
         published_careers = [career for career in careers if career.published]
+
+        # Update cache
+        services.cacheService.cache_generic(
+            services.cacheService.CAREERS_BY_TYPE_PREFIX,
+            f"public:{career_type.value}:{offset}:{limit}",
+            published_careers
+        )
+
         return published_careers
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -473,19 +728,42 @@ async def search_careers(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 @router.get("/{career_id}", response_model=CareerRead)
-async def get_career_by_id_admin(
+async def get_career_by_id_public(
     career_id: int,
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> CareerRead:
-    """Obtener una carrera por ID (público)"""
+    """Obtener una carrera por ID (público) - con cache Redis"""
     try:
+        # Try to get from cache first
+        from database.models.career import CareerRead
+        cached_career = services.cacheService.get_cached_generic(
+            services.cacheService.CAREER_PREFIX,
+            f"full:{career_id}",
+            CareerRead
+        )
+
+        if cached_career is not None:
+            show(f"[CACHE HIT] Career full by id {career_id}")
+            return cached_career
+
+        # Cache miss - get from database
+        show(f"[CACHE MISS] Career full by id {career_id} - querying DB")
         career = services.careerService.get_career_by_id(career_id, session)
+
         if not career:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Carrera no encontrada"
             )
+
+        # Update cache
+        services.cacheService.cache_generic(
+            services.cacheService.CAREER_PREFIX,
+            f"full:{career_id}",
+            career
+        )
+
         return career
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -497,14 +775,37 @@ async def get_career_by_id_admin(
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> CareerRead:
-    """Obtener una carrera por ID (público)"""
+    """Obtener una carrera por ID admin - con cache Redis"""
     try:
+        # Try to get from cache first
+        from database.models.career import CareerRead
+        cached_career = services.cacheService.get_cached_generic(
+            services.cacheService.CAREER_PREFIX,
+            f"admin_full:{career_id}",
+            CareerRead
+        )
+
+        if cached_career is not None:
+            show(f"[CACHE HIT] Admin career full by id {career_id}")
+            return cached_career
+
+        # Cache miss - get from database
+        show(f"[CACHE MISS] Admin career full by id {career_id} - querying DB")
         career = services.careerService.get_career_by_id_admin(career_id, session)
+
         if not career:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Carrera no encontrada"
             )
+
+        # Update cache
+        services.cacheService.cache_generic(
+            services.cacheService.CAREER_PREFIX,
+            f"admin_full:{career_id}",
+            career
+        )
+
         return career
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
@@ -527,9 +828,13 @@ async def update_career(
         
         # Actualizar la carrera
         updated_career = services.careerService.update_career(career_id, career_update, session, None)
-        
+
         show(f"Carrera {career_id} actualizada por usuario {current_user.email}")
-        
+
+        # Invalidate all career caches
+        services.cacheService.invalidate_all_careers()
+        show(f"[CACHE] Invalidated all career caches after updating career {career_id}")
+
         return updated_career
         
     except ValueError as e:
@@ -586,9 +891,13 @@ async def update_career_image(
         career_update = CareerUpdate(imageLink=image_url)
         # Actualizar la carrera
         updated_career = services.careerService.update_career(career_id, career_update, session, supabaseService)
-        
+
         show(f"Carrera {career_id} actualizada por usuario {current_user.email}")
-        
+
+        # Invalidate all career caches
+        services.cacheService.invalidate_all_careers()
+        show(f"[CACHE] Invalidated all career caches after updating image for career {career_id}")
+
         return updated_career
         
     except ValueError as e:
@@ -620,17 +929,21 @@ async def publish_career(
     """Publicar una carrera (solo admins)"""
     try:
         career = services.careerService.publish_career(career_id, session)
-        
+
         show(f"Carrera {career_id} publicada por usuario {current_user.email}")
-        
+
         if not career:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Carrera no encontrada"
             )
-        
+
+        # Invalidate all career caches
+        services.cacheService.invalidate_all_careers()
+        show(f"[CACHE] Invalidated all career caches after publishing career {career_id}")
+
         return career
-        
+
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -644,17 +957,21 @@ async def unpublish_career(
     """Despublicar una carrera (solo admins)"""
     try:
         career = services.careerService.unpublish_career(career_id, session)
-        
+
         show(f"Carrera {career_id} despublicada por usuario {current_user.email}")
-        
+
         if not career:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Carrera no encontrada"
             )
-        
+
+        # Invalidate all career caches
+        services.cacheService.invalidate_all_careers()
+        show(f"[CACHE] Invalidated all career caches after unpublishing career {career_id}")
+
         return career
-        
+
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -669,17 +986,21 @@ async def delete_career(
     """Eliminar una carrera (solo admins)"""
     try:
         success = services.careerService.delete_career(career_id, session)
-        
+
         show(f"Carrera {career_id} eliminada por usuario {current_user.email}")
-        
+
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Carrera no encontrada"
             )
-        
+
+        # Invalidate all career caches
+        services.cacheService.invalidate_all_careers()
+        show(f"[CACHE] Invalidated all career caches after deleting career {career_id}")
+
         return None
-        
+
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
