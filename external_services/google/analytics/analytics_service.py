@@ -735,5 +735,37 @@ class GoogleAnalyticsService:
             raise ValueError(f"Error obteniendo datos históricos: {str(e)}")
 
 
-# Instancia singleton del servicio
-analytics_service = GoogleAnalyticsService()
+# Instancia singleton del servicio (lazy initialization)
+_analytics_service_instance = None
+
+
+def get_analytics_service():
+    """
+    Obtiene la instancia del servicio de Google Analytics (patrón singleton lazy)
+
+    Returns:
+        GoogleAnalyticsService: Instancia del servicio
+
+    Raises:
+        ValueError: Si el servicio no está configurado correctamente
+    """
+    global _analytics_service_instance
+
+    if _analytics_service_instance is None:
+        try:
+            _analytics_service_instance = GoogleAnalyticsService()
+        except Exception as e:
+            raise ValueError(f"No se pudo inicializar el servicio de Google Analytics: {str(e)}")
+
+    return _analytics_service_instance
+
+
+# Mantener compatibilidad con código existente
+analytics_service = None
+
+try:
+    analytics_service = GoogleAnalyticsService()
+except Exception:
+    # Si falla la inicialización, analytics_service será None
+    # Los endpoints manejarán el error apropiadamente
+    pass

@@ -14,6 +14,22 @@ router = APIRouter(
 )
 
 
+# ========== Helper Functions ==========
+
+def check_service_available():
+    """
+    Verifica que el servicio de Google Analytics esté disponible
+
+    Raises:
+        HTTPException: Si el servicio no está configurado o disponible
+    """
+    if analytics_service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Servicio de Google Analytics no está disponible. Verifica la configuración de credenciales."
+        )
+
+
 # ========== Schemas ==========
 
 class AnalyticsDateRangeRequest(BaseModel):
@@ -58,6 +74,8 @@ async def get_analytics_overview(
 
     Por defecto obtiene datos de los últimos 7 días.
     """
+    check_service_available()
+
     try:
         # Validar formato de fechas si se proporcionan
         if start_date:
@@ -125,6 +143,8 @@ async def get_traffic_sources(
 
     Por defecto obtiene las top 10 fuentes de los últimos 7 días.
     """
+    check_service_available()
+
     try:
         if start_date:
             try:
@@ -188,6 +208,8 @@ async def get_top_pages(
 
     Por defecto obtiene las top 10 páginas de los últimos 7 días.
     """
+    check_service_available()
+
     try:
         if start_date:
             try:
@@ -249,6 +271,8 @@ async def get_device_breakdown(
 
     Por defecto obtiene datos de los últimos 7 días.
     """
+    check_service_available()
+
     try:
         if start_date:
             try:
@@ -309,6 +333,8 @@ async def get_complete_report(
 
     Por defecto obtiene datos de los últimos 7 días.
     """
+    check_service_available()
+
     try:
         if start_date:
             try:
@@ -371,6 +397,8 @@ async def get_dashboard_overview(
 
     Por defecto obtiene datos de los últimos 30 días.
     """
+    check_service_available()
+
     try:
         if start_date:
             try:
@@ -443,6 +471,8 @@ async def get_dashboard_courses(
 
     Por defecto obtiene top 20 cursos de los últimos 30 días.
     """
+    check_service_available()
+
     try:
         if start_date:
             try:
@@ -512,6 +542,8 @@ async def get_dashboard_news(
 
     Por defecto obtiene top 20 noticias de los últimos 30 días.
     """
+    check_service_available()
+
     try:
         if start_date:
             try:
@@ -579,6 +611,8 @@ async def get_geographic_locations(
 
     Por defecto obtiene top 20 ubicaciones de los últimos 30 días.
     """
+    check_service_available()
+
     try:
         if start_date:
             try:
@@ -642,6 +676,8 @@ async def get_local_vs_external_traffic(
 
     Por defecto usa Chile como país local y obtiene datos de los últimos 30 días.
     """
+    check_service_available()
+
     try:
         if start_date:
             try:
@@ -719,6 +755,8 @@ async def get_historical_data(
 
     Por defecto obtiene "sessions" de los últimos 90 días.
     """
+    check_service_available()
+
     try:
         if start_date:
             try:
@@ -818,6 +856,14 @@ async def analytics_health_check():
                 "status": "error",
                 "configured": False,
                 "issues": issues
+            }
+
+        # Verificar que el servicio se haya inicializado
+        if analytics_service is None:
+            return {
+                "status": "error",
+                "configured": False,
+                "issues": ["El servicio de Google Analytics no pudo inicializarse. Verifica las credenciales."]
             }
 
         # Intentar hacer una consulta simple para verificar que todo funciona
