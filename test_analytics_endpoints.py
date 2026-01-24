@@ -7,9 +7,9 @@ import json
 from datetime import datetime
 
 # Configuración
-BASE_URL = "https://backend-backend-ctc-develop.vtu0xl.easypanel.host"
-# Para pruebas locales, descomentar:
-# BASE_URL = "http://localhost:8000"
+# BASE_URL = "https://backend-backend-ctc-develop.vtu0xl.easypanel.host"
+# Para pruebas locales:
+BASE_URL = "http://localhost:8000"
 
 # Colores para terminal
 class Colors:
@@ -205,19 +205,19 @@ def main():
         passed_tests += 1
 
     # ========== Test 7: Dashboard Cursos ==========
-    print_step(7, total_tests, "Dashboard Cursos (filtrado por /cursos/)")
+    print_step(7, total_tests, "Dashboard Cursos (filtrado por /ofertaAcademica/)")
     if test_endpoint(
         "Dashboard Cursos",
-        f"{BASE_URL}/api/analytics/dashboard/courses?days_ago=30&limit=20",
+        f"{BASE_URL}/api/analytics/dashboard/courses?days_ago=90&limit=20",
         expected_keys=["rank", "pageTitle", "pagePath", "slug", "pageViews"]
     ):
         passed_tests += 1
 
     # ========== Test 8: Dashboard Noticias ==========
-    print_step(8, total_tests, "Dashboard Noticias (filtrado por /noticias/)")
+    print_step(8, total_tests, "Dashboard Noticias (filtrado por /noticiasNovedades/)")
     if test_endpoint(
         "Dashboard Noticias",
-        f"{BASE_URL}/api/analytics/dashboard/news?days_ago=30&limit=20",
+        f"{BASE_URL}/api/analytics/dashboard/news?days_ago=90&limit=20",
         expected_keys=["rank", "pageTitle", "pagePath", "slug", "pageViews"]
     ):
         passed_tests += 1
