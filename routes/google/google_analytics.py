@@ -457,7 +457,7 @@ async def get_dashboard_courses(
     """
     Dashboard Cursos - Páginas de cursos más visitadas
 
-    Filtra automáticamente páginas que contienen "/cursos/" en su path.
+    Filtra automáticamente páginas que contienen "/ofertaAcademica/" en su path.
 
     Retorna lista con:
     - rank: Posición en el ranking
@@ -493,7 +493,7 @@ async def get_dashboard_courses(
                 )
 
         courses = analytics_service.get_pages_by_path_filter(
-            path_filter="/cursos/",
+            path_filter="/ofertaAcademica/",
             start_date=start_date,
             end_date=end_date,
             days_ago=days_ago,
@@ -528,7 +528,7 @@ async def get_dashboard_news(
     """
     Dashboard Noticias - Páginas de noticias más visitadas
 
-    Filtra automáticamente páginas que contienen "/noticias/" en su path.
+    Filtra automáticamente páginas que contienen "/noticiasNovedades/" en su path.
 
     Retorna lista con:
     - rank: Posición en el ranking
@@ -564,7 +564,7 @@ async def get_dashboard_news(
                 )
 
         news = analytics_service.get_pages_by_path_filter(
-            path_filter="/noticias/",
+            path_filter="/noticiasNovedades/",
             start_date=start_date,
             end_date=end_date,
             days_ago=days_ago,
