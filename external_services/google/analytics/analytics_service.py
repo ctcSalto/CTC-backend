@@ -498,7 +498,7 @@ class GoogleAnalyticsService:
                     Metric(name="screenPageViews"),
                     Metric(name="activeUsers"),
                     Metric(name="averageSessionDuration"),
-                    Metric(name="averageEngagementTime"),
+                    Metric(name="userEngagementDuration"),
                 ],
                 # Aumentar límite para filtrar después
                 limit=1000,
@@ -527,7 +527,7 @@ class GoogleAnalyticsService:
                         "pageViews": int(row.metric_values[0].value),
                         "users": int(row.metric_values[1].value),
                         "avgSessionDuration": round(float(row.metric_values[2].value), 2),
-                        "avgEngagementTime": round(float(row.metric_values[3].value), 2),
+                        "userEngagementDuration": round(float(row.metric_values[3].value), 2),
                     })
 
             # Limitar a top N y agregar ranking
