@@ -68,7 +68,7 @@ useEffect(() => {
 ### 2. Dashboard Cursos
 **Endpoint:** `GET /api/analytics/dashboard/courses`
 
-Páginas de cursos más visitadas (filtrado automático por `/cursos/`).
+Páginas de cursos más visitadas (filtrado automático por `/ofertaAcademica/`).
 
 #### Parámetros
 ```
@@ -144,7 +144,7 @@ useEffect(() => {
 ### 3. Dashboard Noticias
 **Endpoint:** `GET /api/analytics/dashboard/news`
 
-Páginas de noticias más visitadas (filtrado automático por `/noticias/`).
+Páginas de noticias más visitadas (filtrado automático por `/noticiasNovedades/`).
 
 #### Parámetros
 ```
