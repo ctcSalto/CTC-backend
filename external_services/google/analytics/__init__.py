@@ -1,7 +1,11 @@
 """
 Google Analytics 4 service module
 """
-from .analytics_service import GoogleAnalyticsService
+from .analytics_service import (
+    GoogleAnalyticsService,
+    analytics_service,
+    _initialization_error
+)
 
 # Lazy initialization - solo se crea cuando se usa
 _analytics_service_instance = None
@@ -13,7 +17,9 @@ def get_analytics_service():
         _analytics_service_instance = GoogleAnalyticsService()
     return _analytics_service_instance
 
-# Para compatibilidad con código existente
-analytics_service = None
-
-__all__ = ['GoogleAnalyticsService', 'get_analytics_service', 'analytics_service']
+__all__ = [
+    'GoogleAnalyticsService',
+    'get_analytics_service',
+    'analytics_service',
+    '_initialization_error'
+]
