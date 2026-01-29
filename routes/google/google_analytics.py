@@ -1,12 +1,14 @@
 """
 Endpoints para Google Analytics 4
 """
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, HTTPException, status, Query, Depends
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
+from sqlmodel import Session
 
 from external_services.google.analytics import analytics_service
+from database.database import get_session
 
 router = APIRouter(
     prefix="/api/analytics",
@@ -175,71 +177,6 @@ async def get_traffic_sources(
             "status": "success",
             "data": sources,
             "count": len(sources)
-        }
-
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error inesperado: {str(e)}"
-        )
-
-
-@router.get("/top-pages")
-async def get_top_pages(
-    start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
-    end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
-    days_ago: int = Query(7, ge=1, le=365, description="Días hacia atrás"),
-    limit: int = Query(10, ge=1, le=50, description="Número máximo de resultados")
-):
-    """
-    Obtiene las páginas más visitadas ordenadas por páginas vistas
-
-    Retorna lista con:
-    - Título de página
-    - Ruta de página
-    - Páginas vistas
-    - Usuarios
-    - Duración promedio de sesión
-
-    Por defecto obtiene las top 10 páginas de los últimos 7 días.
-    """
-    check_service_available()
-
-    try:
-        if start_date:
-            try:
-                datetime.strptime(start_date, '%Y-%m-%d')
-            except ValueError:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="start_date debe estar en formato YYYY-MM-DD"
-                )
-
-        if end_date:
-            try:
-                datetime.strptime(end_date, '%Y-%m-%d')
-            except ValueError:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="end_date debe estar en formato YYYY-MM-DD"
-                )
-
-        pages = analytics_service.get_top_pages(
-            start_date=start_date,
-            end_date=end_date,
-            days_ago=days_ago,
-            limit=limit
-        )
-
-        return {
-            "status": "success",
-            "data": pages,
-            "count": len(pages)
         }
 
     except ValueError as e:
@@ -452,7 +389,8 @@ async def get_dashboard_courses(
     start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
     days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)"),
-    limit: int = Query(20, ge=1, le=100, description="Número máximo de resultados")
+    limit: int = Query(20, ge=1, le=100, description="Número máximo de resultados"),
+    session: Session = Depends(get_session)
 ):
     """
     Dashboard Cursos - Páginas de cursos más visitadas
@@ -464,6 +402,8 @@ async def get_dashboard_courses(
     - pageTitle: Título de la página
     - pagePath: Ruta completa
     - slug: Identificador del curso (extraído del path)
+    - careerId: ID de la carrera (extraído del slug)
+    - careerName: Nombre de la carrera desde la base de datos
     - pageViews: Número de visualizaciones
     - users: Usuarios únicos
     - avgSessionDuration: Duración promedio de sesión (segundos)
@@ -500,10 +440,40 @@ async def get_dashboard_courses(
             limit=limit
         )
 
+        # Enriquecer datos con información de la base de datos
+        from sqlmodel import select
+        from database.models.career import Career
+
+        enriched_courses = []
+
+        for course in courses:
+            enriched_course = course.copy()
+
+            # Extraer careerId del slug (el slug ya contiene solo el ID)
+            try:
+                career_id = int(course.get("slug", "0"))
+                enriched_course["careerId"] = career_id
+
+                # Obtener información de la carrera desde la base de datos
+                statement = select(Career).where(Career.careerId == career_id)
+                career = session.exec(statement).one_or_none()
+
+                if career:
+                    enriched_course["careerName"] = career.name
+                else:
+                    enriched_course["careerName"] = None
+
+            except (ValueError, AttributeError):
+                # Si el slug no es un número válido, dejar como None
+                enriched_course["careerId"] = None
+                enriched_course["careerName"] = None
+
+            enriched_courses.append(enriched_course)
+
         return {
             "status": "success",
-            "data": courses,
-            "count": len(courses)
+            "data": enriched_courses,
+            "count": len(enriched_courses)
         }
 
     except ValueError as e:
@@ -523,7 +493,8 @@ async def get_dashboard_news(
     start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
     days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)"),
-    limit: int = Query(20, ge=1, le=100, description="Número máximo de resultados")
+    limit: int = Query(20, ge=1, le=100, description="Número máximo de resultados"),
+    session: Session = Depends(get_session)
 ):
     """
     Dashboard Noticias - Páginas de noticias más visitadas
@@ -535,6 +506,8 @@ async def get_dashboard_news(
     - pageTitle: Título de la página
     - pagePath: Ruta completa
     - slug: Identificador de la noticia (extraído del path)
+    - newsId: ID de la noticia (extraído del slug)
+    - newsTitle: Título de la noticia desde la base de datos
     - pageViews: Número de visualizaciones
     - users: Usuarios únicos
     - avgSessionDuration: Duración promedio de sesión (segundos)
@@ -571,10 +544,40 @@ async def get_dashboard_news(
             limit=limit
         )
 
+        # Enriquecer datos con información de la base de datos
+        from sqlmodel import select
+        from database.models.news import News
+
+        enriched_news = []
+
+        for news_item in news:
+            enriched_news_item = news_item.copy()
+
+            # Extraer newsId del slug (el slug ya contiene solo el ID)
+            try:
+                news_id = int(news_item.get("slug", "0"))
+                enriched_news_item["newsId"] = news_id
+
+                # Obtener información de la noticia desde la base de datos
+                statement = select(News).where(News.newsId == news_id)
+                news_data = session.exec(statement).one_or_none()
+
+                if news_data:
+                    enriched_news_item["newsTitle"] = news_data.title
+                else:
+                    enriched_news_item["newsTitle"] = None
+
+            except (ValueError, AttributeError):
+                # Si el slug no es un número válido, dejar como None
+                enriched_news_item["newsId"] = None
+                enriched_news_item["newsTitle"] = None
+
+            enriched_news.append(enriched_news_item)
+
         return {
             "status": "success",
-            "data": news,
-            "count": len(news)
+            "data": enriched_news,
+            "count": len(enriched_news)
         }
 
     except ValueError as e:
