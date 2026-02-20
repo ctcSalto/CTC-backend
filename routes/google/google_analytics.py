@@ -257,7 +257,8 @@ async def get_device_breakdown(
 async def get_complete_report(
     start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
-    days_ago: int = Query(7, ge=1, le=365, description="Días hacia atrás")
+    days_ago: int = Query(7, ge=1, le=365, description="Días hacia atrás"),
+    session: Session = Depends(get_session)
 ):
     """
     Obtiene un reporte completo con todas las métricas disponibles
@@ -296,6 +297,62 @@ async def get_complete_report(
             end_date=end_date,
             days_ago=days_ago
         )
+
+        # Enriquecer top_pages con nombres de la base de datos
+        from sqlmodel import select
+        from database.models.career import Career
+        from database.models.news import News
+
+        enriched_pages = []
+        for page in report.get("top_pages", []):
+            enriched_page = page.copy()
+            page_path = page.get("page_path", "")
+
+            enriched_page["page_name"] = None
+            enriched_page["page_type"] = None
+            enriched_page["record_id"] = None
+
+            if "/ofertaAcademica/" in page_path:
+                try:
+                    career_id = int(page_path.rstrip('/').split('/')[-1].split('?')[0])
+                    career = session.exec(select(Career).where(Career.careerId == career_id)).one_or_none()
+                    if career:
+                        enriched_page["page_name"] = career.name
+                        enriched_page["page_type"] = "career"
+                        enriched_page["record_id"] = career_id
+                except (ValueError, AttributeError):
+                    pass
+            elif "/noticiasNovedades/" in page_path:
+                try:
+                    news_id = int(page_path.rstrip('/').split('/')[-1].split('?')[0])
+                    news_item = session.exec(select(News).where(News.newsId == news_id)).one_or_none()
+                    if news_item:
+                        enriched_page["page_name"] = news_item.title
+                        enriched_page["page_type"] = "news"
+                        enriched_page["record_id"] = news_id
+                except (ValueError, AttributeError):
+                    pass
+            else:
+                # Páginas estáticas - mapear por path conocido
+                static_pages = {
+                    "/": "Inicio",
+                    "/ofertaAcademica": "Oferta Académica",
+                    "/noticiasNovedades": "Noticias y Novedades",
+                    "/conocenos": "Conócenos",
+                    "/becasConvenios": "Becas y Convenios",
+                    "/administracion": "Administración",
+                    "/comunicacion": "Comunicación",
+                    "/informatica": "Informática",
+                    "/cultura": "Cultura",
+                }
+                normalized_path = page_path.rstrip('/') or "/"
+                enriched_page["page_name"] = static_pages.get(normalized_path)
+                if enriched_page["page_name"]:
+                    enriched_page["page_type"] = "static"
+
+            enriched_pages.append(enriched_page)
+
+        report["top_pages"] = enriched_pages
 
         return {
             "status": "success",
@@ -662,7 +719,7 @@ async def get_geographic_locations(
 
 @router.get("/geographic/local-vs-external")
 async def get_local_vs_external_traffic(
-    country: str = Query("Chile", description="País a considerar como local"),
+    country: str = Query("Uruguay", description="País a considerar como local"),
     start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
     days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)")

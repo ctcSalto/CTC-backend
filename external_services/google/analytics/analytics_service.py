@@ -599,7 +599,7 @@ class GoogleAnalyticsService:
 
     def get_traffic_by_location_type(
         self,
-        country_filter: str = "Chile",
+        country_filter: str = "Uruguay",
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         days_ago: int = 30

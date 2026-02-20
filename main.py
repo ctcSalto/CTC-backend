@@ -74,6 +74,16 @@ async def lifespan(app: FastAPI):
             print(f"⚠️ [STARTUP] Error precargando cache (no crítico): {cache_error}")
             # No lanzamos el error porque el cache no es crítico para el startup
 
+        # Iniciar scheduler para tareas programadas
+        print("🔄 [STARTUP] Iniciando scheduler de tareas programadas...")
+        try:
+            from utils.scheduler import start_scheduler
+            start_scheduler()
+            print("✅ [STARTUP] Scheduler iniciado exitosamente")
+        except Exception as scheduler_error:
+            print(f"⚠️ [STARTUP] Error iniciando scheduler (no crítico): {scheduler_error}")
+            # No lanzamos el error porque el scheduler no es crítico para el startup
+
         startup_success = True
         print("🎉 [STARTUP] TODO EL STARTUP COMPLETADO EXITOSAMENTE")
 
@@ -91,6 +101,15 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     print("🔄 [SHUTDOWN] Iniciando proceso de cierre...")
+
+    # Detener scheduler
+    try:
+        from utils.scheduler import stop_scheduler
+        stop_scheduler()
+    except Exception as e:
+        print(f"⚠️ [SHUTDOWN] Error deteniendo scheduler: {e}")
+
+    # Cerrar conexión a base de datos
     try:
         from database.database import engine
         engine.dispose()
@@ -137,11 +156,43 @@ def reset_db():
 @app.get("/health")
 async def health():
     return {
-        "status": "OK", 
-        "version": app.version, 
+        "status": "OK",
+        "version": app.version,
         "time": datetime.now(get_uruguay_tz()).isoformat(),
         "timezone": os.getenv('TIME_ZONE', 'UTC')
     }
+
+@app.get("/scheduler/status")
+async def scheduler_status():
+    """Endpoint para verificar el estado del scheduler y las tareas programadas"""
+    try:
+        from utils.scheduler import scheduler
+
+        if not scheduler.running:
+            return {
+                "status": "stopped",
+                "message": "El scheduler no está corriendo"
+            }
+
+        jobs = []
+        for job in scheduler.get_jobs():
+            jobs.append({
+                "id": job.id,
+                "name": job.name,
+                "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+                "trigger": str(job.trigger)
+            })
+
+        return {
+            "status": "running",
+            "jobs": jobs,
+            "timezone": str(scheduler.timezone)
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
 # Routers
 app.include_router(auth.router)
