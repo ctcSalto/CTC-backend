@@ -6,6 +6,7 @@ Configuración de cron jobs para ejecutar tareas automáticas.
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from pytz import timezone
 import requests
 import os
@@ -70,6 +71,16 @@ def start_scheduler():
             ),
             id='actualizar_fotos_perfil_moodle',
             name='Actualizar fotos de perfil en Moodle',
+            replace_existing=True
+        )
+
+        # Configurar tarea: Pre-fetch de datos de Google Analytics cada 2 horas
+        from utils.jobs.analytics_prefetch import prefetch_analytics_data
+        scheduler.add_job(
+            prefetch_analytics_data,
+            trigger=IntervalTrigger(minutes=5, timezone=URUGUAY_TZ),
+            id='prefetch_analytics_data',
+            name='Pre-fetch datos de Google Analytics',
             replace_existing=True
         )
 

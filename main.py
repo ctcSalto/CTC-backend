@@ -84,6 +84,15 @@ async def lifespan(app: FastAPI):
             print(f"⚠️ [STARTUP] Error iniciando scheduler (no crítico): {scheduler_error}")
             # No lanzamos el error porque el scheduler no es crítico para el startup
 
+        # Pre-fetch inicial de datos de Google Analytics (en thread para no bloquear startup)
+        try:
+            import threading
+            from utils.jobs.analytics_prefetch import prefetch_analytics_data
+            threading.Thread(target=prefetch_analytics_data, daemon=True).start()
+            print("🔄 [STARTUP] Pre-fetch de analytics iniciado en background")
+        except Exception as prefetch_error:
+            print(f"⚠️ [STARTUP] Error iniciando pre-fetch de analytics (no crítico): {prefetch_error}")
+
         startup_success = True
         print("🎉 [STARTUP] TODO EL STARTUP COMPLETADO EXITOSAMENTE")
 

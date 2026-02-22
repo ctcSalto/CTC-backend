@@ -8,7 +8,7 @@ from datetime import datetime
 from sqlmodel import Session
 
 from external_services.google.analytics import analytics_service
-from database.database import get_session
+from database.database import get_session, get_services
 
 router = APIRouter(
     prefix="/api/analytics",
@@ -30,6 +30,15 @@ def check_service_available():
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Servicio de Google Analytics no está disponible. Verifica la configuración de credenciales."
         )
+
+
+def _get_analytics_cache():
+    """Obtiene el servicio de cache de analytics. Retorna None si no está disponible."""
+    try:
+        services = get_services()
+        return services.analyticsCacheService
+    except Exception:
+        return None
 
 
 # ========== Schemas ==========
@@ -98,11 +107,23 @@ async def get_analytics_overview(
                     detail="end_date debe estar en formato YYYY-MM-DD"
                 )
 
+        # Try cache first
+        cache = _get_analytics_cache()
+        if cache:
+            cache_key = cache.build_cache_key("basic_metrics", days_ago=days_ago, start_date=start_date, end_date=end_date)
+            cached = cache.get_data(cache_key)
+            if cached is not None:
+                return {"status": "success", "data": cached, "source": "cache"}
+
         metrics = analytics_service.get_basic_metrics(
             start_date=start_date,
             end_date=end_date,
             days_ago=days_ago
         )
+
+        # Cache the result
+        if cache:
+            cache.cache_data(cache_key, metrics, ttl=7200)
 
         return {
             "status": "success",
@@ -166,12 +187,23 @@ async def get_traffic_sources(
                     detail="end_date debe estar en formato YYYY-MM-DD"
                 )
 
+        # Try cache first
+        cache = _get_analytics_cache()
+        if cache:
+            cache_key = cache.build_cache_key("traffic_sources", days_ago=days_ago, limit=limit, start_date=start_date, end_date=end_date)
+            cached = cache.get_data(cache_key)
+            if cached is not None:
+                return {"status": "success", "data": cached, "count": len(cached), "source": "cache"}
+
         sources = analytics_service.get_traffic_sources(
             start_date=start_date,
             end_date=end_date,
             days_ago=days_ago,
             limit=limit
         )
+
+        if cache:
+            cache.cache_data(cache_key, sources, ttl=7200)
 
         return {
             "status": "success",
@@ -229,11 +261,22 @@ async def get_device_breakdown(
                     detail="end_date debe estar en formato YYYY-MM-DD"
                 )
 
+        # Try cache first
+        cache = _get_analytics_cache()
+        if cache:
+            cache_key = cache.build_cache_key("devices", days_ago=days_ago, start_date=start_date, end_date=end_date)
+            cached = cache.get_data(cache_key)
+            if cached is not None:
+                return {"status": "success", "data": cached, "count": len(cached), "source": "cache"}
+
         devices = analytics_service.get_device_breakdown(
             start_date=start_date,
             end_date=end_date,
             days_ago=days_ago
         )
+
+        if cache:
+            cache.cache_data(cache_key, devices, ttl=7200)
 
         return {
             "status": "success",
@@ -292,6 +335,14 @@ async def get_complete_report(
                     detail="end_date debe estar en formato YYYY-MM-DD"
                 )
 
+        # Try cache first
+        cache = _get_analytics_cache()
+        if cache:
+            cache_key = cache.build_cache_key("complete_report", days_ago=days_ago, start_date=start_date, end_date=end_date)
+            cached = cache.get_data(cache_key)
+            if cached is not None:
+                return {"status": "success", "data": cached, "source": "cache"}
+
         report = analytics_service.get_complete_report(
             start_date=start_date,
             end_date=end_date,
@@ -299,60 +350,11 @@ async def get_complete_report(
         )
 
         # Enriquecer top_pages con nombres de la base de datos
-        from sqlmodel import select
-        from database.models.career import Career
-        from database.models.news import News
+        from database.services.cache.analytics_cache_service import AnalyticsCacheService
+        report["top_pages"] = AnalyticsCacheService.enrich_pages(report.get("top_pages", []), session)
 
-        enriched_pages = []
-        for page in report.get("top_pages", []):
-            enriched_page = page.copy()
-            page_path = page.get("page_path", "")
-
-            enriched_page["page_name"] = None
-            enriched_page["page_type"] = None
-            enriched_page["record_id"] = None
-
-            if "/ofertaAcademica/" in page_path:
-                try:
-                    career_id = int(page_path.rstrip('/').split('/')[-1].split('?')[0])
-                    career = session.exec(select(Career).where(Career.careerId == career_id)).one_or_none()
-                    if career:
-                        enriched_page["page_name"] = career.name
-                        enriched_page["page_type"] = "career"
-                        enriched_page["record_id"] = career_id
-                except (ValueError, AttributeError):
-                    pass
-            elif "/noticiasNovedades/" in page_path:
-                try:
-                    news_id = int(page_path.rstrip('/').split('/')[-1].split('?')[0])
-                    news_item = session.exec(select(News).where(News.newsId == news_id)).one_or_none()
-                    if news_item:
-                        enriched_page["page_name"] = news_item.title
-                        enriched_page["page_type"] = "news"
-                        enriched_page["record_id"] = news_id
-                except (ValueError, AttributeError):
-                    pass
-            else:
-                # Páginas estáticas - mapear por path conocido
-                static_pages = {
-                    "/": "Inicio",
-                    "/ofertaAcademica": "Oferta Académica",
-                    "/noticiasNovedades": "Noticias y Novedades",
-                    "/conocenos": "Conócenos",
-                    "/becasConvenios": "Becas y Convenios",
-                    "/administracion": "Administración",
-                    "/comunicacion": "Comunicación",
-                    "/informatica": "Informática",
-                    "/cultura": "Cultura",
-                }
-                normalized_path = page_path.rstrip('/') or "/"
-                enriched_page["page_name"] = static_pages.get(normalized_path)
-                if enriched_page["page_name"]:
-                    enriched_page["page_type"] = "static"
-
-            enriched_pages.append(enriched_page)
-
-        report["top_pages"] = enriched_pages
+        if cache:
+            cache.cache_data(cache_key, report, ttl=7200)
 
         return {
             "status": "success",
@@ -412,11 +414,22 @@ async def get_dashboard_overview(
                     detail="end_date debe estar en formato YYYY-MM-DD"
                 )
 
+        # Try cache first
+        cache = _get_analytics_cache()
+        if cache:
+            cache_key = cache.build_cache_key("dashboard_overview", days_ago=days_ago, start_date=start_date, end_date=end_date)
+            cached = cache.get_data(cache_key)
+            if cached is not None:
+                return {"status": "success", "data": cached, "source": "cache"}
+
         data = analytics_service.get_dashboard_overview(
             start_date=start_date,
             end_date=end_date,
             days_ago=days_ago
         )
+
+        if cache:
+            cache.cache_data(cache_key, data, ttl=3600)
 
         return {
             "status": "success",
@@ -489,6 +502,14 @@ async def get_dashboard_courses(
                     detail="end_date debe estar en formato YYYY-MM-DD"
                 )
 
+        # Try cache first
+        cache = _get_analytics_cache()
+        if cache:
+            cache_key = cache.build_cache_key("dashboard_courses", days_ago=days_ago, limit=limit, start_date=start_date, end_date=end_date)
+            cached = cache.get_data(cache_key)
+            if cached is not None:
+                return {"status": "success", "data": cached, "count": len(cached), "source": "cache"}
+
         courses = analytics_service.get_pages_by_path_filter(
             path_filter="/ofertaAcademica/",
             start_date=start_date,
@@ -498,34 +519,11 @@ async def get_dashboard_courses(
         )
 
         # Enriquecer datos con información de la base de datos
-        from sqlmodel import select
-        from database.models.career import Career
+        from database.services.cache.analytics_cache_service import AnalyticsCacheService
+        enriched_courses = AnalyticsCacheService.enrich_courses(courses, session)
 
-        enriched_courses = []
-
-        for course in courses:
-            enriched_course = course.copy()
-
-            # Extraer careerId del slug (el slug ya contiene solo el ID)
-            try:
-                career_id = int(course.get("slug", "0"))
-                enriched_course["careerId"] = career_id
-
-                # Obtener información de la carrera desde la base de datos
-                statement = select(Career).where(Career.careerId == career_id)
-                career = session.exec(statement).one_or_none()
-
-                if career:
-                    enriched_course["careerName"] = career.name
-                else:
-                    enriched_course["careerName"] = None
-
-            except (ValueError, AttributeError):
-                # Si el slug no es un número válido, dejar como None
-                enriched_course["careerId"] = None
-                enriched_course["careerName"] = None
-
-            enriched_courses.append(enriched_course)
+        if cache:
+            cache.cache_data(cache_key, enriched_courses, ttl=7200)
 
         return {
             "status": "success",
@@ -593,6 +591,14 @@ async def get_dashboard_news(
                     detail="end_date debe estar en formato YYYY-MM-DD"
                 )
 
+        # Try cache first
+        cache = _get_analytics_cache()
+        if cache:
+            cache_key = cache.build_cache_key("dashboard_news", days_ago=days_ago, limit=limit, start_date=start_date, end_date=end_date)
+            cached = cache.get_data(cache_key)
+            if cached is not None:
+                return {"status": "success", "data": cached, "count": len(cached), "source": "cache"}
+
         news = analytics_service.get_pages_by_path_filter(
             path_filter="/noticiasNovedades/",
             start_date=start_date,
@@ -602,34 +608,11 @@ async def get_dashboard_news(
         )
 
         # Enriquecer datos con información de la base de datos
-        from sqlmodel import select
-        from database.models.news import News
+        from database.services.cache.analytics_cache_service import AnalyticsCacheService
+        enriched_news = AnalyticsCacheService.enrich_news(news, session)
 
-        enriched_news = []
-
-        for news_item in news:
-            enriched_news_item = news_item.copy()
-
-            # Extraer newsId del slug (el slug ya contiene solo el ID)
-            try:
-                news_id = int(news_item.get("slug", "0"))
-                enriched_news_item["newsId"] = news_id
-
-                # Obtener información de la noticia desde la base de datos
-                statement = select(News).where(News.newsId == news_id)
-                news_data = session.exec(statement).one_or_none()
-
-                if news_data:
-                    enriched_news_item["newsTitle"] = news_data.title
-                else:
-                    enriched_news_item["newsTitle"] = None
-
-            except (ValueError, AttributeError):
-                # Si el slug no es un número válido, dejar como None
-                enriched_news_item["newsId"] = None
-                enriched_news_item["newsTitle"] = None
-
-            enriched_news.append(enriched_news_item)
+        if cache:
+            cache.cache_data(cache_key, enriched_news, ttl=7200)
 
         return {
             "status": "success",
@@ -692,12 +675,23 @@ async def get_geographic_locations(
                     detail="end_date debe estar en formato YYYY-MM-DD"
                 )
 
+        # Try cache first
+        cache = _get_analytics_cache()
+        if cache:
+            cache_key = cache.build_cache_key("geographic_locations", days_ago=days_ago, limit=limit, start_date=start_date, end_date=end_date)
+            cached = cache.get_data(cache_key)
+            if cached is not None:
+                return {"status": "success", "data": cached, "count": len(cached), "source": "cache"}
+
         locations = analytics_service.get_geographic_data(
             start_date=start_date,
             end_date=end_date,
             days_ago=days_ago,
             limit=limit
         )
+
+        if cache:
+            cache.cache_data(cache_key, locations, ttl=7200)
 
         return {
             "status": "success",
@@ -757,12 +751,23 @@ async def get_local_vs_external_traffic(
                     detail="end_date debe estar en formato YYYY-MM-DD"
                 )
 
+        # Try cache first
+        cache = _get_analytics_cache()
+        if cache:
+            cache_key = cache.build_cache_key("geographic_local_external", days_ago=days_ago, country=country, start_date=start_date, end_date=end_date)
+            cached = cache.get_data(cache_key)
+            if cached is not None:
+                return {"status": "success", "data": cached, "source": "cache"}
+
         traffic_data = analytics_service.get_traffic_by_location_type(
             country_filter=country,
             start_date=start_date,
             end_date=end_date,
             days_ago=days_ago
         )
+
+        if cache:
+            cache.cache_data(cache_key, traffic_data, ttl=7200)
 
         return {
             "status": "success",
@@ -836,12 +841,23 @@ async def get_historical_data(
                     detail="end_date debe estar en formato YYYY-MM-DD"
                 )
 
+        # Try cache first
+        cache = _get_analytics_cache()
+        if cache:
+            cache_key = cache.build_cache_key("historical", days_ago=days_ago, metric=metric, start_date=start_date, end_date=end_date)
+            cached = cache.get_data(cache_key)
+            if cached is not None:
+                return {"status": "success", "data": cached, "count": len(cached), "metric": metric, "source": "cache"}
+
         historical_data = analytics_service.get_historical_data(
             metric_name=metric,
             start_date=start_date,
             end_date=end_date,
             days_ago=days_ago
         )
+
+        if cache:
+            cache.cache_data(cache_key, historical_data, ttl=14400)
 
         return {
             "status": "success",
