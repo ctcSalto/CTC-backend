@@ -78,7 +78,7 @@ def start_scheduler():
         from utils.jobs.analytics_prefetch import prefetch_analytics_data
         scheduler.add_job(
             prefetch_analytics_data,
-            trigger=IntervalTrigger(minutes=5, timezone=URUGUAY_TZ),
+            trigger=IntervalTrigger(minutes=4, timezone=URUGUAY_TZ),
             id='prefetch_analytics_data',
             name='Pre-fetch datos de Google Analytics',
             replace_existing=True
