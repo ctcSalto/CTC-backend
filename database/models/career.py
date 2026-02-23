@@ -272,4 +272,3 @@ from .testimony import TestimonyRead
 # Rebuild después de definir todos los modelos
 CareerRead.model_rebuild()
 CareerReadOptimized.model_rebuild()
-

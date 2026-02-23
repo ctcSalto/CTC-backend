@@ -28,5 +28,10 @@ Thumbs.db
 # Logs
 *.log
 
+# Test scripts (no commitear)
+test_analytics_endpoints.py
+test_ga4_init.py
+.buildpack-cache-clear
+
 # Others
 .idea/

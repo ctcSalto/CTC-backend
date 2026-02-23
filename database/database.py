@@ -16,6 +16,7 @@ from .services.news_services import NewsService
 from .services.supabase.image_service import SupabaseService
 from .services.redis.redis import RedisService
 from .services.cache.cache_service import CacheService
+from .services.cache.analytics_cache_service import AnalyticsCacheService
 
 #-------------------MERCADO PAGO------------------------------
 
@@ -57,6 +58,7 @@ class Services:
         )
         self.redisService = RedisService()
         self.cacheService = CacheService(self.redisService)
+        self.analyticsCacheService = AnalyticsCacheService(self.redisService)
 
 _services_instance: Services | None = None
 

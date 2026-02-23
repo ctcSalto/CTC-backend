@@ -6,7 +6,11 @@
       "Bash(pip install:*)",
       "Bash(python:*)",
       "Bash(where:*)",
-      "Bash(C:Python311python.exe test_ga4_connection.py)"
+      "Bash(C:Python311python.exe test_ga4_connection.py)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(curl -s \"https://backend-backend-ctc-develop.vtu0xl.easypanel.host/api/analytics/debug-env\")"
     ],
     "deny": [],
     "ask": []

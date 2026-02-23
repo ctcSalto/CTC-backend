@@ -1,9 +1,12 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from external_services.moodle_api.models.user import MoodleUserCreate, MoodleUserRead, MoodleUserUpdate, DeleteUserResponse
 from external_services.moodle_api.controllers.moodle_api_controller import MoodleController
 from external_services.moodle_api.moodle_config import MoodleConfig
 from utils.logger import show
 from typing import List, Optional
+import subprocess
+import sys
+import os
 
 router = APIRouter(prefix="/moodle", tags=["Moodle Users"])
 
@@ -159,6 +162,70 @@ async def delete_moodle_user(user_id: int):
         )
         
     except HTTPException:
-        raise 
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── ENDPOINT PARA ACTUALIZAR FOTOS DE PERFIL ────────────────────────────────
+
+def run_update_photos_script():
+    """
+    Ejecuta el script actualizar_fotos_perfil.py en un subproceso.
+    Esta función se ejecuta en background para no bloquear el endpoint.
+    """
+    script_path = os.path.join(
+        os.path.dirname(__file__),
+        "..", "..",
+        "external_services", "moodle_api", "scripts", "actualizar_fotos_perfil.py"
+    )
+
+    try:
+        show(f"Ejecutando script: {script_path}")
+        result = subprocess.run(
+            [sys.executable, script_path],
+            capture_output=True,
+            text=True,
+            timeout=600  # 10 minutos máximo
+        )
+
+        if result.returncode == 0:
+            show(f"Script completado exitosamente:\n{result.stdout}")
+        else:
+            show(f"Error en script:\n{result.stderr}")
+
+    except subprocess.TimeoutExpired:
+        show("Script excedió el tiempo límite de 10 minutos")
+    except Exception as e:
+        show(f"Error ejecutando script: {e}")
+
+
+@router.post("/usuarios/actualizar-fotos-perfil")
+async def actualizar_fotos_perfil(background_tasks: BackgroundTasks):
+    """
+    Actualiza las fotos de perfil de todos los usuarios en Moodle con el logo del instituto.
+
+    Este endpoint ejecuta un proceso en background que:
+    1. Obtiene todos los usuarios de Moodle
+    2. Crea un ZIP con copias del logo CTC nombradas por username
+    3. Sube el ZIP a Moodle usando Playwright
+    4. Limpia archivos temporales
+
+    **Nota**: El proceso se ejecuta en background y puede tardar varios minutos.
+    La respuesta se devuelve inmediatamente, pero el proceso continúa ejecutándose.
+
+    Returns:
+        dict: Mensaje confirmando que el proceso se inició
+    """
+    try:
+        # Agregar tarea en background
+        background_tasks.add_task(run_update_photos_script)
+
+        return {
+            "message": "Proceso de actualización de fotos iniciado en background",
+            "status": "processing",
+            "note": "El proceso puede tardar varios minutos. Revisa los logs del servidor para ver el progreso."
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al iniciar proceso: {str(e)}")
