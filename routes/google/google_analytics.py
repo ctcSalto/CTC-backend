@@ -9,6 +9,8 @@ from sqlmodel import Session
 
 from external_services.google.analytics import analytics_service
 from database.database import get_session, get_services
+from database.models.user import UserRead
+from database.services.auth.dependencies import require_admin_role
 
 router = APIRouter(
     prefix="/api/analytics",
@@ -70,7 +72,8 @@ class AnalyticsDateRangeRequest(BaseModel):
 async def get_analytics_overview(
     start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
-    days_ago: int = Query(7, ge=1, le=365, description="Días hacia atrás")
+    days_ago: int = Query(7, ge=1, le=365, description="Días hacia atrás"),
+    current_user: UserRead = Depends(require_admin_role)
 ):
     """
     Obtiene métricas básicas de Google Analytics 4
@@ -153,7 +156,8 @@ async def get_traffic_sources(
     start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
     days_ago: int = Query(7, ge=1, le=365, description="Días hacia atrás"),
-    limit: int = Query(10, ge=1, le=50, description="Número máximo de resultados")
+    limit: int = Query(10, ge=1, le=50, description="Número máximo de resultados"),
+    current_user: UserRead = Depends(require_admin_role)
 ):
     """
     Obtiene las fuentes de tráfico (source/medium) ordenadas por sesiones
@@ -227,7 +231,8 @@ async def get_traffic_sources(
 async def get_device_breakdown(
     start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
-    days_ago: int = Query(7, ge=1, le=365, description="Días hacia atrás")
+    days_ago: int = Query(7, ge=1, le=365, description="Días hacia atrás"),
+    current_user: UserRead = Depends(require_admin_role)
 ):
     """
     Obtiene el desglose por tipo de dispositivo (desktop, mobile, tablet)
@@ -301,7 +306,8 @@ async def get_complete_report(
     start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
     days_ago: int = Query(7, ge=1, le=365, description="Días hacia atrás"),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user: UserRead = Depends(require_admin_role)
 ):
     """
     Obtiene un reporte completo con todas las métricas disponibles
@@ -379,7 +385,8 @@ async def get_complete_report(
 async def get_dashboard_overview(
     start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
-    days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)")
+    days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)"),
+    current_user: UserRead = Depends(require_admin_role)
 ):
     """
     Dashboard Overview - Métricas generales del sitio
@@ -460,7 +467,8 @@ async def get_dashboard_courses(
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
     days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)"),
     limit: int = Query(20, ge=1, le=100, description="Número máximo de resultados"),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user: UserRead = Depends(require_admin_role)
 ):
     """
     Dashboard Cursos - Páginas de cursos más visitadas
@@ -549,7 +557,8 @@ async def get_dashboard_news(
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
     days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)"),
     limit: int = Query(20, ge=1, le=100, description="Número máximo de resultados"),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user: UserRead = Depends(require_admin_role)
 ):
     """
     Dashboard Noticias - Páginas de noticias más visitadas
@@ -639,7 +648,8 @@ async def get_geographic_locations(
     start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
     days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)"),
-    limit: int = Query(20, ge=1, le=100, description="Número máximo de resultados")
+    limit: int = Query(20, ge=1, le=100, description="Número máximo de resultados"),
+    current_user: UserRead = Depends(require_admin_role)
 ):
     """
     Tráfico por Ubicación Geográfica (Ciudad y País)
@@ -716,7 +726,8 @@ async def get_local_vs_external_traffic(
     country: str = Query("Uruguay", description="País a considerar como local"),
     start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
-    days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)")
+    days_ago: int = Query(30, ge=1, le=365, description="Días hacia atrás (default: 30)"),
+    current_user: UserRead = Depends(require_admin_role)
 ):
     """
     Desglose de Tráfico Local vs Externo
@@ -796,7 +807,8 @@ async def get_historical_data(
     ),
     start_date: Optional[str] = Query(None, description="Fecha inicio (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
-    days_ago: int = Query(90, ge=1, le=365, description="Días hacia atrás (default: 90)")
+    days_ago: int = Query(90, ge=1, le=365, description="Días hacia atrás (default: 90)"),
+    current_user: UserRead = Depends(require_admin_role)
 ):
     """
     Datos Históricos por Fecha
@@ -875,6 +887,36 @@ async def get_historical_data(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error inesperado: {str(e)}"
+        )
+
+
+# ========== Cache Management Endpoints ==========
+
+@router.post("/cache/refresh")
+async def refresh_analytics_cache(
+    current_user: UserRead = Depends(require_admin_role)
+):
+    """
+    Ejecuta manualmente el pre-fetch de analytics.
+    Limpia los datos viejos y los reemplaza con datos frescos de GA4.
+    Requiere rol de administrador.
+    """
+    try:
+        import threading
+        from utils.jobs.analytics_prefetch import prefetch_analytics_data
+
+        # Ejecutar en thread para no bloquear el response
+        thread = threading.Thread(target=prefetch_analytics_data, daemon=True)
+        thread.start()
+
+        return {
+            "status": "success",
+            "message": "Pre-fetch de analytics iniciado en background. Los datos se actualizarán en unos segundos."
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error iniciando pre-fetch: {str(e)}"
         )
 
 
