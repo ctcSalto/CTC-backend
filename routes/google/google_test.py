@@ -33,6 +33,7 @@ class UpdateGoogleAccountRequest(BaseModel):
     familyName: Optional[str] = Field(None, min_length=1, max_length=50)
     orgUnitPath: Optional[str] = None
     suspended: Optional[bool] = None
+    password: Optional[str] = Field(None, min_length=8, description="Nueva contraseña (mínimo 8 caracteres)")
 
 
 class UserEmailRequest(BaseModel):
@@ -127,7 +128,8 @@ async def update_google_account(request: UpdateGoogleAccountRequest):
             given_name=request.givenName,
             family_name=request.familyName,
             org_unit_path=request.orgUnitPath,
-            suspended=request.suspended
+            suspended=request.suspended,
+            password=request.password
         )
 
         return {

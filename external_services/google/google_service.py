@@ -133,7 +133,8 @@ class GoogleWorkspaceService:
         given_name: Optional[str] = None,
         family_name: Optional[str] = None,
         org_unit_path: Optional[str] = None,
-        suspended: Optional[bool] = None
+        suspended: Optional[bool] = None,
+        password: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Actualiza una cuenta de usuario en Google Workspace
@@ -144,6 +145,7 @@ class GoogleWorkspaceService:
             family_name: Nuevo apellido (opcional)
             org_unit_path: Nueva unidad organizativa (opcional)
             suspended: Suspender/activar cuenta (opcional)
+            password: Nueva contraseña (opcional)
 
         Returns:
             Dict con los datos del usuario actualizado
@@ -158,6 +160,8 @@ class GoogleWorkspaceService:
             data["orgUnitPath"] = org_unit_path
         if suspended is not None:
             data["suspended"] = suspended
+        if password:
+            data["password"] = password
 
         return self._make_request('updateGoogleAccount', method='POST', data=data)
 
