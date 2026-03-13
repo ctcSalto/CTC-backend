@@ -33,5 +33,18 @@ test_analytics_endpoints.py
 test_ga4_init.py
 .buildpack-cache-clear
 
+# Claude / Agents
+.claude/
+.agents/
+SKILL.md
+
+# Excel files (datos locales)
+*.xlsx
+
+# Frontend
+frontend/node_modules/
+frontend/.svelte-kit/
+
 # Others
 .idea/
+nul

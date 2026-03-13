@@ -1,5 +1,7 @@
+import pathlib
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from scalar_fastapi import get_scalar_api_reference, Layout
 
@@ -231,6 +233,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Frontend SvelteKit (admin panel) ─────────────────────────────────────────
+frontend_build = pathlib.Path(__file__).parent / "frontend" / "build"
+if frontend_build.exists():
+    app.mount("/admin/_app", StaticFiles(directory=frontend_build / "_app"), name="svelte_assets")
+
+    @app.get("/admin/{full_path:path}")
+    async def serve_spa(full_path: str):
+        return FileResponse(frontend_build / "index.html")
+
+    @app.get("/admin")
+    async def serve_spa_root():
+        return FileResponse(frontend_build / "index.html")
 
 if __name__ == "__main__":
     # run command -> python main.py
