@@ -73,10 +73,12 @@ class GoogleWorkspaceService:
                 error_message = response.text
                 try:
                     error_json = response.json()
-                    error_message = error_json.get('message', error_message)
+                    description = error_json.get('description', '')
+                    message = error_json.get('message', error_message)
+                    error_message = f"{description}" if description else message
                 except:
                     pass
-                raise ValueError(f"Error en n8n webhook: {error_message}")
+                raise ValueError(error_message)
 
             # Intentar parsear JSON
             try:
