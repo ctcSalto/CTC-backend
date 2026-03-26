@@ -45,9 +45,13 @@
 
 		try {
 			const res = await getAccount(userEmail);
-			setFieldsFromAccount(res.data);
+			if (res?.data) {
+				setFieldsFromAccount(res.data);
+			} else if (!cached) {
+				error('No se pudo obtener la cuenta');
+			}
 		} catch (err: any) {
-			if (!cached) error(err.message);
+			error(err.message || 'Error al cargar la cuenta');
 		} finally {
 			loading = false;
 		}
@@ -77,7 +81,7 @@
 
 			invalidateAccounts();
 		} catch (err: any) {
-			error(err.message);
+			error(err.message || 'Error al guardar los cambios');
 		} finally {
 			saving = false;
 		}
@@ -97,8 +101,8 @@
 			passwordModal = { show: true, password: newPass, loading: false };
 			success('Contraseña actualizada');
 		} catch (err: any) {
-			error(err.message);
-			passwordModal.show = false;
+			passwordModal = { show: false, password: '', loading: false };
+			error(err.message || 'Error al resetear la contraseña');
 		}
 	}
 
@@ -111,7 +115,7 @@
 			success('Usuario eliminado');
 			goto(`${base}/users`);
 		} catch (err: any) {
-			error(err.message);
+			error(err.message || 'Error al eliminar la cuenta');
 		}
 	}
 
