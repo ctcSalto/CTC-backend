@@ -62,8 +62,8 @@
 		try {
 			await updateAccount({
 				primaryEmail: userEmail,
-				givenName: editName,
-				familyName: editLastName,
+				givenName: editName || undefined,
+				familyName: editLastName || undefined,
 				orgUnitPath: editOU,
 			});
 			success('Usuario actualizado');
