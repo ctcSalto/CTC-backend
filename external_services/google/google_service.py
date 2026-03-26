@@ -74,8 +74,13 @@ class GoogleWorkspaceService:
                 try:
                     error_json = response.json()
                     description = error_json.get('description', '')
-                    message = error_json.get('message', error_message)
-                    error_message = f"{description}" if description else message
+                    message = error_json.get('message', '')
+                    # Asegurar que sean strings (n8n puede devolver objetos)
+                    if not isinstance(description, str):
+                        description = str(description) if description else ''
+                    if not isinstance(message, str):
+                        message = str(message) if message else ''
+                    error_message = description if description else message if message else error_message
                 except:
                     pass
                 raise ValueError(error_message)
