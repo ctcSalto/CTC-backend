@@ -1,9 +1,12 @@
 """
 Endpoints de Google Workspace API vía n8n
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from database.models.user import UserRead
 from database.services.auth.dependencies import require_admin_role
@@ -212,6 +215,7 @@ async def update_google_account(
             detail=str(e)
         )
     except Exception as e:
+        logger.error(f"Error en update-account para {request.primaryEmail}: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error inesperado: {str(e)}"
