@@ -58,12 +58,16 @@
 	}
 
 	async function handleSave() {
+		if (!editName.trim() || !editLastName.trim()) {
+			error('Nombre y apellido son obligatorios');
+			return;
+		}
 		saving = true;
 		try {
 			await updateAccount({
 				primaryEmail: userEmail,
-				givenName: editName || undefined,
-				familyName: editLastName || undefined,
+				givenName: editName.trim(),
+				familyName: editLastName.trim(),
 				orgUnitPath: editOU,
 			});
 			success('Usuario actualizado');
@@ -160,19 +164,21 @@
 
 			<div class="grid grid-cols-2 gap-4">
 				<div>
-					<label for="editName" class="mb-1 block text-sm font-medium text-gray-700">Nombre</label>
+					<label for="editName" class="mb-1 block text-sm font-medium text-gray-700">Nombre <span class="text-red-500">*</span></label>
 					<input
 						id="editName"
 						type="text"
+						required
 						bind:value={editName}
 						class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
 					/>
 				</div>
 				<div>
-					<label for="editLastName" class="mb-1 block text-sm font-medium text-gray-700">Apellido</label>
+					<label for="editLastName" class="mb-1 block text-sm font-medium text-gray-700">Apellido <span class="text-red-500">*</span></label>
 					<input
 						id="editLastName"
 						type="text"
+						required
 						bind:value={editLastName}
 						class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
 					/>
@@ -194,7 +200,7 @@
 
 			<button
 				onclick={handleSave}
-				disabled={saving}
+				disabled={saving || !editName.trim() || !editLastName.trim()}
 				class="w-full cursor-pointer rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-all hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
 			>
 				{saving ? 'Guardando...' : 'Guardar cambios'}
