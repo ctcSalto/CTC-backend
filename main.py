@@ -24,14 +24,14 @@ try:
     # Solo carga .env si existe el archivo
     if os.path.exists('.env'):
         load_dotenv(override=True)
-        print("✅ Variables de entorno cargadas desde .env")
+        print("[OK] Variables de entorno cargadas desde .env")
     else:
-        print("ℹ️ Usando variables del sistema (producción)")
+        print("[INFO] Usando variables del sistema (producción)")
 except ImportError:
     # En producción donde python-dotenv no está instalado
-    print("ℹ️ python-dotenv no disponible, usando variables del sistema")
+    print("[INFO] python-dotenv no disponible, usando variables del sistema")
 except Exception as e:
-    print(f"⚠️ Error cargando .env: {e}")
+    print(f"[WARN] Error cargando .env: {e}")
 
 from routes.test import test_filters
 from utils.logger import show
@@ -46,21 +46,21 @@ async def lifespan(app: FastAPI):
     # Startup
     startup_success = False
     try:
-        print("🔄 [STARTUP] Iniciando configuración de base de datos...")
+        print("[..] [STARTUP] Iniciando configuración de base de datos...")
         from database.database import engine, get_services, get_db_session
         from sqlalchemy import text
 
-        print("🔄 [STARTUP] Probando conexión a PostgreSQL...")
+        print("[..] [STARTUP] Probando conexión a PostgreSQL...")
         with engine.connect() as conn:
             result = conn.execute(text("SELECT 1"))
-            print("✅ [STARTUP] Conexión a PostgreSQL exitosa")
+            print("[OK] [STARTUP] Conexión a PostgreSQL exitosa")
 
-        print("🔄 [STARTUP] Creando tablas...")
+        print("[..] [STARTUP] Creando tablas...")
         create_db_and_tables()
-        print("✅ [STARTUP] Base de datos y tablas creadas/verificadas")
+        print("[OK] [STARTUP] Base de datos y tablas creadas/verificadas")
 
         # Cache warmup for careers
-        print("🔄 [STARTUP] Iniciando precarga de cache para carreras...")
+        print("[..] [STARTUP] Iniciando precarga de cache para carreras...")
         try:
             services = get_services()
             with get_db_session() as session:
@@ -69,21 +69,21 @@ async def lifespan(app: FastAPI):
                     career_service=services.careerService
                 )
                 if warmup_result:
-                    print("✅ [STARTUP] Cache de carreras precargado exitosamente")
+                    print("[OK] [STARTUP] Cache de carreras precargado exitosamente")
                 else:
-                    print("⚠️ [STARTUP] No se encontraron carreras para precargar en cache")
+                    print("[WARN] [STARTUP] No se encontraron carreras para precargar en cache")
         except Exception as cache_error:
-            print(f"⚠️ [STARTUP] Error precargando cache (no crítico): {cache_error}")
+            print(f"[WARN] [STARTUP] Error precargando cache (no crítico): {cache_error}")
             # No lanzamos el error porque el cache no es crítico para el startup
 
         # Iniciar scheduler para tareas programadas
-        print("🔄 [STARTUP] Iniciando scheduler de tareas programadas...")
+        print("[..] [STARTUP] Iniciando scheduler de tareas programadas...")
         try:
             from utils.scheduler import start_scheduler
             start_scheduler()
-            print("✅ [STARTUP] Scheduler iniciado exitosamente")
+            print("[OK] [STARTUP] Scheduler iniciado exitosamente")
         except Exception as scheduler_error:
-            print(f"⚠️ [STARTUP] Error iniciando scheduler (no crítico): {scheduler_error}")
+            print(f"[WARN] [STARTUP] Error iniciando scheduler (no crítico): {scheduler_error}")
             # No lanzamos el error porque el scheduler no es crítico para el startup
 
         # Pre-fetch inicial de datos de Google Analytics (en thread para no bloquear startup)
@@ -91,42 +91,42 @@ async def lifespan(app: FastAPI):
             import threading
             from utils.jobs.analytics_prefetch import prefetch_analytics_data
             threading.Thread(target=prefetch_analytics_data, daemon=True).start()
-            print("🔄 [STARTUP] Pre-fetch de analytics iniciado en background")
+            print("[..] [STARTUP] Pre-fetch de analytics iniciado en background")
         except Exception as prefetch_error:
-            print(f"⚠️ [STARTUP] Error iniciando pre-fetch de analytics (no crítico): {prefetch_error}")
+            print(f"[WARN] [STARTUP] Error iniciando pre-fetch de analytics (no crítico): {prefetch_error}")
 
         startup_success = True
-        print("🎉 [STARTUP] TODO EL STARTUP COMPLETADO EXITOSAMENTE")
+        print("[OK] [STARTUP] TODO EL STARTUP COMPLETADO EXITOSAMENTE")
 
     except Exception as e:
-        print(f"❌ [STARTUP] ERROR CRÍTICO: {e}")
-        print(f"❌ [STARTUP] Tipo: {type(e).__name__}")
+        print(f"[ERROR] [STARTUP] ERROR CRÍTICO: {e}")
+        print(f"[ERROR] [STARTUP] Tipo: {type(e).__name__}")
         import traceback
         traceback.print_exc()
         raise e  # Esto hará que falle el startup
 
     if startup_success:
-        print("🚀 [LIFESPAN] Aplicación lista para recibir requests")
+        print("[OK] [LIFESPAN] Aplicación lista para recibir requests")
 
     yield  # La aplicación funciona aquí
 
     # Shutdown
-    print("🔄 [SHUTDOWN] Iniciando proceso de cierre...")
+    print("[..] [SHUTDOWN] Iniciando proceso de cierre...")
 
     # Detener scheduler
     try:
         from utils.scheduler import stop_scheduler
         stop_scheduler()
     except Exception as e:
-        print(f"⚠️ [SHUTDOWN] Error deteniendo scheduler: {e}")
+        print(f"[WARN] [SHUTDOWN] Error deteniendo scheduler: {e}")
 
     # Cerrar conexión a base de datos
     try:
         from database.database import engine
         engine.dispose()
-        print("✅ [SHUTDOWN] Recursos liberados correctamente")
+        print("[OK] [SHUTDOWN] Recursos liberados correctamente")
     except Exception as e:
-        print(f"⚠️ [SHUTDOWN] Error: {e}")
+        print(f"[WARN] [SHUTDOWN] Error: {e}")
 
     print("👋 [SHUTDOWN] Aplicación cerrada")
 

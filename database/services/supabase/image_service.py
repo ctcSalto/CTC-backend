@@ -12,7 +12,7 @@ try:
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
-    print("⚠️  Pillow no está instalado. La conversión a WebP no estará disponible.")
+    print("[WARN]  Pillow no está instalado. La conversión a WebP no estará disponible.")
 
 try:
     from dotenv import load_dotenv
@@ -106,7 +106,7 @@ class SupabaseService:
             # Obtener bytes de la imagen WebP
             webp_bytes = webp_buffer.getvalue()
             
-            print(f"🔄 Conversión WebP completada:")
+            print(f"[..] Conversión WebP completada:")
             print(f"   📊 Tamaño original: {len(file_content)} bytes")
             print(f"   📈 Tamaño WebP: {len(webp_bytes)} bytes")
             print(f"   💾 Reducción: {((len(file_content) - len(webp_bytes)) / len(file_content) * 100):.1f}%")
@@ -114,7 +114,7 @@ class SupabaseService:
             return webp_bytes
             
         except Exception as e:
-            print(f"❌ Error en conversión WebP: {str(e)}")
+            print(f"[ERROR] Error en conversión WebP: {str(e)}")
             raise HTTPException(
                 status_code=500, 
                 detail=f"Error al convertir imagen a WebP: {str(e)}"
@@ -204,26 +204,26 @@ class SupabaseService:
             print(f"📂 Carpeta destino: {folder}")
             print(f"📊 Tamaño archivo original: {len(file_content)} bytes")
             
-            # 🔄 CONVERSIÓN AUTOMÁTICA A WEBP PARA IMÁGENES
+            # [..] CONVERSIÓN AUTOMÁTICA A WEBP PARA IMÁGENES
             content_type = file.content_type
             is_image = self._get_file_type(file) == "image"
             
             if is_image and file.content_type != "image/webp":
-                print("🔄 Convirtiendo imagen a WebP...")
+                print("[..] Convirtiendo imagen a WebP...")
                 try:
                     file_content = self._convert_to_webp(file_content)
                     content_type = "image/webp"
                     # Generar nombre con extensión .webp
                     filename = self._generate_webp_filename(file.filename or "image")
-                    print(f"✅ Conversión a WebP completada - nuevo tamaño: {len(file_content)} bytes")
+                    print(f"[OK] Conversión a WebP completada - nuevo tamaño: {len(file_content)} bytes")
                 except Exception as webp_error:
-                    print(f"⚠️  Error en conversión WebP: {webp_error}")
+                    print(f"[WARN]  Error en conversión WebP: {webp_error}")
                     print("📁 Subiendo archivo original sin conversión")
                     filename = self._generate_filename(file.filename or "file")
             else:
                 filename = self._generate_filename(file.filename or "file")
                 if is_image and file.content_type == "image/webp":
-                    print("ℹ️  Imagen ya está en formato WebP")
+                    print("[INFO] Imagen ya esta en formato WebP")
             
             file_path = f"{folder}/{filename}"
             print(f"🎯 Ruta completa: {file_path}")
@@ -240,12 +240,12 @@ class SupabaseService:
             
             # Verificar si la respuesta indica éxito
             if hasattr(response, 'data') and response.data:
-                print("✅ Upload exitoso")
+                print("[OK] Upload exitoso")
             elif isinstance(response, dict) and 'error' in response:
-                print(f"❌ Error en upload: {response['error']}")
+                print(f"[ERROR] Error en upload: {response['error']}")
                 raise HTTPException(status_code=500, detail=f"Error al subir: {response['error']}")
             else:
-                print("✅ Upload completado")
+                print("[OK] Upload completado")
             
             # Obtener URL pública
             print("🔗 Obteniendo URL pública...")

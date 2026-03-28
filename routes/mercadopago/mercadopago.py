@@ -18,14 +18,13 @@ try:
     # Solo carga .env si existe el archivo
     if os.path.exists('.env'):
         load_dotenv(override=True)
-        print("✅ Variables de entorno cargadas desde .env")
+        print("Variables de entorno cargadas desde .env")
     else:
-        print("ℹ️ Usando variables del sistema (producción)")
+        print("Usando variables del sistema (produccion)")
 except ImportError:
-    # En producción donde python-dotenv no está instalado
-    print("ℹ️ python-dotenv no disponible, usando variables del sistema")
+    print("python-dotenv no disponible, usando variables del sistema")
 except Exception as e:
-    print(f"⚠️ Error cargando .env: {e}")
+    print(f"Error cargando .env: {e}")
 
 from utils.logger import show
 

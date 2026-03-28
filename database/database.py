@@ -27,14 +27,14 @@ try:
     # Solo carga .env si existe el archivo
     if os.path.exists('.env'):
         load_dotenv(override=True)
-        print("✅ Variables de entorno cargadas desde .env")
+        print("Variables de entorno cargadas desde .env")
     else:
-        print("ℹ️ Usando variables del sistema (producción)")
+        print("Usando variables del sistema (produccion)")
 except ImportError:
     # En producción donde python-dotenv no está instalado
-    print("ℹ️ python-dotenv no disponible, usando variables del sistema")
+    print("python-dotenv no disponible, usando variables del sistema")
 except Exception as e:
-    print(f"⚠️ Error cargando .env: {e}")
+    print(f"Error cargando .env: {e}")
 
 engine = create_engine(
     os.getenv("DATABASE_URL"),
@@ -73,9 +73,9 @@ def create_db_and_tables():
     try:
         # SQLAlchemy solo crea las tablas que NO existen
         SQLModel.metadata.create_all(bind=engine, checkfirst=True)
-        print("✅ Verificación de tablas completada")
+        print("[OK] Verificación de tablas completada")
     except Exception as e:
-        print(f"❌ Error creando/verificando tablas: {e}")
+        print(f"[ERROR] Error creando/verificando tablas: {e}")
         raise
 
 def reset_database():

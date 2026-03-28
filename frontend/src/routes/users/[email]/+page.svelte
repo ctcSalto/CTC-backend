@@ -45,8 +45,9 @@
 
 		try {
 			const res = await getAccount(userEmail);
-			if (res?.data) {
-				setFieldsFromAccount(res.data);
+			const accountData = res?.data?.user || res?.data;
+			if (accountData) {
+				setFieldsFromAccount(accountData);
 			} else if (!cached) {
 				error('No se pudo obtener la cuenta');
 			}
@@ -58,25 +59,35 @@
 	}
 
 	async function handleSave() {
-		if (!editName.trim() || !editLastName.trim()) {
+		const originalName = account?.name?.givenName || account?.givenName || '';
+		const originalLastName = account?.name?.familyName || account?.familyName || '';
+
+		const finalName = editName.trim() || originalName;
+		const finalLastName = editLastName.trim() || originalLastName;
+
+		if (!finalName || !finalLastName) {
 			error('Nombre y apellido son obligatorios');
 			return;
 		}
+
 		saving = true;
 		try {
 			await updateAccount({
 				primaryEmail: userEmail,
-				givenName: editName.trim(),
-				familyName: editLastName.trim(),
+				givenName: finalName,
+				familyName: finalLastName,
 				orgUnitPath: editOU,
 			});
-			success('Usuario actualizado');
+			success('Usuario actualizado. Redirigiendo...');
+
+			editName = finalName;
+			editLastName = finalLastName;
 
 			accounts.update(list => list.map((a: any) => {
 				if ((a.primaryEmail || a.email) === userEmail) {
 					return {
 						...a,
-						name: { ...a.name, givenName: editName, familyName: editLastName },
+						name: { ...a.name, givenName: finalName, familyName: finalLastName },
 						orgUnitPath: editOU,
 					};
 				}
@@ -84,6 +95,10 @@
 			}));
 
 			invalidateAccounts();
+
+			setTimeout(() => {
+				goto(`${base}/users`);
+			}, 3000);
 		} catch (err: any) {
 			error(err.message || 'Error al guardar los cambios');
 		} finally {
@@ -200,7 +215,7 @@
 
 			<button
 				onclick={handleSave}
-				disabled={saving || !editName.trim() || !editLastName.trim()}
+				disabled={saving}
 				class="w-full cursor-pointer rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-all hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
 			>
 				{saving ? 'Guardando...' : 'Guardar cambios'}
