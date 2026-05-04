@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Esquema de Entidades - Portal CTC v2</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #f8fafc;
+    padding: 30px;
+    user-select: none;
+  }
+  h1 {
+    text-align: center;
+    color: #1e293b;
+    font-size: 22px;
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    text-align: center;
+    color: #64748b;
+    font-size: 13px;
+    margin-bottom: 10px;
+  }
+  .instructions {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 12px;
+    margin-bottom: 20px;
+    font-style: italic;
+  }
+  .canvas {
+    position: relative;
+    width: 1500px;
+    margin: 0 auto;
+    min-height: 1400px;
+    border: 1px dashed #e2e8f0;
+    border-radius: 12px;
+  }
+  .table-box {
+    position: absolute;
+    background: white;
+    border: 2px solid #cbd5e1;
+    border-radius: 8px;
+    min-width: 200px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    font-size: 12px;
+    overflow: hidden;
+    z-index: 2;
+    cursor: grab;
+    transition: box-shadow 0.15s;
+  }
+  .table-box:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+  .table-box.dragging {
+    cursor: grabbing;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+    z-index: 100;
+    opacity: 0.92;
+  }
+  .table-box .header {
+    padding: 8px 12px;
+    font-weight: 700;
+    color: white;
+    font-size: 13px;
+    letter-spacing: 0.3px;
+  }
+  .table-box .fields { padding: 6px 0; }
+  .table-box .field {
+    padding: 3px 12px;
+    color: #334155;
+    display: flex;
+    justify-content: space-between;
+    gap: 15px;
+  }
+  .table-box .field .name { font-weight: 500; }
+  .table-box .field .type { color: #94a3b8; font-size: 11px; white-space: nowrap; }
+  .table-box .field.pk .name { color: #b45309; font-weight: 700; }
+  .table-box .field.fk .name { color: #2563eb; }
+  .table-box .field.enum .name { color: #7c3aed; }
+
+  .group-users .header { background: #3b82f6; }
+  .group-users { border-color: #93c5fd; }
+  .group-academic .header { background: #059669; }
+  .group-academic { border-color: #6ee7b7; }
+  .group-config .header { background: #d97706; }
+  .group-config { border-color: #fcd34d; }
+  .group-record .header { background: #7c3aed; }
+  .group-record { border-color: #c4b5fd; }
+  .group-exam .header { background: #dc2626; }
+  .group-exam { border-color: #fca5a5; }
+  .group-teams .header { background: #0891b2; }
+  .group-teams { border-color: #67e8f9; }
+
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #475569;
+  }
+  .legend-color {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+  }
+
+  svg.lines {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+  }
+  svg.lines .rel-label { font-size: 11px; font-weight: 600; }
+
+  .section-label {
+    position: absolute;
+    font-size: 11px;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    z-index: 3;
+    pointer-events: none;
+  }
+
+  .info-box {
+    position: absolute;
+    background: #faf5ff;
+    border: 2px solid #c4b5fd;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 11px;
+    z-index: 2;
+    cursor: grab;
+  }
+  .info-box.dragging { cursor: grabbing; z-index: 100; opacity: 0.92; }
+
+  .toolbar {
+    text-align: center;
+    margin-bottom: 15px;
+  }
+  .toolbar button {
+    padding: 6px 16px;
+    font-size: 12px;
+    border: 1px solid #cbd5e1;
+    background: white;
+    border-radius: 6px;
+    cursor: pointer;
+    margin: 0 4px;
+    color: #475569;
+  }
+  .toolbar button:hover { background: #f1f5f9; }
+</style>
+</head>
+<body>
+
+<h1>Esquema de Entidades - Portal Institucional CTC v2</h1>
+<p class="subtitle">15 tablas | PostgreSQL + JSONB snapshots | Roles via OU Google (n8n)</p>
+<p class="instructions">Arrastra las tablas para reorganizarlas. Usa "Capturar PNG" para guardar.</p>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-color" style="background:#3b82f6"></div> Usuarios</div>
+  <div class="legend-item"><div class="legend-color" style="background:#059669"></div> Estructura Academica</div>
+  <div class="legend-item"><div class="legend-color" style="background:#d97706"></div> Configuracion</div>
+  <div class="legend-item"><div class="legend-color" style="background:#7c3aed"></div> Registro Academico</div>
+  <div class="legend-item"><div class="legend-color" style="background:#dc2626"></div> Examenes</div>
+  <div class="legend-item"><div class="legend-color" style="background:#0891b2"></div> Equipos</div>
+</div>
+
+<div class="toolbar">
+  <button onclick="captureImage()">Capturar PNG</button>
+  <button onclick="resetPositions()">Restablecer posiciones</button>
+</div>
+
+<div class="canvas" id="canvas">
+
+  <svg class="lines" id="svg-lines"></svg>
+
+  <!-- programa -->
+  <div class="table-box group-academic draggable" id="tbl-programa" style="top:40px;left:40px;width:240px;" data-connects='[{"to":"tbl-materia","label":"1:N","color":"#059669"}]'>
+    <div class="header">programa</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field"><span class="name">nombre</span><span class="type">varchar(150)</span></div>
+      <div class="field enum"><span class="name">tipo</span><span class="type">CARRERA | CURSO_CORTO | TALLER | DIPLOMA</span></div>
+      <div class="field"><span class="name">moodle_category_id</span><span class="type">int?</span></div>
+      <div class="field"><span class="name">duracion_semestres</span><span class="type">int?</span></div>
+      <div class="field"><span class="name">activo</span><span class="type">bool</span></div>
+    </div>
+  </div>
+
+  <!-- materia -->
+  <div class="table-box group-academic draggable" id="tbl-materia" style="top:300px;left:40px;width:240px;" data-connects='[{"to":"tbl-instancia-eval","label":"1:N","color":"#059669"},{"to":"tbl-previatura","label":"N:M","color":"#059669"},{"to":"tbl-inscripcion","label":"1:N","color":"#059669"}]'>
+    <div class="header">materia</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">programa_id</span><span class="type">FK programa</span></div>
+      <div class="field"><span class="name">nombre</span><span class="type">varchar(150)</span></div>
+      <div class="field"><span class="name">codigo</span><span class="type">varchar(20)?</span></div>
+      <div class="field"><span class="name">moodle_course_id</span><span class="type">int?</span></div>
+      <div class="field"><span class="name">semestre / creditos</span><span class="type">int</span></div>
+      <div class="field fk"><span class="name">politica_id</span><span class="type">FK politica_calif</span></div>
+      <div class="field fk"><span class="name">politica_examen_id</span><span class="type">FK politica_exam?</span></div>
+    </div>
+  </div>
+
+  <!-- previatura -->
+  <div class="table-box group-academic draggable" id="tbl-previatura" style="top:180px;left:330px;width:210px;">
+    <div class="header">previatura</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">materia_id</span><span class="type">FK materia</span></div>
+      <div class="field fk"><span class="name">materia_previa_id</span><span class="type">FK materia</span></div>
+      <div class="field enum"><span class="name">tipo_requerido</span><span class="type">APROBADA | EXONERADA</span></div>
+    </div>
+  </div>
+
+  <!-- materia_instancia_evaluacion -->
+  <div class="table-box group-academic draggable" id="tbl-instancia-eval" style="top:580px;left:30px;width:260px;">
+    <div class="header">materia_instancia_evaluacion</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">materia_id</span><span class="type">FK materia</span></div>
+      <div class="field"><span class="name">nombre</span><span class="type">"Primer Parcial"</span></div>
+      <div class="field"><span class="name">peso_maximo</span><span class="type">decimal</span></div>
+      <div class="field"><span class="name">orden</span><span class="type">int</span></div>
+      <div class="field"><span class="name">es_grupal</span><span class="type">bool</span></div>
+      <div class="field"><span class="name">anio_lectivo</span><span class="type">int (2026...)</span></div>
+    </div>
+  </div>
+
+  <!-- politica_calificacion -->
+  <div class="table-box group-config draggable" id="tbl-pol-calif" style="top:40px;left:600px;width:270px;" data-connects='[{"to":"tbl-materia","label":"1:N","color":"#d97706","dash":true}]'>
+    <div class="header">politica_calificacion</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field"><span class="name">nombre</span><span class="type">"Base 100 - Carrera"</span></div>
+      <div class="field"><span class="name">nota_maxima</span><span class="type">decimal (100, 12)</span></div>
+      <div class="field enum"><span class="name">tipo_nota</span><span class="type">NUMERICA | LETRA | CUSTOM</span></div>
+      <div class="field"><span class="name">umbral_aprobacion</span><span class="type">decimal</span></div>
+      <div class="field"><span class="name">umbral_examen</span><span class="type">decimal?</span></div>
+      <div class="field"><span class="name">umbral_exoneracion</span><span class="type">decimal?</span></div>
+    </div>
+  </div>
+
+  <!-- politica_examen -->
+  <div class="table-box group-config draggable" id="tbl-pol-exam" style="top:280px;left:600px;width:240px;" data-connects='[{"to":"tbl-materia","label":"","color":"#d97706","dash":true}]'>
+    <div class="header">politica_examen</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field"><span class="name">nombre</span><span class="type">varchar(100)</span></div>
+      <div class="field"><span class="name">nota_maxima</span><span class="type">decimal</span></div>
+      <div class="field"><span class="name">umbral_aprobacion</span><span class="type">decimal</span></div>
+    </div>
+  </div>
+
+  <!-- periodo_inscripcion_materia -->
+  <div class="table-box group-config draggable" id="tbl-periodo-insc" style="top:440px;left:400px;width:240px;" data-connects='[{"to":"tbl-programa","label":"","color":"#d97706","dash":true}]'>
+    <div class="header">periodo_inscripcion_materia</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">programa_id</span><span class="type">FK programa</span></div>
+      <div class="field"><span class="name">anio_lectivo</span><span class="type">int</span></div>
+      <div class="field"><span class="name">fecha_inicio / fecha_fin</span><span class="type">datetime</span></div>
+      <div class="field"><span class="name">habilitado</span><span class="type">bool</span></div>
+    </div>
+  </div>
+
+  <!-- docente_materia -->
+  <div class="table-box group-academic draggable" id="tbl-docente-mat" style="top:40px;left:940px;width:230px;" data-connects='[{"to":"tbl-usuario","label":"","color":"#059669","dash":true},{"to":"tbl-materia","label":"","color":"#059669","dash":true}]'>
+    <div class="header">docente_materia</div>
+    <div class="fields">
+      <div class="field fk"><span class="name">docente_id</span><span class="type">FK usuario</span></div>
+      <div class="field fk"><span class="name">materia_id</span><span class="type">FK materia</span></div>
+      <div class="field"><span class="name">anio_lectivo</span><span class="type">int</span></div>
+      <div class="field enum"><span class="name">rol_docente</span><span class="type">TITULAR | ADJUNTO</span></div>
+    </div>
+  </div>
+
+  <!-- usuario -->
+  <div class="table-box group-users draggable" id="tbl-usuario" style="top:320px;left:900px;width:280px;" data-connects='[{"to":"tbl-inscripcion","label":"1:N","color":"#3b82f6"}]'>
+    <div class="header">usuario</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field"><span class="name">google_id</span><span class="type">unique?</span></div>
+      <div class="field"><span class="name">moodle_id</span><span class="type">unique?</span></div>
+      <div class="field"><span class="name">email</span><span class="type">unique, indexed</span></div>
+      <div class="field"><span class="name">nombre / apellido</span><span class="type">varchar(100)</span></div>
+      <div class="field"><span class="name">documento / telefono</span><span class="type">varchar?</span></div>
+      <div class="field"><span class="name">ou_google</span><span class="type">"/Alumnos" etc.</span></div>
+      <div class="field enum"><span class="name">rol</span><span class="type">ESTUDIANTE | DOCENTE | ADMIN</span></div>
+      <div class="field"><span class="name">activo / google_activo</span><span class="type">bool</span></div>
+      <div class="field"><span class="name">fecha_creacion</span><span class="type">datetime</span></div>
+    </div>
+  </div>
+
+  <!-- inscripcion_materia -->
+  <div class="table-box group-record draggable" id="tbl-inscripcion" style="top:660px;left:400px;width:280px;" data-connects='[{"to":"tbl-calificacion","label":"1:N","color":"#7c3aed"},{"to":"tbl-insc-examen","label":"1:N","color":"#dc2626"}]'>
+    <div class="header">inscripcion_materia</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">usuario_id</span><span class="type">FK usuario</span></div>
+      <div class="field fk"><span class="name">materia_id</span><span class="type">FK materia</span></div>
+      <div class="field"><span class="name">anio_lectivo</span><span class="type">int</span></div>
+      <div class="field enum"><span class="name">estado</span><span class="type">7 estados posibles</span></div>
+      <div class="field"><span class="name">nota_curso / nota_final</span><span class="type">decimal?</span></div>
+      <div class="field"><span class="name">creditos_obtenidos</span><span class="type">int</span></div>
+      <div class="field" style="background:#f5f3ff;"><span class="name">snapshot_politica</span><span class="type">JSONB</span></div>
+      <div class="field" style="background:#f5f3ff;"><span class="name">snapshot_instancias</span><span class="type">JSONB</span></div>
+      <div class="field"><span class="name">motivo_cierre</span><span class="type">varchar?</span></div>
+    </div>
+  </div>
+
+  <!-- calificacion -->
+  <div class="table-box group-record draggable" id="tbl-calificacion" style="top:980px;left:400px;width:270px;">
+    <div class="header">calificacion</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">inscripcion_id</span><span class="type">FK inscripcion_mat</span></div>
+      <div class="field fk"><span class="name">instancia_evaluacion_id</span><span class="type">FK inst_eval</span></div>
+      <div class="field"><span class="name">nota</span><span class="type">decimal</span></div>
+      <div class="field fk"><span class="name">equipo_id</span><span class="type">FK equipo?</span></div>
+      <div class="field fk"><span class="name">docente_id</span><span class="type">FK usuario</span></div>
+      <div class="field"><span class="name">fecha / observaciones</span><span class="type">datetime / text?</span></div>
+    </div>
+  </div>
+
+  <!-- periodo_examen -->
+  <div class="table-box group-exam draggable" id="tbl-periodo-exam" style="top:500px;left:1200px;width:250px;" data-connects='[{"to":"tbl-insc-examen","label":"1:N","color":"#dc2626"}]'>
+    <div class="header">periodo_examen</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field"><span class="name">nombre</span><span class="type">"Febrero 2026"</span></div>
+      <div class="field"><span class="name">fecha_inicio_inscripcion</span><span class="type">datetime</span></div>
+      <div class="field"><span class="name">fecha_fin_inscripcion</span><span class="type">datetime</span></div>
+      <div class="field"><span class="name">fecha_examen</span><span class="type">datetime</span></div>
+      <div class="field"><span class="name">habilitado</span><span class="type">bool</span></div>
+    </div>
+  </div>
+
+  <!-- inscripcion_examen -->
+  <div class="table-box group-exam draggable" id="tbl-insc-examen" style="top:760px;left:900px;width:270px;">
+    <div class="header">inscripcion_examen</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">inscripcion_materia_id</span><span class="type">FK inscr_mat</span></div>
+      <div class="field fk"><span class="name">periodo_examen_id</span><span class="type">FK periodo_exam</span></div>
+      <div class="field"><span class="name">nota_examen</span><span class="type">decimal?</span></div>
+      <div class="field enum"><span class="name">estado</span><span class="type">INSCR | APROB | REPROB | AUS</span></div>
+      <div class="field" style="background:#fef2f2;"><span class="name">snapshot_politica_examen</span><span class="type">JSONB</span></div>
+    </div>
+  </div>
+
+  <!-- equipo -->
+  <div class="table-box group-teams draggable" id="tbl-equipo" style="top:1100px;left:30px;width:230px;" data-connects='[{"to":"tbl-equipo-miembro","label":"1:N","color":"#0891b2"},{"to":"tbl-instancia-eval","label":"1:N","color":"#0891b2","dash":true}]'>
+    <div class="header">equipo</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">instancia_evaluacion_id</span><span class="type">FK inst_eval</span></div>
+      <div class="field"><span class="name">nombre</span><span class="type">"Equipo 1"</span></div>
+    </div>
+  </div>
+
+  <!-- equipo_miembro -->
+  <div class="table-box group-teams draggable" id="tbl-equipo-miembro" style="top:1250px;left:30px;width:230px;">
+    <div class="header">equipo_miembro</div>
+    <div class="fields">
+      <div class="field fk"><span class="name">equipo_id</span><span class="type">FK equipo</span></div>
+      <div class="field fk"><span class="name">usuario_id</span><span class="type">FK usuario</span></div>
+    </div>
+  </div>
+
+  <!-- Estados info box -->
+  <div class="info-box draggable" id="box-estados" style="top:1000px;left:750px;width:320px;">
+    <div style="font-weight:700;color:#7c3aed;margin-bottom:8px;">Estados de inscripcion_materia:</div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;color:#475569;">
+      <div style="font-weight:600;">CURSANDO</div><div style="color:#94a3b8;">Activo en el curso</div>
+      <div style="font-weight:600;">EXONERADO</div><div style="color:#94a3b8;">Aprueba sin examen</div>
+      <div style="font-weight:600;">A_EXAMEN</div><div style="color:#94a3b8;">Derecho a examen</div>
+      <div style="font-weight:600;">APROBADO</div><div style="color:#94a3b8;">Aprobo (examen o directo)</div>
+      <div style="font-weight:600;">REPROBADO</div><div style="color:#94a3b8;">No alcanzo nota minima</div>
+      <div style="font-weight:600;color:#dc2626;">PERDIDO_INASIST.</div><div style="color:#94a3b8;">Exceso de faltas</div>
+      <div style="font-weight:600;color:#dc2626;">ABANDONO</div><div style="color:#94a3b8;">Dejo de asistir / baja</div>
+    </div>
+  </div>
+
+  <!-- JSONB info box -->
+  <div class="info-box draggable" id="box-jsonb" style="top:1200px;left:400px;width:300px;background:#f5f3ff;border-color:#c4b5fd;">
+    <div style="font-weight:700;color:#7c3aed;margin-bottom:6px;">Snapshots JSONB (historico)</div>
+    <div style="color:#475569;line-height:1.5;">
+      Al inscribirse se guarda una copia de las<br>
+      reglas vigentes. Si cambian las politicas<br>
+      en el futuro, el registro historico del<br>
+      alumno mantiene las reglas originales.
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ========== DRAG & DROP ==========
+let dragEl = null, offsetX = 0, offsetY = 0;
+
+document.querySelectorAll('.draggable').forEach(el => {
+  el.addEventListener('mousedown', e => {
+    if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+    dragEl = el;
+    const rect = el.getBoundingClientRect();
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+    el.classList.add('dragging');
+    e.preventDefault();
+  });
+});
+
+document.addEventListener('mousemove', e => {
+  if (!dragEl) return;
+  const canvas = document.getElementById('canvas');
+  const cRect = canvas.getBoundingClientRect();
+  let x = e.clientX - cRect.left - offsetX;
+  let y = e.clientY - cRect.top - offsetY;
+  x = Math.max(0, x);
+  y = Math.max(0, y);
+  dragEl.style.left = x + 'px';
+  dragEl.style.top = y + 'px';
+  drawLines();
+});
+
+document.addEventListener('mouseup', () => {
+  if (dragEl) {
+    dragEl.classList.remove('dragging');
+    dragEl = null;
+  }
+});
+
+// ========== DRAW LINES ==========
+function getCenter(el) {
+  const x = parseInt(el.style.left) + el.offsetWidth / 2;
+  const y = parseInt(el.style.top) + el.offsetHeight / 2;
+  return { x, y };
+}
+
+function getEdgePoint(el, targetCenter) {
+  const x = parseInt(el.style.left);
+  const y = parseInt(el.style.top);
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  const cx = x + w/2, cy = y + h/2;
+  const dx = targetCenter.x - cx;
+  const dy = targetCenter.y - cy;
+  const absDx = Math.abs(dx), absDy = Math.abs(dy);
+
+  if (absDx * h > absDy * w) {
+    // hit left or right
+    const side = dx > 0 ? 1 : -1;
+    return { x: cx + side * w/2, y: cy + dy * (w/2) / absDx };
+  } else {
+    // hit top or bottom
+    const side = dy > 0 ? 1 : -1;
+    return { x: cx + dx * (h/2) / absDy, y: cy + side * h/2 };
+  }
+}
+
+function drawLines() {
+  const svg = document.getElementById('svg-lines');
+  const ns = 'http://www.w3.org/2000/svg';
+  svg.innerHTML = '';
+
+  // Arrow markers
+  const colors = {'#059669':'green','#d97706':'orange','#3b82f6':'blue','#7c3aed':'purple','#dc2626':'red','#0891b2':'cyan'};
+  const defs = document.createElementNS(ns, 'defs');
+  for (const [hex, name] of Object.entries(colors)) {
+    const marker = document.createElementNS(ns, 'marker');
+    marker.setAttribute('id', 'arr-'+name);
+    marker.setAttribute('markerWidth', '10');
+    marker.setAttribute('markerHeight', '7');
+    marker.setAttribute('refX', '10');
+    marker.setAttribute('refY', '3.5');
+    marker.setAttribute('orient', 'auto');
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', 'M0,0 L10,3.5 L0,7');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', hex);
+    path.setAttribute('stroke-width', '1.5');
+    marker.appendChild(path);
+    defs.appendChild(marker);
+  }
+  svg.appendChild(defs);
+
+  document.querySelectorAll('.draggable[data-connects]').forEach(fromEl => {
+    const conns = JSON.parse(fromEl.dataset.connects);
+    conns.forEach(conn => {
+      const toEl = document.getElementById(conn.to);
+      if (!toEl) return;
+
+      const fromCenter = getCenter(fromEl);
+      const toCenter = getCenter(toEl);
+      const p1 = getEdgePoint(fromEl, toCenter);
+      const p2 = getEdgePoint(toEl, fromCenter);
+
+      const line = document.createElementNS(ns, 'line');
+      line.setAttribute('x1', p1.x);
+      line.setAttribute('y1', p1.y);
+      line.setAttribute('x2', p2.x);
+      line.setAttribute('y2', p2.y);
+      line.setAttribute('stroke', conn.color);
+      line.setAttribute('stroke-width', '2');
+      const colorName = colors[conn.color] || 'green';
+      line.setAttribute('marker-end', `url(#arr-${colorName})`);
+      if (conn.dash) line.setAttribute('stroke-dasharray', '6,3');
+      svg.appendChild(line);
+
+      if (conn.label) {
+        const mx = (p1.x + p2.x) / 2;
+        const my = (p1.y + p2.y) / 2;
+
+        const rect = document.createElementNS(ns, 'rect');
+        rect.setAttribute('x', mx - 18);
+        rect.setAttribute('y', my - 9);
+        rect.setAttribute('width', '36');
+        rect.setAttribute('height', '16');
+        rect.setAttribute('rx', '3');
+        rect.setAttribute('fill', 'white');
+        rect.setAttribute('stroke', conn.color);
+        rect.setAttribute('stroke-width', '1');
+        svg.appendChild(rect);
+
+        const text = document.createElementNS(ns, 'text');
+        text.setAttribute('x', mx);
+        text.setAttribute('y', my + 4);
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('fill', conn.color);
+        text.setAttribute('font-size', '11');
+        text.setAttribute('font-weight', '600');
+        text.textContent = conn.label;
+        svg.appendChild(text);
+      }
+    });
+  });
+}
+
+function resetPositions() {
+  location.reload();
+}
+
+function captureImage() {
+  alert('Usa Ctrl+Shift+S en Chrome para guardar como imagen,\\no haz click derecho > "Guardar como" en la pagina.');
+}
+
+// Initial draw
+window.addEventListener('load', drawLines);
+window.addEventListener('resize', drawLines);
+</script>
+
+</body>
+</html>

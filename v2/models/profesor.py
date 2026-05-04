@@ -1,0 +1,54 @@
+from sqlmodel import SQLModel, Field, Relationship
+from typing import Optional, List, TYPE_CHECKING
+from uuid import uuid4
+
+from v2.models.enums import CargoDocente, DedicacionDocente
+
+if TYPE_CHECKING:
+    from v2.models.usuario import Usuario
+    from v2.models.programa import Programa
+
+
+# ── Modelo de tabla ──────────────────────────────────────────────────────────
+
+class Profesor(SQLModel, table=True):
+    __tablename__ = "profesor"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    usuario_id: int = Field(foreign_key="usuario.id", unique=True, index=True)
+    cargo: Optional[CargoDocente] = Field(default=None, description="Cargo docente")
+    dedicacion: Optional[DedicacionDocente] = Field(default=None, description="Tipo de dedicación")
+    especialidad: Optional[str] = Field(default=None, max_length=200, description="Área de especialidad")
+    id_rastreo: Optional[str] = Field(
+        default_factory=lambda: str(uuid4()),
+        unique=True, index=True,
+        description="UUID de trazabilidad"
+    )
+
+    # Relaciones
+    usuario: Optional["Usuario"] = Relationship(back_populates="perfil_profesor")
+    programas_coordinados: List["Programa"] = Relationship(back_populates="coordinador")
+
+
+# ── Schemas ──────────────────────────────────────────────────────────────────
+
+class ProfesorCreate(SQLModel):
+    usuario_id: int
+    cargo: Optional[CargoDocente] = None
+    dedicacion: Optional[DedicacionDocente] = None
+    especialidad: Optional[str] = None
+
+
+class ProfesorRead(SQLModel):
+    id: int
+    usuario_id: int
+    cargo: Optional[CargoDocente] = None
+    dedicacion: Optional[DedicacionDocente] = None
+    especialidad: Optional[str] = None
+    id_rastreo: Optional[str] = None
+
+
+class ProfesorUpdate(SQLModel):
+    cargo: Optional[CargoDocente] = None
+    dedicacion: Optional[DedicacionDocente] = None
+    especialidad: Optional[str] = None

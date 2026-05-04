@@ -3,6 +3,8 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from scalar_fastapi import get_scalar_api_reference, Layout
 
 from contextlib import asynccontextmanager
@@ -11,6 +13,23 @@ from routes import auth, career, testimony, news
 from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_enrolment
 from routes.mercadopago import mercadopago
 from routes.google import google_test, google_analytics
+from v2.routes import auth_google as v2_auth_google
+from v2.routes import (
+    politicas_calificacion as v2_politicas_calificacion,
+    politicas_examen as v2_politicas_examen,
+    programas as v2_programas,
+    materias as v2_materias,
+    previaturas as v2_previaturas,
+    instancias_evaluacion as v2_instancias_evaluacion,
+    instancias_cursado as v2_instancias_cursado,
+    docentes_materia as v2_docentes_materia,
+    periodos_inscripcion as v2_periodos_inscripcion,
+    estudiante as v2_estudiante,
+    admin_inscripciones as v2_admin_inscripciones,
+    docente as v2_docente,
+    instancias_examen as v2_instancias_examen,
+    admin_examenes as v2_admin_examenes,
+)
 
 from pages.welcome import html
 from database.database import reset_database, create_db_and_tables
@@ -225,6 +244,23 @@ app.include_router(google_test.router)
 # Google Analytics
 app.include_router(google_analytics.router)
 
+# v2 - Portal Academico
+app.include_router(v2_auth_google.router)
+app.include_router(v2_politicas_calificacion.router)
+app.include_router(v2_politicas_examen.router)
+app.include_router(v2_programas.router)
+app.include_router(v2_materias.router)
+app.include_router(v2_previaturas.router)
+app.include_router(v2_instancias_evaluacion.router)
+app.include_router(v2_instancias_cursado.router)
+app.include_router(v2_docentes_materia.router)
+app.include_router(v2_periodos_inscripcion.router)
+app.include_router(v2_estudiante.router)
+app.include_router(v2_admin_inscripciones.router)
+app.include_router(v2_docente.router)
+app.include_router(v2_instancias_examen.router)
+app.include_router(v2_admin_examenes.router)
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -233,6 +269,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Session middleware (requerido por authlib para OAuth state)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SECRET_KEY", "your-secret-key-change-in-production"),
+)
+
+# Proxy headers middleware (Easypanel/Traefik termina SSL, necesario para OAuth redirect HTTPS)
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # ── Frontend SvelteKit (admin panel) ─────────────────────────────────────────
 frontend_build = pathlib.Path(__file__).parent / "frontend" / "build"

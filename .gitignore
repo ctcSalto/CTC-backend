@@ -48,4 +48,5 @@ frontend/.svelte-kit/
 # Others
 .idea/
 nul
-v2/
+v2/__pycache__/
+v2/**/__pycache__/
