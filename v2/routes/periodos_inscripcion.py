@@ -26,6 +26,7 @@ async def create_periodo(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Crear un periodo de inscripcion a materias. Define fecha de inicio/fin y ano lectivo."""
     try:
         return v2_services.periodoInscripcionService.create(data, session)
     except ValueError as e:
@@ -39,6 +40,7 @@ async def get_periodo(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Obtener un periodo de inscripcion por su ID."""
     periodo = v2_services.periodoInscripcionService.get_by_id(periodo_id, session)
     if not periodo:
         raise HTTPException(status_code=404, detail="Periodo no encontrado")
@@ -53,6 +55,7 @@ async def list_periodos(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Listar periodos de inscripcion con paginacion basica, mas recientes primero."""
     filters = Filter(limit=limit, offset=offset, order_by="id", order_direction="desc")
     result = v2_services.periodoInscripcionService.get_with_filters_clean(session, filters)
     return result.get("data", [])
@@ -65,6 +68,7 @@ async def filter_periodos(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Buscar periodos de inscripcion con filtros avanzados."""
     return v2_services.periodoInscripcionService.get_with_filters_clean(session, filters)
 
 
@@ -76,6 +80,7 @@ async def update_periodo(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Actualizar un periodo de inscripcion existente."""
     try:
         return v2_services.periodoInscripcionService.update(periodo_id, data, session)
     except ValueError as e:
@@ -89,6 +94,7 @@ async def delete_periodo(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Eliminar un periodo de inscripcion."""
     try:
         v2_services.periodoInscripcionService.delete(periodo_id, session)
     except ValueError as e:

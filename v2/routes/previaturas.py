@@ -21,6 +21,8 @@ async def create_previatura(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Crear una previatura (requisito previo entre materias).
+    Valida que no exista ciclo, que ambas materias existan y pertenezcan al mismo programa."""
     try:
         return v2_services.previaturaService.create(data, session)
     except ValueError as e:
@@ -34,6 +36,7 @@ async def get_previaturas_materia(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Obtener las previaturas de una materia especifica, con nombres de materias."""
     return v2_services.previaturaService.get_by_materia(materia_id, session)
 
 
@@ -44,7 +47,7 @@ async def get_malla_programa(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
-    # Verificar que el programa exista
+    """Obtener la malla curricular completa de un programa, agrupada por semestre con previaturas."""
     programa = v2_services.programaService.get_by_id(programa_id, session)
     if not programa:
         raise HTTPException(status_code=404, detail="Programa no encontrado")
@@ -59,6 +62,7 @@ async def delete_previatura(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Eliminar una previatura por su ID."""
     try:
         v2_services.previaturaService.delete(previatura_id, session)
     except ValueError as e:

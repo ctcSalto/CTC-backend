@@ -25,6 +25,7 @@ async def assign_docente(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Asignar un docente a una instancia de cursado. Valida que el usuario tenga rol docente."""
     try:
         return v2_services.docenteMateriaService.assign(data, session)
     except ValueError as e:
@@ -52,6 +53,7 @@ async def update_asignacion(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Actualizar la asignacion de un docente (cambiar rol: titular, auxiliar, etc.)."""
     try:
         return v2_services.docenteMateriaService.update(asignacion_id, data, session)
     except ValueError as e:
@@ -65,6 +67,7 @@ async def delete_asignacion(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Eliminar la asignacion de un docente a una instancia de cursado."""
     try:
         v2_services.docenteMateriaService.delete(asignacion_id, session)
     except ValueError as e:

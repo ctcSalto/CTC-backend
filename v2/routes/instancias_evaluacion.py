@@ -26,6 +26,7 @@ async def create_instancia(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Crear una instancia de evaluacion (parcial, trabajo, etc.) asociada a una instancia de cursado."""
     try:
         return v2_services.instanciaEvaluacionService.create(data, session)
     except ValueError as e:
@@ -52,6 +53,7 @@ async def filter_instancias(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Buscar instancias de evaluacion con filtros avanzados."""
     return v2_services.instanciaEvaluacionService.get_with_filters_clean(session, filters)
 
 
@@ -63,6 +65,7 @@ async def update_instancia(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Actualizar una instancia de evaluacion (nombre, ponderacion, fecha, etc.)."""
     try:
         return v2_services.instanciaEvaluacionService.update(instancia_id, data, session)
     except ValueError as e:
@@ -76,6 +79,7 @@ async def delete_instancia(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Eliminar una instancia de evaluacion. Falla si tiene calificaciones registradas."""
     try:
         v2_services.instanciaEvaluacionService.delete(instancia_id, session)
     except ValueError as e:

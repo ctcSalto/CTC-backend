@@ -22,6 +22,7 @@ async def create_materia(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Crear una materia nueva asociada a un programa. Valida codigo unico dentro del programa."""
     try:
         return v2_services.materiaService.create(data, session)
     except ValueError as e:
@@ -35,6 +36,7 @@ async def get_materias_por_programa(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Listar todas las materias de un programa, ordenadas por semestre."""
     return v2_services.materiaService.get_by_programa(programa_id, session)
 
 
@@ -45,6 +47,7 @@ async def get_materia(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Obtener una materia por su ID."""
     materia = v2_services.materiaService.get_by_id(materia_id, session)
     if not materia:
         raise HTTPException(status_code=404, detail="Materia no encontrada")
@@ -59,6 +62,7 @@ async def list_materias(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Listar materias con paginacion basica."""
     filters = Filter(limit=limit, offset=offset, order_by="id", order_direction="asc")
     result = v2_services.materiaService.get_with_filters_clean(session, filters)
     return result.get("data", [])
@@ -71,6 +75,7 @@ async def filter_materias(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Buscar materias con filtros avanzados (condiciones, ordenamiento, paginacion)."""
     return v2_services.materiaService.get_with_filters_clean(session, filters)
 
 
@@ -82,6 +87,7 @@ async def update_materia(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Actualizar una materia existente. Solo se modifican los campos enviados."""
     try:
         return v2_services.materiaService.update(materia_id, data, session)
     except ValueError as e:
@@ -95,6 +101,7 @@ async def delete_materia(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Eliminar una materia. Falla si tiene inscripciones o instancias asociadas."""
     try:
         v2_services.materiaService.delete(materia_id, session)
     except ValueError as e:

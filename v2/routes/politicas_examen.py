@@ -26,6 +26,7 @@ async def create_politica(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Crear una politica de examen. Define nota minima de aprobacion, escala y cantidad de oportunidades."""
     return v2_services.politicaExamenService.create(data, session)
 
 
@@ -36,6 +37,7 @@ async def get_politica(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Obtener una politica de examen por su ID."""
     politica = v2_services.politicaExamenService.get_by_id(politica_id, session)
     if not politica:
         raise HTTPException(status_code=404, detail="Politica de examen no encontrada")
@@ -50,6 +52,7 @@ async def list_politicas(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Listar politicas de examen con paginacion basica."""
     filters = Filter(limit=limit, offset=offset, order_by="id", order_direction="asc")
     result = v2_services.politicaExamenService.get_with_filters_clean(session, filters)
     return result.get("data", [])
@@ -62,6 +65,7 @@ async def filter_politicas(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Buscar politicas de examen con filtros avanzados."""
     return v2_services.politicaExamenService.get_with_filters_clean(session, filters)
 
 
@@ -73,6 +77,7 @@ async def update_politica(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Actualizar una politica de examen existente."""
     try:
         return v2_services.politicaExamenService.update(politica_id, data, session)
     except ValueError as e:
@@ -86,6 +91,7 @@ async def delete_politica(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Eliminar una politica de examen. Falla si esta en uso por instancias de examen."""
     try:
         v2_services.politicaExamenService.delete(politica_id, session)
     except ValueError as e:

@@ -22,6 +22,7 @@ async def create_programa(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Crear un programa academico (carrera, curso, taller o diplomatura)."""
     return v2_services.programaService.create(data, session)
 
 
@@ -32,6 +33,7 @@ async def get_programa(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Obtener un programa por su ID."""
     programa = v2_services.programaService.get_by_id(programa_id, session)
     if not programa:
         raise HTTPException(status_code=404, detail="Programa no encontrado")
@@ -45,6 +47,7 @@ async def get_programa_con_materias(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Obtener un programa con la lista completa de sus materias ordenadas por semestre."""
     programa = v2_services.programaService.get_con_materias(programa_id, session)
     if not programa:
         raise HTTPException(status_code=404, detail="Programa no encontrado")
@@ -59,6 +62,7 @@ async def list_programas(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Listar programas con paginacion basica."""
     filters = Filter(limit=limit, offset=offset, order_by="id", order_direction="asc")
     result = v2_services.programaService.get_with_filters_clean(session, filters)
     return result.get("data", [])
@@ -71,6 +75,7 @@ async def filter_programas(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Buscar programas con filtros avanzados (condiciones, ordenamiento, paginacion)."""
     return v2_services.programaService.get_with_filters_clean(session, filters)
 
 
@@ -82,6 +87,7 @@ async def update_programa(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Actualizar un programa existente. Solo se modifican los campos enviados."""
     try:
         return v2_services.programaService.update(programa_id, data, session)
     except ValueError as e:
@@ -95,6 +101,7 @@ async def delete_programa(
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
+    """Eliminar un programa. Falla si tiene materias o inscripciones asociadas."""
     try:
         v2_services.programaService.delete(programa_id, session)
     except ValueError as e:
