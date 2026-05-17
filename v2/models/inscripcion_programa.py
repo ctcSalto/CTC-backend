@@ -35,6 +35,8 @@ class InscripcionPrograma(SQLModel, table=True):
         description="Estado de la inscripción"
     )
     anio_ingreso: int = Field(description="Año de ingreso al programa")
+    fecha_baja: Optional[datetime] = Field(default=None, description="Fecha de baja del programa")
+    motivo_baja: Optional[str] = Field(default=None, max_length=255, description="Motivo de la baja")
     id_rastreo: Optional[str] = Field(
         default_factory=lambda: str(uuid4()),
         unique=True, index=True,
@@ -61,8 +63,12 @@ class InscripcionProgramaRead(SQLModel):
     fecha_inscripcion: datetime
     estado: EstadoInscripcionPrograma
     anio_ingreso: int
+    fecha_baja: Optional[datetime] = None
+    motivo_baja: Optional[str] = None
     id_rastreo: Optional[str] = None
 
 
 class InscripcionProgramaUpdate(SQLModel):
     estado: Optional[EstadoInscripcionPrograma] = None
+    fecha_baja: Optional[datetime] = None
+    motivo_baja: Optional[str] = Field(default=None, max_length=255)

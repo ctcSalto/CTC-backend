@@ -28,6 +28,7 @@ class EstadoInscripcionMateria(str, Enum):
     REPROBADO = "reprobado"
     PERDIDO_INASISTENCIA = "perdido_inasistencia"
     ABANDONO = "abandono"
+    REVALIDADA = "revalidada"
 
 
 class EstadoInscripcionExamen(str, Enum):
@@ -35,6 +36,7 @@ class EstadoInscripcionExamen(str, Enum):
     APROBADO = "aprobado"
     REPROBADO = "reprobado"
     AUSENTE = "ausente"
+    BAJA = "baja"
 
 
 class TipoPreviatura(str, Enum):
@@ -86,6 +88,18 @@ class EstadoInstanciaExamen(str, Enum):
     EN_CURSO = "en_curso"
     FINALIZADO = "finalizado"
     CANCELADO = "cancelado"
+
+
+class TipoDocumento(str, Enum):
+    # Alumno
+    FORMULA_69A = "formula_69a"
+    ESCOLARIDAD = "escolaridad"
+    CONSTANCIA_CONVENIO = "constancia_convenio"
+    # Profesor
+    CEDULA = "cedula"
+    TITULO = "titulo"
+    # Compartido
+    OTRO = "otro"
 
 
 class CargoDocente(str, Enum):

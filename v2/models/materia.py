@@ -32,6 +32,8 @@ class Materia(SQLModel, table=True):
     creditos: int = Field(description="Créditos de la materia")
     politica_id: int = Field(foreign_key="politica_calificacion.id", description="Política de calificación")
     politica_examen_id: Optional[int] = Field(default=None, foreign_key="politica_examen.id", description="Política de examen (null si no tiene examen)")
+    horas_semanales: Optional[int] = Field(default=None, description="Horas semanales de clase")
+    horas_totales: Optional[int] = Field(default=None, description="Horas totales de la materia")
     activo: bool = Field(default=True)
     fecha_creacion: datetime = Field(default_factory=lambda: datetime.now(get_uruguay_tz()))
     id_rastreo: Optional[str] = Field(
@@ -67,6 +69,8 @@ class MateriaCreate(SQLModel):
     creditos: int
     politica_id: int
     politica_examen_id: Optional[int] = None
+    horas_semanales: Optional[int] = None
+    horas_totales: Optional[int] = None
 
 
 class MateriaUpdate(SQLModel):
@@ -77,6 +81,8 @@ class MateriaUpdate(SQLModel):
     creditos: Optional[int] = None
     politica_id: Optional[int] = None
     politica_examen_id: Optional[int] = None
+    horas_semanales: Optional[int] = None
+    horas_totales: Optional[int] = None
     activo: Optional[bool] = None
 
 
@@ -90,6 +96,8 @@ class MateriaRead(SQLModel):
     creditos: int
     politica_id: int
     politica_examen_id: Optional[int] = None
+    horas_semanales: Optional[int] = None
+    horas_totales: Optional[int] = None
     activo: bool
     fecha_creacion: datetime
     id_rastreo: Optional[str] = None

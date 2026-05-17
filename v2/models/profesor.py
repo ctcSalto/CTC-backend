@@ -19,6 +19,7 @@ class Profesor(SQLModel, table=True):
     cargo: Optional[CargoDocente] = Field(default=None, description="Cargo docente")
     dedicacion: Optional[DedicacionDocente] = Field(default=None, description="Tipo de dedicación")
     especialidad: Optional[str] = Field(default=None, max_length=200, description="Área de especialidad")
+    carga_horaria_semanal: Optional[int] = Field(default=None, description="Carga horaria semanal en horas")
     id_rastreo: Optional[str] = Field(
         default_factory=lambda: str(uuid4()),
         unique=True, index=True,
@@ -37,6 +38,7 @@ class ProfesorCreate(SQLModel):
     cargo: Optional[CargoDocente] = None
     dedicacion: Optional[DedicacionDocente] = None
     especialidad: Optional[str] = None
+    carga_horaria_semanal: Optional[int] = None
 
 
 class ProfesorRead(SQLModel):
@@ -45,6 +47,7 @@ class ProfesorRead(SQLModel):
     cargo: Optional[CargoDocente] = None
     dedicacion: Optional[DedicacionDocente] = None
     especialidad: Optional[str] = None
+    carga_horaria_semanal: Optional[int] = None
     id_rastreo: Optional[str] = None
 
 
@@ -52,3 +55,4 @@ class ProfesorUpdate(SQLModel):
     cargo: Optional[CargoDocente] = None
     dedicacion: Optional[DedicacionDocente] = None
     especialidad: Optional[str] = None
+    carga_horaria_semanal: Optional[int] = None

@@ -32,8 +32,10 @@ class InscripcionExamen(SQLModel, table=True):
         default=EstadoInscripcionExamen.INSCRIPTO,
         description="Estado de la inscripción al examen"
     )
+    numero_rendicion: int = Field(default=1, description="Número de rendición (1ra, 2da, 3ra...)")
     snapshot_politica_examen: Optional[dict] = Field(default=None, sa_column=Column(JSON), description="Snapshot de política de examen vigente")
     notificacion_enviada: bool = Field(default=False, description="Si se envió notificación (WhatsApp futuro)")
+    fecha_baja: Optional[datetime] = Field(default=None, description="Fecha de baja de la inscripción al examen")
     id_rastreo: Optional[str] = Field(
         default_factory=lambda: str(uuid4()),
         unique=True, index=True,
@@ -60,7 +62,9 @@ class InscripcionExamenRead(SQLModel):
     nota_examen: Optional[Decimal] = None
     estado: EstadoInscripcionExamen
     snapshot_politica_examen: Optional[dict] = None
+    numero_rendicion: int = 1
     notificacion_enviada: bool = False
+    fecha_baja: Optional[datetime] = None
     id_rastreo: Optional[str] = None
 
 

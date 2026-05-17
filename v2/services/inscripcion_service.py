@@ -596,8 +596,46 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
                 if not periodo:
                     raise ValueError("No hay un periodo de inscripcion activo para desinscribirse")
 
-        session.delete(inscripcion)
+        inscripcion.estado = EstadoInscripcionMateria.ABANDONO
+        inscripcion.fecha_baja = datetime.now(get_uruguay_tz())
+        inscripcion.motivo_cierre = "Desinscripcion voluntaria"
+        session.add(inscripcion)
         session.commit()
+
+    # ── Revalida ──────────────────────────────────────────────────────────────
+
+    def revalidar_materia(
+        self,
+        inscripcion_id: int,
+        motivo: str,
+        session: Session,
+    ) -> InscripcionMateria:
+        """
+        Revalida (convalida) una materia. Solo admin.
+        Cambia estado a REVALIDADA, asigna creditos y registra motivo.
+        """
+        inscripcion = self.get_by_id(inscripcion_id, session)
+        if not inscripcion:
+            raise ValueError(f"Inscripcion {inscripcion_id} no encontrada")
+
+        if inscripcion.estado == EstadoInscripcionMateria.APROBADO:
+            raise ValueError("La materia ya esta aprobada")
+        if inscripcion.estado == EstadoInscripcionMateria.REVALIDADA:
+            raise ValueError("La materia ya fue revalidada")
+
+        ic = session.get(InstanciaCursado, inscripcion.instancia_cursado_id)
+        materia = session.get(Materia, ic.materia_id) if ic else None
+        creditos = materia.creditos if materia else 0
+
+        inscripcion.estado = EstadoInscripcionMateria.REVALIDADA
+        inscripcion.motivo_revalida = motivo
+        inscripcion.creditos_obtenidos = creditos
+        inscripcion.fecha_cierre = datetime.now(get_uruguay_tz())
+
+        session.add(inscripcion)
+        session.commit()
+        session.refresh(inscripcion)
+        return inscripcion
 
     # ── Mapa de previaturas (alumno) ──────────────────────────────────────────
 

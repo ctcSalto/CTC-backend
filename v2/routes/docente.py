@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 from pydantic import BaseModel
 from typing import Optional, List
@@ -14,6 +15,8 @@ from v2.models.inscripcion_materia import InscripcionMateria, InscripcionMateria
 from v2.models.instancia_cursado import InstanciaCursado
 from v2.models.equipo import EquipoCreate
 from v2.models.inscripcion_examen import InscripcionExamenRead, CalificarExamenRequest
+from v2.models.documento_usuario import DocumentoUsuarioRead
+from v2.models.enums import TipoDocumento
 
 router = APIRouter(
     prefix="/v2/portal/docente",
@@ -519,3 +522,63 @@ async def marcar_ausente_docente(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# -- Documentos ----------------------------------------------------------------
+
+@router.post("/documentos", response_model=DocumentoUsuarioRead, status_code=201)
+async def subir_documento_docente(
+    archivo: UploadFile = File(...),
+    tipo: TipoDocumento = Form(...),
+    descripcion: Optional[str] = Form(None),
+    current_usuario: UsuarioRead = Depends(require_docente_or_admin),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """Subir un documento propio (PDF o imagen). Las imagenes se convierten a WebP automaticamente."""
+    return await v2_services.localFileService.upload(
+        archivo=archivo,
+        usuario_id=current_usuario.id,
+        nombre=current_usuario.nombre,
+        apellido=current_usuario.apellido,
+        rol=current_usuario.rol,
+        tipo=tipo,
+        subido_por=current_usuario.id,
+        session=session,
+        descripcion=descripcion,
+    )
+
+
+@router.get("/mis-documentos", response_model=list[DocumentoUsuarioRead])
+async def mis_documentos_docente(
+    tipo: Optional[TipoDocumento] = Query(None, description="Filtrar por tipo de documento"),
+    current_usuario: UsuarioRead = Depends(require_docente_or_admin),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """Listar mis documentos subidos"""
+    return v2_services.localFileService.list_documentos(
+        current_usuario.id, session, tipo=tipo
+    )
+
+
+@router.get("/documentos/{documento_id}")
+async def descargar_documento_docente(
+    documento_id: int,
+    current_usuario: UsuarioRead = Depends(require_docente_or_admin),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """Descargar un documento propio"""
+    doc = v2_services.localFileService.get_documento(documento_id, session)
+    if not doc or not doc.activo:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    if doc.usuario_id != current_usuario.id:
+        raise HTTPException(status_code=403, detail="No es tu documento")
+
+    path = v2_services.localFileService.download_path(doc)
+    return FileResponse(
+        path=str(path),
+        media_type=doc.mime_type,
+        filename=doc.nombre_original,
+    )

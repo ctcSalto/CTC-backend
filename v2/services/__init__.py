@@ -15,6 +15,7 @@ from v2.services.inscripcion_programa_service import InscripcionProgramaService
 from v2.services.instancia_cursado_service import InstanciaCursadoService
 from v2.services.instancia_examen_service import InstanciaExamenService
 from v2.services.egreso_service import EgresoService
+from v2.services.local_file_service import LocalFileService
 
 
 class V2Services:
@@ -36,6 +37,7 @@ class V2Services:
         self.inscripcionProgramaService = InscripcionProgramaService()
         self.instanciaCursadoService = InstanciaCursadoService()
         self.egresoService = EgresoService()
+        self.localFileService = LocalFileService()
 
 
 _v2_services: V2Services | None = None

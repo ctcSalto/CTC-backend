@@ -12,7 +12,7 @@ from v2.models.politica_examen import PoliticaExamen
 from v2.models.enums import EstadoInscripcionMateria, EstadoInscripcionExamen
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
@@ -87,11 +87,26 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         # 5. Crear snapshot de politica de examen
         snapshot = self._crear_snapshot_politica_examen(materia.politica_examen_id, session)
 
-        # 6. Crear inscripcion
+        # 6. Validar max oportunidades de rendicion
+        politica = session.get(PoliticaExamen, materia.politica_examen_id)
+        max_oportunidades = politica.max_oportunidades if politica else 5
+
+        rendiciones_previas = self._contar_rendiciones_previas(
+            inscripcion_materia_id, session
+        )
+        if rendiciones_previas >= max_oportunidades:
+            raise ValueError(
+                f"Superaste el maximo de oportunidades ({max_oportunidades}). "
+                "Debes recursar la materia."
+            )
+        numero_rendicion = rendiciones_previas + 1
+
+        # 7. Crear inscripcion
         inscripcion_examen = InscripcionExamen(
             inscripcion_materia_id=inscripcion_materia_id,
             instancia_examen_id=instancia_examen_id,
             snapshot_politica_examen=snapshot,
+            numero_rendicion=numero_rendicion,
         )
         session.add(inscripcion_examen)
         session.commit()
@@ -136,6 +151,11 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
             self._aprobar_materia(ie.inscripcion_materia_id, nota, session)
         else:
             ie.estado = EstadoInscripcionExamen.REPROBADO
+            # Verificar si agotó todas las oportunidades
+            max_oport = int(snapshot.get("max_oportunidades", 5))
+            rendiciones = self._contar_rendiciones_previas(ie.inscripcion_materia_id, session)
+            if rendiciones >= max_oport:
+                self._reprobar_materia_por_rendiciones(ie.inscripcion_materia_id, max_oport, session)
 
         session.add(ie)
         session.commit()
@@ -226,7 +246,11 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         inscripcion_examen_id: int,
         session: Session,
     ):
-        """Permite desinscribirse de un examen solo si esta en estado INSCRIPTO"""
+        """
+        Desinscribirse de un examen (soft-delete).
+        - Solo si esta en estado INSCRIPTO
+        - Solo hasta 72 horas antes de la fecha del examen (configurable)
+        """
         ie = session.exec(
             select(InscripcionExamen).where(InscripcionExamen.id == inscripcion_examen_id)
         ).first()
@@ -234,7 +258,23 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
             raise ValueError(f"Inscripcion a examen {inscripcion_examen_id} no encontrada")
         if ie.estado != EstadoInscripcionExamen.INSCRIPTO:
             raise ValueError("Solo se puede desinscribir una inscripcion en estado INSCRIPTO")
-        session.delete(ie)
+
+        # Validar plazo de baja (72 horas antes del examen)
+        instancia = session.get(InstanciaExamen, ie.instancia_examen_id)
+        if instancia and instancia.fecha_examen:
+            plazo_horas = int(os.getenv("PLAZO_BAJA_EXAMEN_HORAS", "72"))
+            tz = get_uruguay_tz()
+            ahora = datetime.now(tz).replace(tzinfo=None)
+            limite = instancia.fecha_examen - timedelta(hours=plazo_horas)
+            if ahora > limite:
+                raise ValueError(
+                    f"No puedes darte de baja. El plazo es hasta {plazo_horas} horas antes del examen."
+                )
+
+        # Soft-delete: marcar como BAJA con fecha
+        ie.estado = EstadoInscripcionExamen.BAJA
+        ie.fecha_baja = datetime.now(get_uruguay_tz())
+        session.add(ie)
         session.commit()
 
     # -- Helpers internos -----------------------------------------------------
@@ -253,6 +293,7 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
             "nombre": politica.nombre,
             "nota_maxima": float(politica.nota_maxima),
             "umbral_aprobacion": float(politica.umbral_aprobacion),
+            "max_oportunidades": politica.max_oportunidades,
         }
 
     def _aprobar_materia(
@@ -280,3 +321,33 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         session.add(inscripcion)
         session.commit()
         session.refresh(inscripcion)
+
+    def _contar_rendiciones_previas(
+        self, inscripcion_materia_id: int, session: Session
+    ) -> int:
+        """Cuenta rendiciones previas (APROBADO, REPROBADO o AUSENTE — no INSCRIPTO ni BAJA)"""
+        from sqlalchemy import func
+        estados_contables = [
+            EstadoInscripcionExamen.APROBADO,
+            EstadoInscripcionExamen.REPROBADO,
+            EstadoInscripcionExamen.AUSENTE,
+        ]
+        count = session.exec(
+            select(func.count(InscripcionExamen.id)).where(
+                InscripcionExamen.inscripcion_materia_id == inscripcion_materia_id,
+                InscripcionExamen.estado.in_(estados_contables),
+            )
+        ).one()
+        return count
+
+    def _reprobar_materia_por_rendiciones(
+        self, inscripcion_materia_id: int, max_oportunidades: int, session: Session
+    ):
+        """Marca la inscripcion a materia como REPROBADO por agotar rendiciones"""
+        inscripcion = session.get(InscripcionMateria, inscripcion_materia_id)
+        if not inscripcion:
+            return
+        inscripcion.estado = EstadoInscripcionMateria.REPROBADO
+        inscripcion.fecha_cierre = datetime.now(get_uruguay_tz())
+        inscripcion.motivo_cierre = f"Agotadas las {max_oportunidades} oportunidades de examen. Debe recursar."
+        session.add(inscripcion)

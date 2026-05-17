@@ -106,3 +106,26 @@ async def verificar_egreso(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# -- Revalida ----------------------------------------------------------------
+
+class RevalidarRequest(BaseModel):
+    motivo: str
+
+
+@router.post("/{inscripcion_id}/revalidar", response_model=InscripcionMateriaRead)
+async def revalidar_materia(
+    inscripcion_id: int,
+    data: RevalidarRequest,
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """Revalidar (convalidar) una materia. Cambia estado a REVALIDADA, asigna creditos y registra motivo."""
+    try:
+        return v2_services.inscripcionService.revalidar_materia(
+            inscripcion_id, data.motivo, session
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

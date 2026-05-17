@@ -36,7 +36,33 @@ alembic upgrade head
    - Resuelve por nombre de materia dentro de cada programa
    - **REQUISITO:** Los programas y materias deben existir en la BD antes de correr esta migracion
 
-**Riesgo:** Las migraciones 1-3 crean/modifican tablas. La migracion 4 inserta datos (previaturas).
+5. `4d769166125d_agregar_campos_planilla_admin_y_tabla_` — **Fase 1: Campos planilla admin + documentos:**
+   - Tabla nueva: `documento_usuario` (almacenamiento de archivos de alumnos/profesores)
+   - Enum nuevo: `TipoDocumento` (formula_69a, escolaridad, constancia_convenio, cedula, titulo, otro)
+   - Columnas nuevas (todas nullable, sin romper datos existentes):
+     - `usuario`: `fecha_nacimiento` (date), `domicilio` (varchar 200)
+     - `programa`: `certificacion` (varchar 100), `horas_totales` (int)
+     - `materia`: `horas_semanales` (int), `horas_totales` (int)
+     - `profesor`: `carga_horaria_semanal` (int)
+     - `inscripcion_programa`: `fecha_baja` (datetime), `motivo_baja` (varchar 255)
+     - `inscripcion_examen`: `fecha_baja` (datetime)
+     - `inscripcion_materia`: `fecha_baja` (datetime)
+   - Usa `_safe_add_column()` — si una columna ya existe en la BD, la ignora sin error
+
+6. `087c21eff7fd_fase2_rendiciones_bajas_revalida` — **Fase 2: Rendiciones, bajas soft-delete, revalida:**
+   - Columnas nuevas (todas con server_default, sin romper datos existentes):
+     - `politica_examen`: `max_oportunidades` (int, default 5) — maximo de veces que se puede rendir un examen
+     - `inscripcion_examen`: `numero_rendicion` (int, default 1) — numero de rendicion (1ra, 2da, etc.)
+     - `inscripcion_materia`: `motivo_revalida` (varchar 255, nullable) — motivo de revalida
+   - Usa `_safe_add_column()` — si una columna ya existe en la BD, la ignora sin error
+   - **Cambios de comportamiento (no requieren migracion):**
+     - Desinscripcion de materia ahora usa soft-delete (estado ABANDONO + fecha_baja) en vez de borrar
+     - Desinscripcion de examen ahora usa soft-delete (estado BAJA + fecha_baja) con plazo de 72hs
+     - Inscripcion a examen valida max_oportunidades y asigna numero_rendicion automaticamente
+     - Calificacion de examen reprobado verifica si se agotaron las rendiciones (cambia materia a REPROBADO)
+     - Nuevo endpoint de revalida: `POST /v2/admin/inscripciones/{id}/revalidar`
+
+**Riesgo:** Las migraciones 1-3 crean/modifican tablas. La migracion 4 inserta datos (previaturas). Las migraciones 5 y 6 agregan columnas nullable/con defaults (sin impacto en datos existentes).
 
 ### Checklist de deploy
 
@@ -45,15 +71,61 @@ alembic upgrade head
 - [ ] Aplicar migraciones en BD produccion (`alembic upgrade head` con DATABASE_URL de prod)
 - [ ] Verificar que las tablas se crearon (`\dt` en psql)
 - [ ] Verificar que las previaturas se insertaron (`SELECT count(*) FROM previatura`)
+- [ ] Verificar que la tabla `documento_usuario` se creo (`\d documento_usuario`)
+- [ ] Verificar columnas nuevas: `SELECT fecha_nacimiento, domicilio FROM usuario LIMIT 1`
+- [ ] Crear directorio de documentos: `sudo mkdir -p /var/ctc/documentos && sudo chown <app_user> /var/ctc/documentos`
+- [ ] Agregar variables de entorno: `DOCUMENTOS_BASE_PATH`, `DOCUMENTOS_MAX_SIZE_MB`
 - [ ] Mergear PR bedelia -> main
 - [ ] Verificar que la app levanta sin errores (`/health`)
+- [ ] Verificar endpoints de documentos en Swagger (`/docs` -> seccion "Admin Documentos")
+- [ ] Verificar columna `max_oportunidades` en `politica_examen`: `SELECT max_oportunidades FROM politica_examen LIMIT 1`
+- [ ] Verificar columna `numero_rendicion` en `inscripcion_examen`: `SELECT numero_rendicion FROM inscripcion_examen LIMIT 1`
+- [ ] Verificar endpoint de revalida en Swagger (`/docs` -> seccion "Admin Inscripciones")
+- [ ] Agregar variable de entorno: `PLAZO_BAJA_EXAMEN_HORAS` (opcional, default 72)
 
-## Variables de entorno nuevas (para fases futuras)
+## Variables de entorno nuevas
 
-Estas variables no son necesarias ahora (Fase 1 es solo modelos), pero seran requeridas cuando se implementen las fases de auth y endpoints:
+### Requeridas para el sistema de documentos (Migracion 5)
 
 ```bash
-# Google OAuth 2.0 (Fase 2)
+# Ruta base donde se almacenan los documentos de alumnos/profesores
+# En produccion: directorio en la VPS con espacio suficiente
+DOCUMENTOS_BASE_PATH=/var/ctc/documentos
+
+# Limite de tamano por archivo en MB (default: 10)
+DOCUMENTOS_MAX_SIZE_MB=10
+```
+
+**IMPORTANTE:** Crear el directorio en produccion antes de deployar:
+```bash
+sudo mkdir -p /var/ctc/documentos
+sudo chown -R <usuario_app>:<grupo_app> /var/ctc/documentos
+```
+
+La estructura de carpetas se crea automaticamente al subir el primer documento de cada usuario:
+```
+/var/ctc/documentos/
+├── alumnos/{id}_{apellido}_{nombre}/
+│   ├── formula_69a/
+│   ├── escolaridad/
+│   └── otros/
+├── profesores/{id}_{apellido}_{nombre}/
+│   ├── cedula/
+│   ├── titulo/
+│   └── otros/
+└── administrativos/...
+```
+
+### Opcional para control de rendiciones (Migracion 6)
+
+```bash
+# Plazo minimo en horas antes del examen para permitir baja (default: 72)
+PLAZO_BAJA_EXAMEN_HORAS=72
+```
+
+### Google OAuth 2.0
+
+```bash
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=
@@ -80,4 +152,6 @@ El backend corre detras de un proxy inverso que termina SSL. Sin la configuracio
 - Las tablas v2 coexisten con las v1 (user, career, testimony, news)
 - No hay FK entre tablas v1 y v2
 - El codigo v2 esta en el directorio `v2/` y no afecta el funcionamiento actual
-- Si se necesita rollback: `alembic downgrade 055950855a1a` (elimina las 15 tablas v2)
+- Si se necesita rollback completo: `alembic downgrade 055950855a1a` (elimina todas las tablas v2)
+- Si se necesita rollback solo de Fase 2 (rendiciones): `alembic downgrade 4d769166125d` (quita max_oportunidades, numero_rendicion, motivo_revalida)
+- Si se necesita rollback de Fases 1+2: `alembic downgrade f3g4h5i6j7k8` (quita todo de Fase 1 y 2)

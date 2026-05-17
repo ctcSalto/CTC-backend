@@ -8,6 +8,7 @@ from v2.models.enums import (
     AreaPrograma, EstadoInstanciaCursado, EstadoInscripcionPrograma,
     ModalidadExamen, TipoExamen, EstadoInstanciaExamen,
     CargoDocente, DedicacionDocente,
+    TipoDocumento,
 )
 
 from v2.models.usuario import Usuario
@@ -30,3 +31,4 @@ from v2.models.instancia_examen import InstanciaExamen
 from v2.models.docente_instancia_examen import DocenteInstanciaExamen
 from v2.models.inscripcion_programa import InscripcionPrograma
 from v2.models.inscripcion_examen import InscripcionExamen
+from v2.models.documento_usuario import DocumentoUsuario

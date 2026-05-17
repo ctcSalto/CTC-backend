@@ -45,6 +45,8 @@ class InscripcionMateria(SQLModel, table=True):
     fecha_inscripcion: datetime = Field(default_factory=lambda: datetime.now(get_uruguay_tz()))
     fecha_cierre: Optional[datetime] = Field(default=None, description="Fecha en que se determinó el estado final")
     motivo_cierre: Optional[str] = Field(default=None, max_length=255, description="Motivo de inasistencia/abandono")
+    motivo_revalida: Optional[str] = Field(default=None, max_length=255, description="Motivo de reválida (ej: 'Aprobada en UTEC - 2025')")
+    fecha_baja: Optional[datetime] = Field(default=None, description="Fecha de baja/desinscripción")
     id_rastreo: Optional[str] = Field(
         default_factory=lambda: str(uuid4()),
         unique=True, index=True,
@@ -80,6 +82,8 @@ class InscripcionMateriaRead(SQLModel):
     fecha_inscripcion: datetime
     fecha_cierre: Optional[datetime] = None
     motivo_cierre: Optional[str] = None
+    motivo_revalida: Optional[str] = None
+    fecha_baja: Optional[datetime] = None
     id_rastreo: Optional[str] = None
 
 

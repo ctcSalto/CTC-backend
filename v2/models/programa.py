@@ -32,6 +32,8 @@ class Programa(SQLModel, table=True):
     coordinador_id: Optional[int] = Field(default=None, foreign_key="profesor.id", description="Profesor coordinador")
     profesor_externo_nombre: Optional[str] = Field(default=None, max_length=200, description="Nombre del profesor externo (si aplica)")
     creditos_requeridos: Optional[int] = Field(default=None, description="Créditos necesarios para egreso")
+    certificacion: Optional[str] = Field(default=None, max_length=100, description="Institución certificadora: CTC-UCLAEH, CTC-IPEP")
+    horas_totales: Optional[int] = Field(default=None, description="Total de horas del programa")
     activo: bool = Field(default=True)
     fecha_creacion: datetime = Field(default_factory=lambda: datetime.now(get_uruguay_tz()))
     id_rastreo: Optional[str] = Field(
@@ -58,6 +60,8 @@ class ProgramaCreate(SQLModel):
     coordinador_id: Optional[int] = None
     profesor_externo_nombre: Optional[str] = None
     creditos_requeridos: Optional[int] = None
+    certificacion: Optional[str] = None
+    horas_totales: Optional[int] = None
 
 
 class ProgramaUpdate(SQLModel):
@@ -69,6 +73,8 @@ class ProgramaUpdate(SQLModel):
     coordinador_id: Optional[int] = None
     profesor_externo_nombre: Optional[str] = None
     creditos_requeridos: Optional[int] = None
+    certificacion: Optional[str] = Field(default=None, max_length=100)
+    horas_totales: Optional[int] = None
     activo: Optional[bool] = None
 
 
@@ -82,6 +88,8 @@ class ProgramaRead(SQLModel):
     coordinador_id: Optional[int] = None
     profesor_externo_nombre: Optional[str] = None
     creditos_requeridos: Optional[int] = None
+    certificacion: Optional[str] = None
+    horas_totales: Optional[int] = None
     activo: bool
     fecha_creacion: datetime
     id_rastreo: Optional[str] = None

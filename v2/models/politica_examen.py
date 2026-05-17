@@ -23,6 +23,7 @@ class PoliticaExamen(SQLModel, table=True):
     nombre: str = Field(max_length=100, description="Ej: 'Examen estándar base 100'")
     nota_maxima: Decimal = Field(max_digits=5, decimal_places=2, description="Nota máxima del examen")
     umbral_aprobacion: Decimal = Field(max_digits=5, decimal_places=2, description="Mínimo para aprobar el examen")
+    max_oportunidades: int = Field(default=5, description="Máximo de veces que puede rendir el examen")
     activo: bool = Field(default=True)
     fecha_creacion: datetime = Field(default_factory=lambda: datetime.now(get_uruguay_tz()))
     id_rastreo: Optional[str] = Field(
@@ -41,12 +42,14 @@ class PoliticaExamenCreate(SQLModel):
     nombre: str = Field(max_length=100)
     nota_maxima: Decimal = Field(max_digits=5, decimal_places=2)
     umbral_aprobacion: Decimal = Field(max_digits=5, decimal_places=2)
+    max_oportunidades: int = 5
 
 
 class PoliticaExamenUpdate(SQLModel):
     nombre: Optional[str] = Field(default=None, max_length=100)
     nota_maxima: Optional[Decimal] = Field(default=None, max_digits=5, decimal_places=2)
     umbral_aprobacion: Optional[Decimal] = Field(default=None, max_digits=5, decimal_places=2)
+    max_oportunidades: Optional[int] = None
     activo: Optional[bool] = None
 
 
@@ -55,6 +58,7 @@ class PoliticaExamenRead(SQLModel):
     nombre: str
     nota_maxima: Decimal
     umbral_aprobacion: Decimal
+    max_oportunidades: int = 5
     activo: bool
     fecha_creacion: datetime
     id_rastreo: Optional[str] = None

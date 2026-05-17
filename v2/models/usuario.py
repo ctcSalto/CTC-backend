@@ -1,6 +1,6 @@
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List, TYPE_CHECKING
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
 from uuid import uuid4
 
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from v2.models.alumno import Alumno
     from v2.models.profesor import Profesor
     from v2.models.administrativo import Administrativo
+    from v2.models.documento_usuario import DocumentoUsuario
 
 
 def get_uruguay_tz():
@@ -49,6 +50,8 @@ class Usuario(SQLModel, table=True):
     )
     ultimo_acceso: Optional[datetime] = Field(default=None, description="Último login")
     email_personal: Optional[str] = Field(default=None, max_length=255, description="Email personal del usuario")
+    fecha_nacimiento: Optional[date] = Field(default=None, description="Fecha de nacimiento")
+    domicilio: Optional[str] = Field(default=None, max_length=200, description="Dirección del usuario")
     eliminado: bool = Field(default=False, description="Soft-delete flag")
     fecha_eliminacion: Optional[datetime] = Field(default=None, description="Fecha de eliminación lógica")
     id_rastreo: Optional[str] = Field(
@@ -65,6 +68,10 @@ class Usuario(SQLModel, table=True):
     perfil_alumno: Optional["Alumno"] = Relationship(back_populates="usuario")
     perfil_profesor: Optional["Profesor"] = Relationship(back_populates="usuario")
     perfil_administrativo: Optional["Administrativo"] = Relationship(back_populates="usuario")
+    documentos: List["DocumentoUsuario"] = Relationship(
+        back_populates="usuario",
+        sa_relationship_kwargs={"foreign_keys": "[DocumentoUsuario.usuario_id]"}
+    )
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -85,6 +92,8 @@ class UsuarioRead(SQLModel):
     activo: bool
     google_activo: bool
     moodle_activo: bool
+    fecha_nacimiento: Optional[date] = None
+    domicilio: Optional[str] = None
     eliminado: bool = False
     fecha_creacion: datetime
     ultimo_acceso: Optional[datetime] = None
@@ -95,6 +104,8 @@ class UsuarioUpdate(SQLModel):
     documento: Optional[str] = Field(default=None, max_length=20)
     telefono: Optional[str] = Field(default=None, max_length=20)
     email_personal: Optional[str] = Field(default=None, max_length=255)
+    fecha_nacimiento: Optional[date] = None
+    domicilio: Optional[str] = Field(default=None, max_length=200)
     activo: Optional[bool] = None
     google_activo: Optional[bool] = None
     moodle_activo: Optional[bool] = None
