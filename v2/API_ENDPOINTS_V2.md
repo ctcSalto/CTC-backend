@@ -1086,4 +1086,10 @@ Todos los errores siguen este formato:
 
 ---
 
+## Diagrama de Entidades
+
+**Ver archivo `diagrama_entidades.html`** — Diagrama interactivo con las 22 tablas, relaciones y campos. Abrir en Chrome para arrastrar tablas y hacer zoom. Campos nuevos de Fases 1+2 marcados en verde.
+
+---
+
 *Generado: Mayo 2026 - CTC Salto*

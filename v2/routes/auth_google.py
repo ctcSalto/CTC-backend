@@ -1,6 +1,9 @@
 """
 Endpoints de autenticacion Google OAuth 2.0 para el portal academico.
 """
+import os
+from urllib.parse import urlparse, urlencode
+
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import RedirectResponse
 from sqlmodel import Session
@@ -23,14 +26,41 @@ from v2.models.usuario import UsuarioRead
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 
+# Origenes permitidos para redirect_to (whitelist anti open-redirect)
+# Variable de entorno: lista separada por comas
+_raw = os.getenv("OAUTH_ALLOWED_REDIRECT_ORIGINS", "http://localhost:8000,http://localhost:3000")
+ALLOWED_REDIRECT_ORIGINS = [o.strip().rstrip("/") for o in _raw.split(",") if o.strip()]
+
+
+def _is_redirect_allowed(url: str) -> bool:
+    """Valida que la URL de redirect pertenezca a un origen permitido."""
+    try:
+        parsed = urlparse(url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        return origin in ALLOWED_REDIRECT_ORIGINS
+    except Exception:
+        return False
+
+
 router = APIRouter(prefix="/v2/auth", tags=["v2 - Autenticacion"])
 security = HTTPBearer()
 
 
 @router.get("/google/login")
-async def google_login(request: Request):
-    """Inicia el flujo OAuth. Redirige al usuario a Google para autenticarse."""
+async def google_login(request: Request, redirect_to: str = None):
+    """
+    Inicia el flujo OAuth. Redirige al usuario a Google para autenticarse.
+    Si se pasa redirect_to, al completar el login redirige al frontend con el token.
+    El redirect_to se valida contra OAUTH_ALLOWED_REDIRECT_ORIGINS.
+    """
     google = get_google_client()
+    if redirect_to:
+        if not _is_redirect_allowed(redirect_to):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"redirect_to no permitido. Origenes autorizados: {ALLOWED_REDIRECT_ORIGINS}",
+            )
+        request.session["oauth_redirect_to"] = redirect_to
     return await google.authorize_redirect(request, GOOGLE_REDIRECT_URI)
 
 
@@ -125,6 +155,12 @@ async def google_callback(
         usuario_id=usuario.id,
         rol=usuario.rol.value,
     )
+
+    # 8. Si hay redirect al frontend, redirigir con el token en query param
+    redirect_to = request.session.pop("oauth_redirect_to", None)
+    if redirect_to:
+        params = urlencode({"token": jwt_token})
+        return RedirectResponse(url=f"{redirect_to}?{params}")
 
     return {
         "access_token": jwt_token,

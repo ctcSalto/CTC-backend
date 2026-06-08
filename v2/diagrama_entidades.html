@@ -32,9 +32,9 @@
   }
   .canvas {
     position: relative;
-    width: 1500px;
+    width: 2200px;
     margin: 0 auto;
-    min-height: 1400px;
+    min-height: 1800px;
     border: 1px dashed #e2e8f0;
     border-radius: 12px;
   }
@@ -78,6 +78,8 @@
   .table-box .field.pk .name { color: #b45309; font-weight: 700; }
   .table-box .field.fk .name { color: #2563eb; }
   .table-box .field.enum .name { color: #7c3aed; }
+  .table-box .field.new .name { color: #059669; font-style: italic; }
+  .table-box .field.new .type { color: #059669; }
 
   .group-users .header { background: #3b82f6; }
   .group-users { border-color: #93c5fd; }
@@ -91,6 +93,8 @@
   .group-exam { border-color: #fca5a5; }
   .group-teams .header { background: #0891b2; }
   .group-teams { border-color: #67e8f9; }
+  .group-docs .header { background: #be185d; }
+  .group-docs { border-color: #f9a8d4; }
 
   .legend {
     display: flex;
@@ -122,17 +126,6 @@
     z-index: 1;
   }
   svg.lines .rel-label { font-size: 11px; font-weight: 600; }
-
-  .section-label {
-    position: absolute;
-    font-size: 11px;
-    font-weight: 700;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    z-index: 3;
-    pointer-events: none;
-  }
 
   .info-box {
     position: absolute;
@@ -166,16 +159,17 @@
 <body>
 
 <h1>Esquema de Entidades - Portal Institucional CTC v2</h1>
-<p class="subtitle">15 tablas | PostgreSQL + JSONB snapshots | Roles via OU Google (n8n)</p>
-<p class="instructions">Arrastra las tablas para reorganizarlas. Usa "Capturar PNG" para guardar.</p>
+<p class="subtitle">22 tablas | PostgreSQL + JSONB snapshots | Roles via OU Google (n8n) | Actualizado Mayo 2026</p>
+<p class="instructions">Arrastra las tablas para reorganizarlas. Los campos en <span style="color:#059669;font-style:italic;">verde italica</span> son nuevos (Fases 1+2).</p>
 
 <div class="legend">
-  <div class="legend-item"><div class="legend-color" style="background:#3b82f6"></div> Usuarios</div>
+  <div class="legend-item"><div class="legend-color" style="background:#3b82f6"></div> Usuarios y Perfiles</div>
   <div class="legend-item"><div class="legend-color" style="background:#059669"></div> Estructura Academica</div>
-  <div class="legend-item"><div class="legend-color" style="background:#d97706"></div> Configuracion</div>
+  <div class="legend-item"><div class="legend-color" style="background:#d97706"></div> Configuracion y Politicas</div>
   <div class="legend-item"><div class="legend-color" style="background:#7c3aed"></div> Registro Academico</div>
   <div class="legend-item"><div class="legend-color" style="background:#dc2626"></div> Examenes</div>
   <div class="legend-item"><div class="legend-color" style="background:#0891b2"></div> Equipos</div>
+  <div class="legend-item"><div class="legend-color" style="background:#be185d"></div> Documentos</div>
 </div>
 
 <div class="toolbar">
@@ -187,109 +181,10 @@
 
   <svg class="lines" id="svg-lines"></svg>
 
-  <!-- programa -->
-  <div class="table-box group-academic draggable" id="tbl-programa" style="top:40px;left:40px;width:240px;" data-connects='[{"to":"tbl-materia","label":"1:N","color":"#059669"}]'>
-    <div class="header">programa</div>
-    <div class="fields">
-      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
-      <div class="field"><span class="name">nombre</span><span class="type">varchar(150)</span></div>
-      <div class="field enum"><span class="name">tipo</span><span class="type">CARRERA | CURSO_CORTO | TALLER | DIPLOMA</span></div>
-      <div class="field"><span class="name">moodle_category_id</span><span class="type">int?</span></div>
-      <div class="field"><span class="name">duracion_semestres</span><span class="type">int?</span></div>
-      <div class="field"><span class="name">activo</span><span class="type">bool</span></div>
-    </div>
-  </div>
-
-  <!-- materia -->
-  <div class="table-box group-academic draggable" id="tbl-materia" style="top:300px;left:40px;width:240px;" data-connects='[{"to":"tbl-instancia-eval","label":"1:N","color":"#059669"},{"to":"tbl-previatura","label":"N:M","color":"#059669"},{"to":"tbl-inscripcion","label":"1:N","color":"#059669"}]'>
-    <div class="header">materia</div>
-    <div class="fields">
-      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
-      <div class="field fk"><span class="name">programa_id</span><span class="type">FK programa</span></div>
-      <div class="field"><span class="name">nombre</span><span class="type">varchar(150)</span></div>
-      <div class="field"><span class="name">codigo</span><span class="type">varchar(20)?</span></div>
-      <div class="field"><span class="name">moodle_course_id</span><span class="type">int?</span></div>
-      <div class="field"><span class="name">semestre / creditos</span><span class="type">int</span></div>
-      <div class="field fk"><span class="name">politica_id</span><span class="type">FK politica_calif</span></div>
-      <div class="field fk"><span class="name">politica_examen_id</span><span class="type">FK politica_exam?</span></div>
-    </div>
-  </div>
-
-  <!-- previatura -->
-  <div class="table-box group-academic draggable" id="tbl-previatura" style="top:180px;left:330px;width:210px;">
-    <div class="header">previatura</div>
-    <div class="fields">
-      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
-      <div class="field fk"><span class="name">materia_id</span><span class="type">FK materia</span></div>
-      <div class="field fk"><span class="name">materia_previa_id</span><span class="type">FK materia</span></div>
-      <div class="field enum"><span class="name">tipo_requerido</span><span class="type">APROBADA | EXONERADA</span></div>
-    </div>
-  </div>
-
-  <!-- materia_instancia_evaluacion -->
-  <div class="table-box group-academic draggable" id="tbl-instancia-eval" style="top:580px;left:30px;width:260px;">
-    <div class="header">materia_instancia_evaluacion</div>
-    <div class="fields">
-      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
-      <div class="field fk"><span class="name">materia_id</span><span class="type">FK materia</span></div>
-      <div class="field"><span class="name">nombre</span><span class="type">"Primer Parcial"</span></div>
-      <div class="field"><span class="name">peso_maximo</span><span class="type">decimal</span></div>
-      <div class="field"><span class="name">orden</span><span class="type">int</span></div>
-      <div class="field"><span class="name">es_grupal</span><span class="type">bool</span></div>
-      <div class="field"><span class="name">anio_lectivo</span><span class="type">int (2026...)</span></div>
-    </div>
-  </div>
-
-  <!-- politica_calificacion -->
-  <div class="table-box group-config draggable" id="tbl-pol-calif" style="top:40px;left:600px;width:270px;" data-connects='[{"to":"tbl-materia","label":"1:N","color":"#d97706","dash":true}]'>
-    <div class="header">politica_calificacion</div>
-    <div class="fields">
-      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
-      <div class="field"><span class="name">nombre</span><span class="type">"Base 100 - Carrera"</span></div>
-      <div class="field"><span class="name">nota_maxima</span><span class="type">decimal (100, 12)</span></div>
-      <div class="field enum"><span class="name">tipo_nota</span><span class="type">NUMERICA | LETRA | CUSTOM</span></div>
-      <div class="field"><span class="name">umbral_aprobacion</span><span class="type">decimal</span></div>
-      <div class="field"><span class="name">umbral_examen</span><span class="type">decimal?</span></div>
-      <div class="field"><span class="name">umbral_exoneracion</span><span class="type">decimal?</span></div>
-    </div>
-  </div>
-
-  <!-- politica_examen -->
-  <div class="table-box group-config draggable" id="tbl-pol-exam" style="top:280px;left:600px;width:240px;" data-connects='[{"to":"tbl-materia","label":"","color":"#d97706","dash":true}]'>
-    <div class="header">politica_examen</div>
-    <div class="fields">
-      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
-      <div class="field"><span class="name">nombre</span><span class="type">varchar(100)</span></div>
-      <div class="field"><span class="name">nota_maxima</span><span class="type">decimal</span></div>
-      <div class="field"><span class="name">umbral_aprobacion</span><span class="type">decimal</span></div>
-    </div>
-  </div>
-
-  <!-- periodo_inscripcion_materia -->
-  <div class="table-box group-config draggable" id="tbl-periodo-insc" style="top:440px;left:400px;width:240px;" data-connects='[{"to":"tbl-programa","label":"","color":"#d97706","dash":true}]'>
-    <div class="header">periodo_inscripcion_materia</div>
-    <div class="fields">
-      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
-      <div class="field fk"><span class="name">programa_id</span><span class="type">FK programa</span></div>
-      <div class="field"><span class="name">anio_lectivo</span><span class="type">int</span></div>
-      <div class="field"><span class="name">fecha_inicio / fecha_fin</span><span class="type">datetime</span></div>
-      <div class="field"><span class="name">habilitado</span><span class="type">bool</span></div>
-    </div>
-  </div>
-
-  <!-- docente_materia -->
-  <div class="table-box group-academic draggable" id="tbl-docente-mat" style="top:40px;left:940px;width:230px;" data-connects='[{"to":"tbl-usuario","label":"","color":"#059669","dash":true},{"to":"tbl-materia","label":"","color":"#059669","dash":true}]'>
-    <div class="header">docente_materia</div>
-    <div class="fields">
-      <div class="field fk"><span class="name">docente_id</span><span class="type">FK usuario</span></div>
-      <div class="field fk"><span class="name">materia_id</span><span class="type">FK materia</span></div>
-      <div class="field"><span class="name">anio_lectivo</span><span class="type">int</span></div>
-      <div class="field enum"><span class="name">rol_docente</span><span class="type">TITULAR | ADJUNTO</span></div>
-    </div>
-  </div>
+  <!-- ==================== USUARIOS Y PERFILES ==================== -->
 
   <!-- usuario -->
-  <div class="table-box group-users draggable" id="tbl-usuario" style="top:320px;left:900px;width:280px;" data-connects='[{"to":"tbl-inscripcion","label":"1:N","color":"#3b82f6"}]'>
+  <div class="table-box group-users draggable" id="tbl-usuario" style="top:40px;left:800px;width:280px;" data-connects='[{"to":"tbl-alumno","label":"1:1","color":"#3b82f6"},{"to":"tbl-profesor","label":"1:1","color":"#3b82f6"},{"to":"tbl-admin-perfil","label":"1:1","color":"#3b82f6"},{"to":"tbl-documento","label":"1:N","color":"#be185d"}]'>
     <div class="header">usuario</div>
     <div class="fields">
       <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
@@ -301,108 +196,381 @@
       <div class="field"><span class="name">ou_google</span><span class="type">"/Alumnos" etc.</span></div>
       <div class="field enum"><span class="name">rol</span><span class="type">ESTUDIANTE | DOCENTE | ADMIN</span></div>
       <div class="field"><span class="name">activo / google_activo</span><span class="type">bool</span></div>
-      <div class="field"><span class="name">fecha_creacion</span><span class="type">datetime</span></div>
+      <div class="field"><span class="name">email_personal</span><span class="type">varchar(255)?</span></div>
+      <div class="field new"><span class="name">fecha_nacimiento</span><span class="type">date? (Fase 1)</span></div>
+      <div class="field new"><span class="name">domicilio</span><span class="type">varchar(200)? (Fase 1)</span></div>
+      <div class="field"><span class="name">eliminado / fecha_eliminacion</span><span class="type">soft-delete</span></div>
+      <div class="field"><span class="name">fecha_creacion / ultimo_acceso</span><span class="type">datetime</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID unique</span></div>
+    </div>
+  </div>
+
+  <!-- alumno -->
+  <div class="table-box group-users draggable" id="tbl-alumno" style="top:430px;left:620px;width:220px;" data-connects='[{"to":"tbl-insc-programa","label":"1:N","color":"#3b82f6"}]'>
+    <div class="header">alumno</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">usuario_id</span><span class="type">FK usuario (unique)</span></div>
+      <div class="field"><span class="name">fecha_ingreso</span><span class="type">datetime</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
+    </div>
+  </div>
+
+  <!-- profesor -->
+  <div class="table-box group-users draggable" id="tbl-profesor" style="top:430px;left:880px;width:250px;">
+    <div class="header">profesor</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">usuario_id</span><span class="type">FK usuario (unique)</span></div>
+      <div class="field enum"><span class="name">cargo</span><span class="type">TITULAR | INTERINO | CONTRATO</span></div>
+      <div class="field enum"><span class="name">dedicacion</span><span class="type">COMPLETO | MEDIO | HORAS</span></div>
+      <div class="field"><span class="name">especialidad</span><span class="type">varchar(200)?</span></div>
+      <div class="field new"><span class="name">carga_horaria_semanal</span><span class="type">int? (Fase 1)</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
+    </div>
+  </div>
+
+  <!-- administrativo_perfil -->
+  <div class="table-box group-users draggable" id="tbl-admin-perfil" style="top:430px;left:1170px;width:220px;">
+    <div class="header">administrativo_perfil</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">usuario_id</span><span class="type">FK usuario (unique)</span></div>
+      <div class="field"><span class="name">departamento</span><span class="type">varchar(100)?</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
+    </div>
+  </div>
+
+  <!-- ==================== ESTRUCTURA ACADEMICA ==================== -->
+
+  <!-- programa -->
+  <div class="table-box group-academic draggable" id="tbl-programa" style="top:40px;left:40px;width:260px;" data-connects='[{"to":"tbl-materia","label":"1:N","color":"#059669"},{"to":"tbl-periodo-insc","label":"1:N","color":"#059669","dash":true}]'>
+    <div class="header">programa</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field"><span class="name">nombre</span><span class="type">varchar(150)</span></div>
+      <div class="field enum"><span class="name">tipo</span><span class="type">CARRERA | CURSO_CORTO | TALLER | DIPLOMA</span></div>
+      <div class="field enum"><span class="name">area</span><span class="type">ADMIN | COMUN | CULTURA | GENERAL | IT</span></div>
+      <div class="field fk"><span class="name">coordinador_id</span><span class="type">FK profesor?</span></div>
+      <div class="field"><span class="name">duracion_semestres</span><span class="type">int?</span></div>
+      <div class="field"><span class="name">creditos_requeridos</span><span class="type">int?</span></div>
+      <div class="field new"><span class="name">certificacion</span><span class="type">varchar(100)? (Fase 1)</span></div>
+      <div class="field new"><span class="name">horas_totales</span><span class="type">int? (Fase 1)</span></div>
+      <div class="field"><span class="name">moodle_category_id</span><span class="type">int?</span></div>
+      <div class="field"><span class="name">activo</span><span class="type">bool</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
+    </div>
+  </div>
+
+  <!-- materia -->
+  <div class="table-box group-academic draggable" id="tbl-materia" style="top:380px;left:40px;width:260px;" data-connects='[{"to":"tbl-previatura","label":"N:M","color":"#059669"},{"to":"tbl-inst-cursado","label":"1:N","color":"#059669"},{"to":"tbl-inst-examen","label":"1:N","color":"#dc2626"}]'>
+    <div class="header">materia</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">programa_id</span><span class="type">FK programa</span></div>
+      <div class="field"><span class="name">nombre</span><span class="type">varchar(150)</span></div>
+      <div class="field"><span class="name">codigo</span><span class="type">varchar(20)? unique</span></div>
+      <div class="field"><span class="name">semestre / creditos</span><span class="type">int</span></div>
+      <div class="field fk"><span class="name">politica_id</span><span class="type">FK politica_calif</span></div>
+      <div class="field fk"><span class="name">politica_examen_id</span><span class="type">FK politica_exam?</span></div>
+      <div class="field new"><span class="name">horas_semanales</span><span class="type">int? (Fase 1)</span></div>
+      <div class="field new"><span class="name">horas_totales</span><span class="type">int? (Fase 1)</span></div>
+      <div class="field"><span class="name">moodle_course_id</span><span class="type">int?</span></div>
+      <div class="field"><span class="name">activo</span><span class="type">bool</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
+    </div>
+  </div>
+
+  <!-- previatura -->
+  <div class="table-box group-academic draggable" id="tbl-previatura" style="top:380px;left:340px;width:210px;">
+    <div class="header">previatura</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">materia_id</span><span class="type">FK materia</span></div>
+      <div class="field fk"><span class="name">materia_previa_id</span><span class="type">FK materia</span></div>
+      <div class="field enum"><span class="name">tipo_requerido</span><span class="type">APROBADA | EXONERADA</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
+    </div>
+  </div>
+
+  <!-- instancia_cursado -->
+  <div class="table-box group-academic draggable" id="tbl-inst-cursado" style="top:710px;left:40px;width:260px;" data-connects='[{"to":"tbl-instancia-eval","label":"1:N","color":"#059669"},{"to":"tbl-docente-mat","label":"1:N","color":"#059669","dash":true},{"to":"tbl-inscripcion","label":"1:N","color":"#7c3aed"}]'>
+    <div class="header">instancia_cursado</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">materia_id</span><span class="type">FK materia</span></div>
+      <div class="field"><span class="name">anio_lectivo</span><span class="type">int (2026...)</span></div>
+      <div class="field"><span class="name">fecha_inicio / fecha_fin</span><span class="type">datetime?</span></div>
+      <div class="field"><span class="name">salon / horario</span><span class="type">varchar?</span></div>
+      <div class="field"><span class="name">cupo_maximo</span><span class="type">int?</span></div>
+      <div class="field"><span class="name">faltas_maximas</span><span class="type">int?</span></div>
+      <div class="field enum"><span class="name">estado</span><span class="type">PLANIF | EN_CURSO | FINAL | CANCEL</span></div>
+      <div class="field"><span class="name">estadisticas</span><span class="type">JSONB?</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
+    </div>
+  </div>
+
+  <!-- materia_instancia_evaluacion -->
+  <div class="table-box group-academic draggable" id="tbl-instancia-eval" style="top:1020px;left:40px;width:260px;">
+    <div class="header">materia_instancia_evaluacion</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">instancia_cursado_id</span><span class="type">FK inst_cursado</span></div>
+      <div class="field"><span class="name">nombre</span><span class="type">"Primer Parcial"</span></div>
+      <div class="field"><span class="name">peso_maximo</span><span class="type">decimal(5,2)</span></div>
+      <div class="field"><span class="name">orden</span><span class="type">int</span></div>
+      <div class="field"><span class="name">es_grupal</span><span class="type">bool</span></div>
+      <div class="field"><span class="name">activo</span><span class="type">bool</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
+    </div>
+  </div>
+
+  <!-- docente_materia -->
+  <div class="table-box group-academic draggable" id="tbl-docente-mat" style="top:710px;left:340px;width:230px;">
+    <div class="header">docente_materia</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">docente_id</span><span class="type">FK usuario</span></div>
+      <div class="field fk"><span class="name">instancia_cursado_id</span><span class="type">FK inst_cursado</span></div>
+      <div class="field enum"><span class="name">rol_docente</span><span class="type">TITULAR | ADJUNTO | ASIST</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
+    </div>
+  </div>
+
+  <!-- ==================== CONFIGURACION ==================== -->
+
+  <!-- politica_calificacion -->
+  <div class="table-box group-config draggable" id="tbl-pol-calif" style="top:40px;left:380px;width:270px;" data-connects='[{"to":"tbl-materia","label":"1:N","color":"#d97706","dash":true}]'>
+    <div class="header">politica_calificacion</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field"><span class="name">nombre</span><span class="type">"Base 100 - Carrera"</span></div>
+      <div class="field"><span class="name">nota_maxima</span><span class="type">decimal(5,2)</span></div>
+      <div class="field enum"><span class="name">tipo_nota</span><span class="type">NUMERICA | LETRA | CUSTOM</span></div>
+      <div class="field"><span class="name">umbral_aprobacion</span><span class="type">decimal(5,2)</span></div>
+      <div class="field"><span class="name">umbral_examen</span><span class="type">decimal(5,2)?</span></div>
+      <div class="field"><span class="name">umbral_exoneracion</span><span class="type">decimal(5,2)?</span></div>
+      <div class="field"><span class="name">activo</span><span class="type">bool</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
+    </div>
+  </div>
+
+  <!-- politica_examen -->
+  <div class="table-box group-config draggable" id="tbl-pol-exam" style="top:300px;left:380px;width:250px;" data-connects='[{"to":"tbl-materia","label":"","color":"#d97706","dash":true}]'>
+    <div class="header">politica_examen</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field"><span class="name">nombre</span><span class="type">varchar(100)</span></div>
+      <div class="field"><span class="name">nota_maxima</span><span class="type">decimal(5,2)</span></div>
+      <div class="field"><span class="name">umbral_aprobacion</span><span class="type">decimal(5,2)</span></div>
+      <div class="field new"><span class="name">max_oportunidades</span><span class="type">int default 5 (Fase 2)</span></div>
+      <div class="field"><span class="name">activo</span><span class="type">bool</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
+    </div>
+  </div>
+
+  <!-- periodo_inscripcion_materia -->
+  <div class="table-box group-config draggable" id="tbl-periodo-insc" style="top:180px;left:380px;width:240px;">
+    <div class="header">periodo_inscripcion_materia</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">programa_id</span><span class="type">FK programa</span></div>
+      <div class="field"><span class="name">anio_lectivo</span><span class="type">int</span></div>
+      <div class="field"><span class="name">semestre</span><span class="type">int?</span></div>
+      <div class="field"><span class="name">fecha_inicio / fecha_fin</span><span class="type">datetime</span></div>
+      <div class="field"><span class="name">habilitado</span><span class="type">bool</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
+    </div>
+  </div>
+
+  <!-- ==================== REGISTRO ACADEMICO ==================== -->
+
+  <!-- inscripcion_programa -->
+  <div class="table-box group-record draggable" id="tbl-insc-programa" style="top:620px;left:620px;width:260px;">
+    <div class="header">inscripcion_programa</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">alumno_id</span><span class="type">FK alumno</span></div>
+      <div class="field fk"><span class="name">programa_id</span><span class="type">FK programa</span></div>
+      <div class="field"><span class="name">anio_ingreso</span><span class="type">int</span></div>
+      <div class="field enum"><span class="name">estado</span><span class="type">ACTIVA | SUSP | COMPL | BAJA</span></div>
+      <div class="field"><span class="name">fecha_inscripcion</span><span class="type">datetime</span></div>
+      <div class="field new"><span class="name">fecha_baja</span><span class="type">datetime? (Fase 1)</span></div>
+      <div class="field new"><span class="name">motivo_baja</span><span class="type">varchar(255)? (Fase 1)</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
     </div>
   </div>
 
   <!-- inscripcion_materia -->
-  <div class="table-box group-record draggable" id="tbl-inscripcion" style="top:660px;left:400px;width:280px;" data-connects='[{"to":"tbl-calificacion","label":"1:N","color":"#7c3aed"},{"to":"tbl-insc-examen","label":"1:N","color":"#dc2626"}]'>
+  <div class="table-box group-record draggable" id="tbl-inscripcion" style="top:860px;left:620px;width:290px;" data-connects='[{"to":"tbl-calificacion","label":"1:N","color":"#7c3aed"},{"to":"tbl-insc-examen","label":"1:N","color":"#dc2626"}]'>
     <div class="header">inscripcion_materia</div>
     <div class="fields">
       <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
       <div class="field fk"><span class="name">usuario_id</span><span class="type">FK usuario</span></div>
-      <div class="field fk"><span class="name">materia_id</span><span class="type">FK materia</span></div>
-      <div class="field"><span class="name">anio_lectivo</span><span class="type">int</span></div>
-      <div class="field enum"><span class="name">estado</span><span class="type">7 estados posibles</span></div>
-      <div class="field"><span class="name">nota_curso / nota_final</span><span class="type">decimal?</span></div>
-      <div class="field"><span class="name">creditos_obtenidos</span><span class="type">int</span></div>
+      <div class="field fk"><span class="name">instancia_cursado_id</span><span class="type">FK inst_cursado</span></div>
+      <div class="field enum"><span class="name">estado</span><span class="type">8 estados (ver abajo)</span></div>
+      <div class="field"><span class="name">nota_curso / nota_final</span><span class="type">decimal(5,2)?</span></div>
+      <div class="field"><span class="name">nota_final_directa</span><span class="type">decimal(5,2)?</span></div>
+      <div class="field"><span class="name">creditos_obtenidos / faltas</span><span class="type">int</span></div>
       <div class="field" style="background:#f5f3ff;"><span class="name">snapshot_politica</span><span class="type">JSONB</span></div>
       <div class="field" style="background:#f5f3ff;"><span class="name">snapshot_instancias</span><span class="type">JSONB</span></div>
-      <div class="field"><span class="name">motivo_cierre</span><span class="type">varchar?</span></div>
+      <div class="field"><span class="name">motivo_cierre</span><span class="type">varchar(255)?</span></div>
+      <div class="field new"><span class="name">motivo_revalida</span><span class="type">varchar(255)? (Fase 2)</span></div>
+      <div class="field new"><span class="name">fecha_baja</span><span class="type">datetime? (Fase 1)</span></div>
+      <div class="field"><span class="name">fecha_inscripcion / fecha_cierre</span><span class="type">datetime</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
     </div>
   </div>
 
   <!-- calificacion -->
-  <div class="table-box group-record draggable" id="tbl-calificacion" style="top:980px;left:400px;width:270px;">
+  <div class="table-box group-record draggable" id="tbl-calificacion" style="top:1220px;left:620px;width:270px;">
     <div class="header">calificacion</div>
     <div class="fields">
       <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
       <div class="field fk"><span class="name">inscripcion_id</span><span class="type">FK inscripcion_mat</span></div>
       <div class="field fk"><span class="name">instancia_evaluacion_id</span><span class="type">FK inst_eval</span></div>
-      <div class="field"><span class="name">nota</span><span class="type">decimal</span></div>
+      <div class="field"><span class="name">nota</span><span class="type">decimal(5,2)</span></div>
       <div class="field fk"><span class="name">equipo_id</span><span class="type">FK equipo?</span></div>
       <div class="field fk"><span class="name">docente_id</span><span class="type">FK usuario</span></div>
       <div class="field"><span class="name">fecha / observaciones</span><span class="type">datetime / text?</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
     </div>
   </div>
 
-  <!-- periodo_examen -->
-  <div class="table-box group-exam draggable" id="tbl-periodo-exam" style="top:500px;left:1200px;width:250px;" data-connects='[{"to":"tbl-insc-examen","label":"1:N","color":"#dc2626"}]'>
-    <div class="header">periodo_examen</div>
+  <!-- ==================== EXAMENES ==================== -->
+
+  <!-- instancia_examen -->
+  <div class="table-box group-exam draggable" id="tbl-inst-examen" style="top:710px;left:1200px;width:270px;" data-connects='[{"to":"tbl-insc-examen","label":"1:N","color":"#dc2626"},{"to":"tbl-doc-inst-exam","label":"1:N","color":"#dc2626","dash":true}]'>
+    <div class="header">instancia_examen</div>
     <div class="fields">
       <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">materia_id</span><span class="type">FK materia</span></div>
       <div class="field"><span class="name">nombre</span><span class="type">"Febrero 2026"</span></div>
       <div class="field"><span class="name">fecha_inicio_inscripcion</span><span class="type">datetime</span></div>
       <div class="field"><span class="name">fecha_fin_inscripcion</span><span class="type">datetime</span></div>
-      <div class="field"><span class="name">fecha_examen</span><span class="type">datetime</span></div>
+      <div class="field"><span class="name">fecha_examen / hora</span><span class="type">datetime / varchar</span></div>
+      <div class="field"><span class="name">salon</span><span class="type">varchar(100)?</span></div>
+      <div class="field enum"><span class="name">modalidad</span><span class="type">PRESENC | VIRTUAL | HIBRIDO</span></div>
+      <div class="field enum"><span class="name">tipo</span><span class="type">ORDINARIO | EXTRAORDINARIO</span></div>
+      <div class="field enum"><span class="name">estado</span><span class="type">PROGRAM | EN_CURSO | FINAL | CANCEL</span></div>
       <div class="field"><span class="name">habilitado</span><span class="type">bool</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
     </div>
   </div>
 
   <!-- inscripcion_examen -->
-  <div class="table-box group-exam draggable" id="tbl-insc-examen" style="top:760px;left:900px;width:270px;">
+  <div class="table-box group-exam draggable" id="tbl-insc-examen" style="top:1050px;left:1050px;width:280px;">
     <div class="header">inscripcion_examen</div>
     <div class="fields">
       <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
       <div class="field fk"><span class="name">inscripcion_materia_id</span><span class="type">FK inscr_mat</span></div>
-      <div class="field fk"><span class="name">periodo_examen_id</span><span class="type">FK periodo_exam</span></div>
-      <div class="field"><span class="name">nota_examen</span><span class="type">decimal?</span></div>
-      <div class="field enum"><span class="name">estado</span><span class="type">INSCR | APROB | REPROB | AUS</span></div>
+      <div class="field fk"><span class="name">instancia_examen_id</span><span class="type">FK inst_examen</span></div>
+      <div class="field"><span class="name">fecha_inscripcion</span><span class="type">datetime</span></div>
+      <div class="field"><span class="name">nota_examen</span><span class="type">decimal(5,2)?</span></div>
+      <div class="field enum"><span class="name">estado</span><span class="type">INSCR | APROB | REPROB | AUS | BAJA</span></div>
+      <div class="field new"><span class="name">numero_rendicion</span><span class="type">int default 1 (Fase 2)</span></div>
       <div class="field" style="background:#fef2f2;"><span class="name">snapshot_politica_examen</span><span class="type">JSONB</span></div>
+      <div class="field"><span class="name">notificacion_enviada</span><span class="type">bool</span></div>
+      <div class="field new"><span class="name">fecha_baja</span><span class="type">datetime? (Fase 1)</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
     </div>
   </div>
 
+  <!-- docente_instancia_examen -->
+  <div class="table-box group-exam draggable" id="tbl-doc-inst-exam" style="top:710px;left:1510px;width:240px;">
+    <div class="header">docente_instancia_examen</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">docente_id</span><span class="type">FK usuario</span></div>
+      <div class="field fk"><span class="name">instancia_examen_id</span><span class="type">FK inst_examen</span></div>
+    </div>
+  </div>
+
+  <!-- ==================== EQUIPOS ==================== -->
+
   <!-- equipo -->
-  <div class="table-box group-teams draggable" id="tbl-equipo" style="top:1100px;left:30px;width:230px;" data-connects='[{"to":"tbl-equipo-miembro","label":"1:N","color":"#0891b2"},{"to":"tbl-instancia-eval","label":"1:N","color":"#0891b2","dash":true}]'>
+  <div class="table-box group-teams draggable" id="tbl-equipo" style="top:1420px;left:40px;width:230px;" data-connects='[{"to":"tbl-equipo-miembro","label":"1:N","color":"#0891b2"},{"to":"tbl-instancia-eval","label":"","color":"#0891b2","dash":true}]'>
     <div class="header">equipo</div>
     <div class="fields">
       <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
       <div class="field fk"><span class="name">instancia_evaluacion_id</span><span class="type">FK inst_eval</span></div>
       <div class="field"><span class="name">nombre</span><span class="type">"Equipo 1"</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
     </div>
   </div>
 
   <!-- equipo_miembro -->
-  <div class="table-box group-teams draggable" id="tbl-equipo-miembro" style="top:1250px;left:30px;width:230px;">
+  <div class="table-box group-teams draggable" id="tbl-equipo-miembro" style="top:1580px;left:40px;width:230px;">
     <div class="header">equipo_miembro</div>
     <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
       <div class="field fk"><span class="name">equipo_id</span><span class="type">FK equipo</span></div>
       <div class="field fk"><span class="name">usuario_id</span><span class="type">FK usuario</span></div>
     </div>
   </div>
 
-  <!-- Estados info box -->
-  <div class="info-box draggable" id="box-estados" style="top:1000px;left:750px;width:320px;">
-    <div style="font-weight:700;color:#7c3aed;margin-bottom:8px;">Estados de inscripcion_materia:</div>
+  <!-- ==================== DOCUMENTOS ==================== -->
+
+  <!-- documento_usuario -->
+  <div class="table-box group-docs draggable" id="tbl-documento" style="top:40px;left:1500px;width:270px;">
+    <div class="header">documento_usuario (Fase 1)</div>
+    <div class="fields">
+      <div class="field pk"><span class="name">id</span><span class="type">PK</span></div>
+      <div class="field fk"><span class="name">usuario_id</span><span class="type">FK usuario</span></div>
+      <div class="field enum"><span class="name">tipo</span><span class="type">F69A | ESCOL | CONV | CI | TIT | OTRO</span></div>
+      <div class="field"><span class="name">nombre_original</span><span class="type">varchar(255)</span></div>
+      <div class="field"><span class="name">ruta_relativa</span><span class="type">varchar(500)</span></div>
+      <div class="field"><span class="name">mime_type</span><span class="type">varchar(100)</span></div>
+      <div class="field"><span class="name">tamanio_bytes</span><span class="type">int</span></div>
+      <div class="field"><span class="name">descripcion</span><span class="type">varchar(500)?</span></div>
+      <div class="field fk"><span class="name">subido_por</span><span class="type">FK usuario</span></div>
+      <div class="field"><span class="name">fecha_subida</span><span class="type">datetime</span></div>
+      <div class="field"><span class="name">activo</span><span class="type">bool (soft-delete)</span></div>
+      <div class="field"><span class="name">id_rastreo</span><span class="type">UUID</span></div>
+    </div>
+  </div>
+
+  <!-- ==================== INFO BOXES ==================== -->
+
+  <!-- Estados inscripcion_materia -->
+  <div class="info-box draggable" id="box-estados" style="top:1220px;left:1050px;width:340px;">
+    <div style="font-weight:700;color:#7c3aed;margin-bottom:8px;">Estados de inscripcion_materia (8):</div>
     <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;color:#475569;">
       <div style="font-weight:600;">CURSANDO</div><div style="color:#94a3b8;">Activo en el curso</div>
-      <div style="font-weight:600;">EXONERADO</div><div style="color:#94a3b8;">Aprueba sin examen</div>
-      <div style="font-weight:600;">A_EXAMEN</div><div style="color:#94a3b8;">Derecho a examen</div>
+      <div style="font-weight:600;">EXONERADO</div><div style="color:#94a3b8;">Aprueba sin examen (nota >= 86)</div>
+      <div style="font-weight:600;">A_EXAMEN</div><div style="color:#94a3b8;">Derecho a examen (nota >= 25)</div>
       <div style="font-weight:600;">APROBADO</div><div style="color:#94a3b8;">Aprobo (examen o directo)</div>
       <div style="font-weight:600;">REPROBADO</div><div style="color:#94a3b8;">No alcanzo nota minima</div>
       <div style="font-weight:600;color:#dc2626;">PERDIDO_INASIST.</div><div style="color:#94a3b8;">Exceso de faltas</div>
-      <div style="font-weight:600;color:#dc2626;">ABANDONO</div><div style="color:#94a3b8;">Dejo de asistir / baja</div>
+      <div style="font-weight:600;color:#dc2626;">ABANDONO</div><div style="color:#94a3b8;">Baja voluntaria (soft-delete)</div>
+      <div style="font-weight:600;color:#059669;">REVALIDADA</div><div style="color:#94a3b8;">Convalidada por admin (Fase 2)</div>
+    </div>
+  </div>
+
+  <!-- Estados inscripcion_examen -->
+  <div class="info-box draggable" id="box-estados-exam" style="top:1420px;left:1050px;width:340px;background:#fef2f2;border-color:#fca5a5;">
+    <div style="font-weight:700;color:#dc2626;margin-bottom:8px;">Estados de inscripcion_examen (5):</div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;color:#475569;">
+      <div style="font-weight:600;">INSCRIPTO</div><div style="color:#94a3b8;">Inscripto al examen</div>
+      <div style="font-weight:600;">APROBADO</div><div style="color:#94a3b8;">Aprobo el examen</div>
+      <div style="font-weight:600;">REPROBADO</div><div style="color:#94a3b8;">Reprobo el examen</div>
+      <div style="font-weight:600;">AUSENTE</div><div style="color:#94a3b8;">No se presento</div>
+      <div style="font-weight:600;color:#059669;">BAJA</div><div style="color:#94a3b8;">Desinscrito (soft-delete, Fase 2)</div>
+    </div>
+    <div style="margin-top:8px;color:#dc2626;font-size:10px;font-weight:600;">
+      Rendiciones: max_oportunidades (default 5) | Plazo baja: 72hs antes del examen
     </div>
   </div>
 
   <!-- JSONB info box -->
-  <div class="info-box draggable" id="box-jsonb" style="top:1200px;left:400px;width:300px;background:#f5f3ff;border-color:#c4b5fd;">
+  <div class="info-box draggable" id="box-jsonb" style="top:1580px;left:620px;width:300px;background:#f5f3ff;border-color:#c4b5fd;">
     <div style="font-weight:700;color:#7c3aed;margin-bottom:6px;">Snapshots JSONB (historico)</div>
     <div style="color:#475569;line-height:1.5;">
       Al inscribirse se guarda una copia de las<br>
       reglas vigentes. Si cambian las politicas<br>
       en el futuro, el registro historico del<br>
-      alumno mantiene las reglas originales.
+      alumno mantiene las reglas originales.<br>
+      <span style="color:#059669;font-weight:600;">Incluye max_oportunidades (Fase 2)</span>
     </div>
   </div>
 
@@ -462,11 +630,9 @@ function getEdgePoint(el, targetCenter) {
   const absDx = Math.abs(dx), absDy = Math.abs(dy);
 
   if (absDx * h > absDy * w) {
-    // hit left or right
     const side = dx > 0 ? 1 : -1;
     return { x: cx + side * w/2, y: cy + dy * (w/2) / absDx };
   } else {
-    // hit top or bottom
     const side = dy > 0 ? 1 : -1;
     return { x: cx + dx * (h/2) / absDy, y: cy + side * h/2 };
   }
@@ -477,8 +643,7 @@ function drawLines() {
   const ns = 'http://www.w3.org/2000/svg';
   svg.innerHTML = '';
 
-  // Arrow markers
-  const colors = {'#059669':'green','#d97706':'orange','#3b82f6':'blue','#7c3aed':'purple','#dc2626':'red','#0891b2':'cyan'};
+  const colors = {'#059669':'green','#d97706':'orange','#3b82f6':'blue','#7c3aed':'purple','#dc2626':'red','#0891b2':'cyan','#be185d':'pink'};
   const defs = document.createElementNS(ns, 'defs');
   for (const [hex, name] of Object.entries(colors)) {
     const marker = document.createElementNS(ns, 'marker');
@@ -555,7 +720,7 @@ function resetPositions() {
 }
 
 function captureImage() {
-  alert('Usa Ctrl+Shift+S en Chrome para guardar como imagen,\\no haz click derecho > "Guardar como" en la pagina.');
+  alert('Usa Ctrl+Shift+S en Chrome para guardar como imagen,\no haz click derecho > "Guardar como" en la pagina.');
 }
 
 // Initial draw

@@ -294,6 +294,19 @@ if frontend_build.exists():
     async def serve_spa_root():
         return FileResponse(frontend_build / "index.html")
 
+# ── Frontend Test Login (prueba OAuth Google) ────────────────────────────────
+test_login_build = pathlib.Path(__file__).parent / "frontend-test-login" / "build"
+if test_login_build.exists():
+    app.mount("/test-login/_app", StaticFiles(directory=test_login_build / "_app"), name="test_login_assets")
+
+    @app.get("/test-login/{full_path:path}")
+    async def serve_test_login(full_path: str):
+        return FileResponse(test_login_build / "index.html")
+
+    @app.get("/test-login")
+    async def serve_test_login_root():
+        return FileResponse(test_login_build / "index.html")
+
 if __name__ == "__main__":
     # run command -> python main.py
     import uvicorn

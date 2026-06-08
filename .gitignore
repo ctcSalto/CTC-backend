@@ -44,6 +44,8 @@ SKILL.md
 # Frontend
 frontend/node_modules/
 frontend/.svelte-kit/
+frontend-test-login/node_modules/
+frontend-test-login/.svelte-kit/
 
 # Others
 .idea/
