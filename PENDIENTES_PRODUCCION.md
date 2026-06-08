@@ -36,7 +36,12 @@ alembic upgrade head
    - Resuelve por nombre de materia dentro de cada programa
    - **REQUISITO:** Los programas y materias deben existir en la BD antes de correr esta migracion
 
-5. `4d769166125d_agregar_campos_planilla_admin_y_tabla_` — **Fase 1: Campos planilla admin + documentos:**
+5. `a1b2c3d4e5f6_agregar_columnas_usuario_v2` — **Columnas faltantes en usuario:**
+   - Columnas nuevas (todas nullable, sin romper datos existentes):
+     - `usuario`: `email_personal` (varchar), `fecha_nacimiento` (date), `domicilio` (varchar 200), `eliminado` (bool default false), `fecha_eliminacion` (datetime), `id_rastreo` (varchar)
+   - Usa `_column_exists()` — si una columna ya existe en la BD, la ignora sin error
+
+7. `4d769166125d_agregar_campos_planilla_admin_y_tabla_` — **Fase 1: Campos planilla admin + documentos:**
    - Tabla nueva: `documento_usuario` (almacenamiento de archivos de alumnos/profesores)
    - Enum nuevo: `TipoDocumento` (formula_69a, escolaridad, constancia_convenio, cedula, titulo, otro)
    - Columnas nuevas (todas nullable, sin romper datos existentes):
@@ -49,7 +54,7 @@ alembic upgrade head
      - `inscripcion_materia`: `fecha_baja` (datetime)
    - Usa `_safe_add_column()` — si una columna ya existe en la BD, la ignora sin error
 
-6. `087c21eff7fd_fase2_rendiciones_bajas_revalida` — **Fase 2: Rendiciones, bajas soft-delete, revalida:**
+8. `087c21eff7fd_fase2_rendiciones_bajas_revalida` — **Fase 2: Rendiciones, bajas soft-delete, revalida:**
    - Columnas nuevas (todas con server_default, sin romper datos existentes):
      - `politica_examen`: `max_oportunidades` (int, default 5) — maximo de veces que se puede rendir un examen
      - `inscripcion_examen`: `numero_rendicion` (int, default 1) — numero de rendicion (1ra, 2da, etc.)
@@ -62,7 +67,7 @@ alembic upgrade head
      - Calificacion de examen reprobado verifica si se agotaron las rendiciones (cambia materia a REPROBADO)
      - Nuevo endpoint de revalida: `POST /v2/admin/inscripciones/{id}/revalidar`
 
-**Riesgo:** Las migraciones 1-3 crean/modifican tablas. La migracion 4 inserta datos (previaturas). Las migraciones 5 y 6 agregan columnas nullable/con defaults (sin impacto en datos existentes).
+**Riesgo:** Las migraciones 1-3 crean/modifican tablas. La migracion 4 inserta datos (previaturas). La migracion 5 agrega columnas a usuario. Las migraciones 7 y 8 agregan columnas nullable/con defaults (sin impacto en datos existentes).
 
 ### Checklist de deploy
 
@@ -130,6 +135,11 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=
 GOOGLE_ALLOWED_DOMAIN=ctcsalto.edu.uy
+
+# Origenes permitidos para redirect_to en el login OAuth (whitelist anti open-redirect)
+# Lista separada por comas con los origenes del frontend (Next.js)
+# Ejemplo: https://portal.ctcsalto.edu.uy,https://frontend-develop.vtu0xl.easypanel.host
+OAUTH_ALLOWED_REDIRECT_ORIGINS=
 ```
 
 ## Google OAuth - Consola de Google Cloud
@@ -137,6 +147,9 @@ GOOGLE_ALLOWED_DOMAIN=ctcsalto.edu.uy
 - [ ] Agregar origenes de JS autorizados de develop y produccion (cuando frontend empiece desarrollo)
 - [ ] Las URIs de redireccion del backend ya estan configuradas
 - [ ] Configurar variables `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` en el entorno de deploy
+- [ ] Configurar `OAUTH_ALLOWED_REDIRECT_ORIGINS` con los origenes del frontend Next.js (NO es la URL del backend, sino la del frontend que recibe el token tras el login)
+- [ ] Agregar la URI de callback de develop en Google Console: `https://backend-backend-ctc-develop.vtu0xl.easypanel.host/v2/auth/google/callback`
+- [ ] Pagina de prueba OAuth disponible en `/test-login` (SvelteKit) para que frontend valide la integracion
 
 ## Proxy inverso (Easypanel / Traefik)
 
