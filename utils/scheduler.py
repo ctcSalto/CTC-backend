@@ -84,11 +84,38 @@ def start_scheduler():
             replace_existing=True
         )
 
+        # Configurar tarea: Recordatorio de exámenes próximos (diario 8:00 AM)
+        from utils.jobs.notificaciones_jobs import recordatorio_examenes, recordatorio_cierre_inscripcion
+        scheduler.add_job(
+            recordatorio_examenes,
+            trigger=CronTrigger(
+                hour=8,
+                minute=0,
+                timezone=URUGUAY_TZ
+            ),
+            id='recordatorio_examenes',
+            name='Recordatorio de examenes proximos',
+            replace_existing=True
+        )
+
+        # Configurar tarea: Recordatorio cierre de inscripción (diario 9:00 AM)
+        scheduler.add_job(
+            recordatorio_cierre_inscripcion,
+            trigger=CronTrigger(
+                hour=9,
+                minute=0,
+                timezone=URUGUAY_TZ
+            ),
+            id='recordatorio_cierre_inscripcion',
+            name='Recordatorio de cierre de inscripcion',
+            replace_existing=True
+        )
+
         # Iniciar el scheduler
         scheduler.start()
 
-        show("SCHEDULER", "✅ Scheduler iniciado correctamente en PRODUCCIÓN", "success")
-        show("SCHEDULER", f"📅 Próxima actualización de fotos: {scheduler.get_job('actualizar_fotos_perfil_moodle').next_run_time}", "info")
+        show("SCHEDULER", "Scheduler iniciado correctamente en PRODUCCION", "success")
+        show("SCHEDULER", f"Proxima actualizacion de fotos: {scheduler.get_job('actualizar_fotos_perfil_moodle').next_run_time}", "info")
 
     except Exception as e:
         show("SCHEDULER", f"❌ Error iniciando scheduler: {e}", "error")

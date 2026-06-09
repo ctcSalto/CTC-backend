@@ -111,6 +111,23 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         session.add(inscripcion_examen)
         session.commit()
         session.refresh(inscripcion_examen)
+
+        # Notificación (best-effort, no crítica)
+        try:
+            from v2.services import get_v2_services
+            from v2.models.usuario import Usuario
+            from v2.models.materia import Materia
+            usuario = session.get(Usuario, inscripcion_materia.usuario_id)
+            instancia = session.get(InstanciaExamen, instancia_examen_id)
+            ic_obj = session.get(InstanciaCursado, inscripcion_materia.instancia_cursado_id)
+            materia = session.get(Materia, ic_obj.materia_id) if ic_obj else None
+            if usuario and instancia and materia:
+                get_v2_services().notificationService.notificar_inscripcion_examen(
+                    inscripcion_examen, usuario, materia, instancia, session
+                )
+        except Exception:
+            pass
+
         return inscripcion_examen
 
     # -- Calificar examen -----------------------------------------------------
@@ -351,3 +368,19 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         inscripcion.fecha_cierre = datetime.now(get_uruguay_tz())
         inscripcion.motivo_cierre = f"Agotadas las {max_oportunidades} oportunidades de examen. Debe recursar."
         session.add(inscripcion)
+
+        # Notificación (best-effort)
+        try:
+            from v2.services import get_v2_services
+            from v2.models.usuario import Usuario
+            from v2.models.materia import Materia
+            usuario = session.get(Usuario, inscripcion.usuario_id)
+            ic_obj = session.get(InstanciaCursado, inscripcion.instancia_cursado_id)
+            materia = session.get(Materia, ic_obj.materia_id) if ic_obj else None
+            rendiciones = self._contar_rendiciones_previas(inscripcion_materia_id, session)
+            if usuario and materia:
+                get_v2_services().notificationService.notificar_reprobado_rendiciones(
+                    inscripcion, usuario, materia, rendiciones, max_oportunidades, session
+                )
+        except Exception:
+            pass

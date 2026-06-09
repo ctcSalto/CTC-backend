@@ -112,3 +112,30 @@ class DedicacionDocente(str, Enum):
     TIEMPO_COMPLETO = "tiempo_completo"
     MEDIO_TIEMPO = "medio_tiempo"
     HORAS = "horas"
+
+
+# ── Notificaciones ────────────────────────────────────────────────────────────
+
+class TipoNotificacion(str, Enum):
+    INSCRIPCION_MATERIA = "inscripcion_materia"
+    INSCRIPCION_EXAMEN = "inscripcion_examen"
+    RECORDATORIO_EXAMEN = "recordatorio_examen"
+    APERTURA_INSCRIPCION = "apertura_inscripcion"
+    APERTURA_EXAMEN = "apertura_examen"
+    CIERRE_INSCRIPCION = "cierre_inscripcion"
+    CALIFICACION_DISPONIBLE = "calificacion_disponible"
+    EXONERACION = "exoneracion"
+    REPROBADO_RENDICIONES = "reprobado_rendiciones"
+    BAJA_PROCESADA = "baja_procesada"
+    MANUAL_INDIVIDUAL = "manual_individual"
+    MANUAL_MASIVO = "manual_masivo"
+
+
+class CanalNotificacion(str, Enum):
+    EMAIL = "email"
+    WHATSAPP = "whatsapp"  # futuro
+
+
+class EstadoNotificacion(str, Enum):
+    ENVIADA = "enviada"
+    ERROR = "error"

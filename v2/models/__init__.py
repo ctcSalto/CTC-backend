@@ -9,6 +9,7 @@ from v2.models.enums import (
     ModalidadExamen, TipoExamen, EstadoInstanciaExamen,
     CargoDocente, DedicacionDocente,
     TipoDocumento,
+    TipoNotificacion, CanalNotificacion, EstadoNotificacion,
 )
 
 from v2.models.usuario import Usuario
@@ -32,3 +33,4 @@ from v2.models.docente_instancia_examen import DocenteInstanciaExamen
 from v2.models.inscripcion_programa import InscripcionPrograma
 from v2.models.inscripcion_examen import InscripcionExamen
 from v2.models.documento_usuario import DocumentoUsuario
+from v2.models.notificacion import NotificacionLog

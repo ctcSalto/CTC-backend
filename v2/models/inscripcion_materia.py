@@ -47,6 +47,10 @@ class InscripcionMateria(SQLModel, table=True):
     motivo_cierre: Optional[str] = Field(default=None, max_length=255, description="Motivo de inasistencia/abandono")
     motivo_revalida: Optional[str] = Field(default=None, max_length=255, description="Motivo de reválida (ej: 'Aprobada en UTEC - 2025')")
     fecha_baja: Optional[datetime] = Field(default=None, description="Fecha de baja/desinscripción")
+    notificacion_calificacion_enviada: bool = Field(
+        default=False,
+        description="Si se envió notificación de calificación al estudiante"
+    )
     id_rastreo: Optional[str] = Field(
         default_factory=lambda: str(uuid4()),
         unique=True, index=True,
@@ -84,6 +88,7 @@ class InscripcionMateriaRead(SQLModel):
     motivo_cierre: Optional[str] = None
     motivo_revalida: Optional[str] = None
     fecha_baja: Optional[datetime] = None
+    notificacion_calificacion_enviada: bool = False
     id_rastreo: Optional[str] = None
 
 

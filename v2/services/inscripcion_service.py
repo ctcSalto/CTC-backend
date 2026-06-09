@@ -125,6 +125,21 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
         # 7. Sync Moodle (best-effort)
         self._sync_moodle_enrol(usuario_id, materia, session)
 
+        # 8. Notificación (best-effort, no crítica)
+        try:
+            from v2.services import get_v2_services
+            from v2.models.usuario import Usuario
+            from v2.models.programa import Programa
+            usuario = session.get(Usuario, usuario_id)
+            programa = session.get(Programa, materia.programa_id)
+            if usuario and programa:
+                get_v2_services().notificationService.notificar_inscripcion_materia(
+                    inscripcion, usuario, materia,
+                    programa.nombre, instancia_cursado.anio_lectivo, session
+                )
+        except Exception:
+            pass  # notificación nunca bloquea la inscripción
+
         return inscripcion
 
     # ── Validación de previaturas ─────────────────────────────────────────────
