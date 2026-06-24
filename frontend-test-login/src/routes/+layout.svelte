@@ -17,6 +17,10 @@
 			</span>
 			<span>{$usuario.nombre} {$usuario.apellido}</span>
 			<a href="{base}/dashboard" style="color: #ccc; text-decoration: none;">Dashboard</a>
+			{#if $usuario.rol === 'administrativo'}
+				<a href="{base}/previaturas" style="color: #ccc; text-decoration: none;">Previaturas</a>
+				<a href="{base}/notificaciones" style="color: #ccc; text-decoration: none;">Notificaciones</a>
+			{/if}
 			<button onclick={logout} style="background: none; border: 1px solid #ccc; color: #ccc; padding: 0.3rem 0.8rem; border-radius: 4px; cursor: pointer;">
 				Cerrar sesion
 			</button>

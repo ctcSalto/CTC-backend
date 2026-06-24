@@ -134,13 +134,13 @@ class NotificationService:
         referencia_tipo: Optional[str] = None,
         enviado_por_id: Optional[int] = None,
     ) -> dict:
-        """Envía email y registra en log. Retorna resultado."""
+        """Envía email y registra en log. Retorna resultado (incluye id_rastreo del log)."""
         resultado = self.email_service.send_single(email, asunto, html)
 
         estado = EstadoNotificacion.ENVIADA if resultado["ok"] else EstadoNotificacion.ERROR
         error = resultado.get("error") if not resultado["ok"] else None
 
-        self._registrar_log(
+        log = self._registrar_log(
             tipo=tipo,
             usuario_id=usuario_id,
             email_destino=email,
@@ -153,7 +153,7 @@ class NotificationService:
             enviado_por_id=enviado_por_id,
         )
 
-        return resultado
+        return {**resultado, "id_rastreo": log.id_rastreo}
 
     # ── Notificaciones automáticas ───────────────────────────────────────────
 
@@ -169,7 +169,7 @@ class NotificationService:
             "programa": programa_nombre,
             "anio_lectivo": anio_lectivo,
         })
-        self._enviar_y_loguear(
+        return self._enviar_y_loguear(
             tipo=TipoNotificacion.INSCRIPCION_MATERIA,
             usuario_id=usuario.id,
             email=email,
@@ -194,7 +194,7 @@ class NotificationService:
             "salon": instancia_examen.salon or "A confirmar",
             "numero_rendicion": inscripcion_examen.numero_rendicion,
         })
-        self._enviar_y_loguear(
+        return self._enviar_y_loguear(
             tipo=TipoNotificacion.INSCRIPCION_EXAMEN,
             usuario_id=usuario.id,
             email=email,
@@ -711,6 +711,7 @@ class NotificationService:
         per_page: int = 50,
         tipo: Optional[TipoNotificacion] = None,
         usuario_id: Optional[int] = None,
+        estado: Optional[EstadoNotificacion] = None,
     ) -> dict:
         """Historial paginado de notificaciones enviadas."""
         from v2.models.notificacion import NotificacionLogRead
@@ -721,6 +722,8 @@ class NotificationService:
             stmt = stmt.where(NotificacionLog.tipo == tipo)
         if usuario_id:
             stmt = stmt.where(NotificacionLog.usuario_id == usuario_id)
+        if estado:
+            stmt = stmt.where(NotificacionLog.estado == estado)
 
         # Contar total
         from sqlmodel import func
@@ -729,6 +732,8 @@ class NotificationService:
             count_stmt = count_stmt.where(NotificacionLog.tipo == tipo)
         if usuario_id:
             count_stmt = count_stmt.where(NotificacionLog.usuario_id == usuario_id)
+        if estado:
+            count_stmt = count_stmt.where(NotificacionLog.estado == estado)
         total = session.exec(count_stmt).one()
 
         # Paginar
@@ -743,3 +748,64 @@ class NotificationService:
             "per_page": per_page,
             "pages": (total + per_page - 1) // per_page if total > 0 else 0,
         }
+
+    def get_por_rastreo(self, id_rastreo: str, session: Session) -> Optional[NotificacionLog]:
+        """Busca una notificación puntual por su número de rastreo (UUID)."""
+        from v2.models.notificacion import NotificacionLogRead
+
+        stmt = select(NotificacionLog).where(NotificacionLog.id_rastreo == id_rastreo)
+        log = session.exec(stmt).first()
+        return NotificacionLogRead.model_validate(log) if log else None
+
+    def get_estado_operacion(
+        self, referencia_tipo: str, referencia_id: int, session: Session
+    ) -> dict:
+        """
+        Reconciliación: dado el id de una operación de negocio (inscripcion_materia,
+        inscripcion_examen, etc.), retorna si la operación existe y el estado de
+        todas las notificaciones asociadas a ella.
+        """
+        from v2.models.notificacion import NotificacionLogRead
+
+        stmt = (
+            select(NotificacionLog)
+            .where(NotificacionLog.referencia_tipo == referencia_tipo)
+            .where(NotificacionLog.referencia_id == referencia_id)
+            .order_by(col(NotificacionLog.fecha_envio).desc())
+        )
+        logs = session.exec(stmt).all()
+
+        notificaciones = [NotificacionLogRead.model_validate(log) for log in logs]
+        tiene_error_sin_resolver = any(
+            n.estado == EstadoNotificacion.ERROR for n in notificaciones
+        ) and not any(
+            n.estado == EstadoNotificacion.ENVIADA for n in notificaciones
+        )
+
+        return {
+            "referencia_tipo": referencia_tipo,
+            "referencia_id": referencia_id,
+            "operacion_encontrada": self._operacion_existe(referencia_tipo, referencia_id, session),
+            "notificaciones": notificaciones,
+            "tiene_notificacion_exitosa": any(
+                n.estado == EstadoNotificacion.ENVIADA for n in notificaciones
+            ),
+            "tiene_error_sin_resolver": tiene_error_sin_resolver,
+        }
+
+    def _operacion_existe(self, referencia_tipo: str, referencia_id: int, session: Session) -> bool:
+        """Verifica si la entidad de negocio referenciada todavía existe."""
+        modelos = {
+            "inscripcion_materia": "v2.models.inscripcion_materia.InscripcionMateria",
+            "inscripcion_examen": "v2.models.inscripcion_examen.InscripcionExamen",
+            "inscripcion_programa": "v2.models.inscripcion_programa.InscripcionPrograma",
+            "instancia_examen": "v2.models.instancia_examen.InstanciaExamen",
+            "periodo_inscripcion_materia": "v2.models.periodo_inscripcion_materia.PeriodoInscripcionMateria",
+        }
+        ruta = modelos.get(referencia_tipo)
+        if not ruta:
+            return False
+        modulo, clase = ruta.rsplit(".", 1)
+        import importlib
+        Modelo = getattr(importlib.import_module(modulo), clase)
+        return session.get(Modelo, referencia_id) is not None

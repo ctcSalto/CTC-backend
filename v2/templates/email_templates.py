@@ -3,6 +3,11 @@ Templates HTML para notificaciones por email del portal académico.
 Cada template usa placeholders con str.format() — ej: {nombre}, {materia}, {nota}.
 
 Todos los templates se envuelven en BASE_TEMPLATE para branding CTC.
+Colores institucionales extraídos de ctcsalto.edu.uy:
+  - Navy (primario):  #1c234c
+  - Turquesa (acento): #31aab0
+  - Gris texto:        #424242
+  - Fondo claro:       #f5f5f5
 """
 
 
@@ -14,32 +19,34 @@ BASE_TEMPLATE = """<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin:0; padding:0; background-color:#f4f4f7; font-family:Arial,Helvetica,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f7; padding:20px 0;">
+<body style="margin:0; padding:0; background-color:#f5f5f5; font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f5f5; padding:30px 0;">
     <tr>
       <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 16px rgba(28,35,76,0.10);">
           <!-- Header -->
           <tr>
-            <td style="background-color:#1a56db; padding:24px 32px; text-align:center;">
-              <h1 style="margin:0; color:#ffffff; font-size:20px; font-weight:700;">
-                Centro de Tecnologías de la Comunicación
-              </h1>
-              <p style="margin:4px 0 0; color:#bdd4ff; font-size:13px;">Portal Académico</p>
+            <td style="background-color:#1c234c; padding:28px 32px; text-align:center;">
+              <img src="https://ctcsalto.edu.uy/branding/ctcLogoClaro.svg" alt="CTC" width="120" style="display:inline-block; margin-bottom:8px;" />
+              <p style="margin:0; color:#31aab0; font-size:14px; font-weight:600; letter-spacing:1px;">PORTAL ACADEMICO</p>
             </td>
+          </tr>
+          <!-- Accent bar -->
+          <tr>
+            <td style="background-color:#31aab0; height:4px; font-size:0; line-height:0;">&nbsp;</td>
           </tr>
           <!-- Body -->
           <tr>
-            <td style="padding:32px;">
+            <td style="padding:36px 32px 28px;">
               {contenido}
             </td>
           </tr>
           <!-- Footer -->
           <tr>
-            <td style="background-color:#f9fafb; padding:16px 32px; border-top:1px solid #e5e7eb;">
-              <p style="margin:0; color:#6b7280; font-size:12px; text-align:center;">
-                CTC Salto — Uruguay<br>
-                Este es un email automático del Portal Académico. No responder a este correo.
+            <td style="background-color:#1c234c; padding:20px 32px;">
+              <p style="margin:0; color:#8b90a8; font-size:12px; text-align:center; line-height:1.6;">
+                CTC Salto — Educacion Tecnica Profesional — Uruguay<br>
+                Este es un email automatico del Portal Academico. No responder a este correo.
               </p>
             </td>
           </tr>
@@ -56,284 +63,217 @@ def _wrap(contenido: str) -> str:
     return BASE_TEMPLATE.format(contenido=contenido)
 
 
+# ── Helpers de estilo ─────────────────────────────────────────────────────────
+
+_TABLE_OPEN = '<table style="width:100%; border-collapse:collapse; margin:20px 0; border-radius:8px; overflow:hidden; border:1px solid #e8e8ec;">'
+_TH_STYLE = 'padding:10px 16px; background:#1c234c; color:#ffffff; font-weight:600; width:40%; text-align:left; font-size:14px;'
+_TD_STYLE = 'padding:10px 16px; background:#f8f9fb; color:#424242; font-size:14px;'
+_TH_GREEN = 'padding:10px 16px; background:#0d9488; color:#ffffff; font-weight:600; width:40%; text-align:left; font-size:14px;'
+_TD_GREEN = 'padding:10px 16px; background:#f0fdfa; color:#424242; font-size:14px;'
+
+_H2_STYLE = 'margin:0 0 16px; color:#1c234c; font-size:20px; font-weight:700;'
+_P_STYLE = 'color:#424242; line-height:1.7; font-size:15px;'
+_BADGE_TEAL = 'display:inline-block; background:#31aab0; color:#fff; padding:4px 14px; border-radius:20px; font-size:13px; font-weight:600;'
+
+
+def _row(label: str, value: str, th=_TH_STYLE, td=_TD_STYLE) -> str:
+    return f'<tr><td style="{th}">{label}</td><td style="{td}">{value}</td></tr>'
+
+
 # ── 1. Inscripción a materia confirmada ─────────────────────────────────────
 
-INSCRIPCION_MATERIA = _wrap("""
-<h2 style="margin:0 0 16px; color:#111827; font-size:18px;">Inscripción confirmada</h2>
-<p style="color:#374151; line-height:1.6;">
-  Hola <strong>{nombre}</strong>,
+INSCRIPCION_MATERIA = _wrap(f"""
+<h2 style="{_H2_STYLE}">Inscripcion confirmada</h2>
+<p style="{_P_STYLE}">
+  Hola <strong>{{nombre}}</strong>,
 </p>
-<p style="color:#374151; line-height:1.6;">
-  Tu inscripción a la materia <strong>{materia}</strong> ha sido confirmada
-  para el año lectivo <strong>{anio_lectivo}</strong>.
+<p style="{_P_STYLE}">
+  Tu inscripcion a la materia <strong>{{materia}}</strong> ha sido confirmada
+  para el anio lectivo <strong>{{anio_lectivo}}</strong>.
 </p>
-<table style="width:100%; border-collapse:collapse; margin:16px 0;">
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600; width:40%;">Programa</td>
-    <td style="padding:8px 12px;">{programa}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Materia</td>
-    <td style="padding:8px 12px;">{materia}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Año lectivo</td>
-    <td style="padding:8px 12px;">{anio_lectivo}</td>
-  </tr>
+{_TABLE_OPEN}
+  {_row("Programa", "{{programa}}")}
+  {_row("Materia", "{{materia}}")}
+  {_row("Anio lectivo", "{{anio_lectivo}}")}
 </table>
 """)
 
 
 # ── 2. Inscripción a examen confirmada ──────────────────────────────────────
 
-INSCRIPCION_EXAMEN = _wrap("""
-<h2 style="margin:0 0 16px; color:#111827; font-size:18px;">Inscripción a examen confirmada</h2>
-<p style="color:#374151; line-height:1.6;">
-  Hola <strong>{nombre}</strong>,
+INSCRIPCION_EXAMEN = _wrap(f"""
+<h2 style="{_H2_STYLE}">Inscripcion a examen confirmada</h2>
+<p style="{_P_STYLE}">
+  Hola <strong>{{nombre}}</strong>,
 </p>
-<p style="color:#374151; line-height:1.6;">
-  Tu inscripción al examen de <strong>{materia}</strong> ha sido confirmada.
+<p style="{_P_STYLE}">
+  Tu inscripcion al examen de <strong>{{materia}}</strong> ha sido confirmada.
 </p>
-<table style="width:100%; border-collapse:collapse; margin:16px 0;">
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600; width:40%;">Materia</td>
-    <td style="padding:8px 12px;">{materia}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Fecha del examen</td>
-    <td style="padding:8px 12px;">{fecha_examen}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Hora</td>
-    <td style="padding:8px 12px;">{hora}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Salón</td>
-    <td style="padding:8px 12px;">{salon}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Rendición N°</td>
-    <td style="padding:8px 12px;">{numero_rendicion}</td>
-  </tr>
+{_TABLE_OPEN}
+  {_row("Materia", "{{materia}}")}
+  {_row("Fecha del examen", "{{fecha_examen}}")}
+  {_row("Hora", "{{hora}}")}
+  {_row("Salon", "{{salon}}")}
+  {_row("Rendicion N.", "{{numero_rendicion}}")}
 </table>
 """)
 
 
 # ── 3. Recordatorio de examen próximo ───────────────────────────────────────
 
-RECORDATORIO_EXAMEN = _wrap("""
-<h2 style="margin:0 0 16px; color:#111827; font-size:18px;">Recordatorio: examen próximo</h2>
-<p style="color:#374151; line-height:1.6;">
-  Hola <strong>{nombre}</strong>,
+RECORDATORIO_EXAMEN = _wrap(f"""
+<h2 style="{_H2_STYLE}">Recordatorio: examen proximo</h2>
+<p style="{_P_STYLE}">
+  Hola <strong>{{nombre}}</strong>,
 </p>
-<p style="color:#374151; line-height:1.6;">
-  Te recordamos que tenés un examen de <strong>{materia}</strong>
-  en <strong>{dias_restantes} día(s)</strong>.
+<p style="{_P_STYLE}">
+  Te recordamos que tenes un examen de <strong>{{materia}}</strong>
+  en <strong>{{dias_restantes}} dia(s)</strong>.
 </p>
-<table style="width:100%; border-collapse:collapse; margin:16px 0;">
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600; width:40%;">Materia</td>
-    <td style="padding:8px 12px;">{materia}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Fecha</td>
-    <td style="padding:8px 12px;">{fecha_examen}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Hora</td>
-    <td style="padding:8px 12px;">{hora}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Salón</td>
-    <td style="padding:8px 12px;">{salon}</td>
-  </tr>
+{_TABLE_OPEN}
+  {_row("Materia", "{{materia}}")}
+  {_row("Fecha", "{{fecha_examen}}")}
+  {_row("Hora", "{{hora}}")}
+  {_row("Salon", "{{salon}}")}
 </table>
 """)
 
 
 # ── 4. Apertura de período de inscripción ───────────────────────────────────
 
-APERTURA_INSCRIPCION = _wrap("""
-<h2 style="margin:0 0 16px; color:#111827; font-size:18px;">Período de inscripción abierto</h2>
-<p style="color:#374151; line-height:1.6;">
-  Hola <strong>{nombre}</strong>,
+APERTURA_INSCRIPCION = _wrap(f"""
+<h2 style="{_H2_STYLE}">Periodo de inscripcion abierto</h2>
+<p style="{_P_STYLE}">
+  Hola <strong>{{nombre}}</strong>,
 </p>
-<p style="color:#374151; line-height:1.6;">
-  Se ha abierto el período de inscripción a materias para el programa
-  <strong>{programa}</strong>.
+<p style="{_P_STYLE}">
+  Se ha abierto el periodo de inscripcion a materias para el programa
+  <strong>{{programa}}</strong>.
 </p>
-<table style="width:100%; border-collapse:collapse; margin:16px 0;">
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600; width:40%;">Programa</td>
-    <td style="padding:8px 12px;">{programa}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Año lectivo</td>
-    <td style="padding:8px 12px;">{anio_lectivo}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Desde</td>
-    <td style="padding:8px 12px;">{fecha_inicio}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Hasta</td>
-    <td style="padding:8px 12px;">{fecha_fin}</td>
-  </tr>
+{_TABLE_OPEN}
+  {_row("Programa", "{{programa}}")}
+  {_row("Anio lectivo", "{{anio_lectivo}}")}
+  {_row("Desde", "{{fecha_inicio}}")}
+  {_row("Hasta", "{{fecha_fin}}")}
 </table>
-<p style="color:#374151; line-height:1.6;">
-  Ingresá al portal académico para inscribirte a las materias disponibles.
+<p style="{_P_STYLE}">
+  Ingresa al portal academico para inscribirte a las materias disponibles.
 </p>
 """)
 
 
 # ── 5. Apertura de examen ───────────────────────────────────────────────────
 
-APERTURA_EXAMEN = _wrap("""
-<h2 style="margin:0 0 16px; color:#111827; font-size:18px;">Examen disponible para inscripción</h2>
-<p style="color:#374151; line-height:1.6;">
-  Hola <strong>{nombre}</strong>,
+APERTURA_EXAMEN = _wrap(f"""
+<h2 style="{_H2_STYLE}">Examen disponible para inscripcion</h2>
+<p style="{_P_STYLE}">
+  Hola <strong>{{nombre}}</strong>,
 </p>
-<p style="color:#374151; line-height:1.6;">
-  Se ha habilitado una instancia de examen para la materia <strong>{materia}</strong>.
+<p style="{_P_STYLE}">
+  Se ha habilitado una instancia de examen para la materia <strong>{{materia}}</strong>.
 </p>
-<table style="width:100%; border-collapse:collapse; margin:16px 0;">
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600; width:40%;">Materia</td>
-    <td style="padding:8px 12px;">{materia}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Fecha del examen</td>
-    <td style="padding:8px 12px;">{fecha_examen}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Inscripción hasta</td>
-    <td style="padding:8px 12px;">{fecha_fin_inscripcion}</td>
-  </tr>
+{_TABLE_OPEN}
+  {_row("Materia", "{{materia}}")}
+  {_row("Fecha del examen", "{{fecha_examen}}")}
+  {_row("Inscripcion hasta", "{{fecha_fin_inscripcion}}")}
 </table>
-<p style="color:#374151; line-height:1.6;">
-  Ingresá al portal académico para inscribirte al examen.
+<p style="{_P_STYLE}">
+  Ingresa al portal academico para inscribirte al examen.
 </p>
 """)
 
 
 # ── 6. Cierre de inscripción próximo ────────────────────────────────────────
 
-CIERRE_INSCRIPCION = _wrap("""
-<h2 style="margin:0 0 16px; color:#111827; font-size:18px;">Cierre de inscripción próximo</h2>
-<p style="color:#374151; line-height:1.6;">
-  Hola <strong>{nombre}</strong>,
+CIERRE_INSCRIPCION = _wrap(f"""
+<h2 style="{_H2_STYLE}">Cierre de inscripcion proximo</h2>
+<p style="{_P_STYLE}">
+  Hola <strong>{{nombre}}</strong>,
 </p>
-<p style="color:#374151; line-height:1.6;">
-  El período de inscripción a materias del programa <strong>{programa}</strong>
-  cierra en <strong>{dias_restantes} día(s)</strong> (el <strong>{fecha_fin}</strong>).
+<p style="{_P_STYLE}">
+  El periodo de inscripcion a materias del programa <strong>{{programa}}</strong>
+  cierra en <strong>{{dias_restantes}} dia(s)</strong> (el <strong>{{fecha_fin}}</strong>).
 </p>
-<p style="color:#374151; line-height:1.6;">
-  Si aún no te inscribiste, ingresá al portal académico para hacerlo antes del cierre.
+<p style="{_P_STYLE}">
+  Si aun no te inscribiste, ingresa al portal academico para hacerlo antes del cierre.
 </p>
 """)
 
 
 # ── 7. Calificación disponible ──────────────────────────────────────────────
 
-CALIFICACION_DISPONIBLE = _wrap("""
-<h2 style="margin:0 0 16px; color:#111827; font-size:18px;">Calificación disponible</h2>
-<p style="color:#374151; line-height:1.6;">
-  Hola <strong>{nombre}</strong>,
+CALIFICACION_DISPONIBLE = _wrap(f"""
+<h2 style="{_H2_STYLE}">Calificacion disponible</h2>
+<p style="{_P_STYLE}">
+  Hola <strong>{{nombre}}</strong>,
 </p>
-<p style="color:#374151; line-height:1.6;">
-  Tu calificación en <strong>{materia}</strong> ya está disponible.
+<p style="{_P_STYLE}">
+  Tu calificacion en <strong>{{materia}}</strong> ya esta disponible.
 </p>
-<table style="width:100%; border-collapse:collapse; margin:16px 0;">
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600; width:40%;">Materia</td>
-    <td style="padding:8px 12px;">{materia}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Nota del curso</td>
-    <td style="padding:8px 12px;">{nota}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Estado</td>
-    <td style="padding:8px 12px;">{estado}</td>
-  </tr>
+{_TABLE_OPEN}
+  {_row("Materia", "{{materia}}")}
+  {_row("Nota del curso", "{{nota}}")}
+  {_row("Estado", "{{estado}}")}
 </table>
-<p style="color:#374151; line-height:1.6;">
-  Podés consultar tu escolaridad completa en el portal académico.
+<p style="{_P_STYLE}">
+  Podes consultar tu escolaridad completa en el portal academico.
 </p>
 """)
 
 
 # ── 8. Exoneración lograda ──────────────────────────────────────────────────
 
-EXONERACION = _wrap("""
-<h2 style="margin:0 0 16px; color:#047857; font-size:18px;">Exoneración lograda</h2>
-<p style="color:#374151; line-height:1.6;">
-  Hola <strong>{nombre}</strong>,
+EXONERACION = _wrap(f"""
+<h2 style="margin:0 0 16px; color:#0d9488; font-size:20px; font-weight:700;">Exoneracion lograda</h2>
+<p style="{_P_STYLE}">
+  Hola <strong>{{nombre}}</strong>,
 </p>
-<p style="color:#374151; line-height:1.6;">
-  ¡Te informamos que has <strong>exonerado</strong> la materia <strong>{materia}</strong>!
+<p style="{_P_STYLE}">
+  Te informamos que has <strong style="color:#0d9488;">exonerado</strong> la materia <strong>{{materia}}</strong>.
 </p>
-<table style="width:100%; border-collapse:collapse; margin:16px 0;">
-  <tr>
-    <td style="padding:8px 12px; background:#ecfdf5; font-weight:600; width:40%;">Materia</td>
-    <td style="padding:8px 12px;">{materia}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#ecfdf5; font-weight:600;">Nota del curso</td>
-    <td style="padding:8px 12px;">{nota}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#ecfdf5; font-weight:600;">Créditos obtenidos</td>
-    <td style="padding:8px 12px;">{creditos}</td>
-  </tr>
+{_TABLE_OPEN.replace('#e8e8ec', '#99f6e4')}
+  {_row("Materia", "{{materia}}", _TH_GREEN, _TD_GREEN)}
+  {_row("Nota del curso", "{{nota}}", _TH_GREEN, _TD_GREEN)}
+  {_row("Creditos obtenidos", "{{creditos}}", _TH_GREEN, _TD_GREEN)}
 </table>
 """)
 
 
 # ── 9. Reprobado por rendiciones agotadas ───────────────────────────────────
 
-REPROBADO_RENDICIONES = _wrap("""
-<h2 style="margin:0 0 16px; color:#dc2626; font-size:18px;">Rendiciones de examen agotadas</h2>
-<p style="color:#374151; line-height:1.6;">
-  Hola <strong>{nombre}</strong>,
+REPROBADO_RENDICIONES = _wrap(f"""
+<h2 style="margin:0 0 16px; color:#dc2626; font-size:20px; font-weight:700;">Rendiciones de examen agotadas</h2>
+<p style="{_P_STYLE}">
+  Hola <strong>{{nombre}}</strong>,
 </p>
-<p style="color:#374151; line-height:1.6;">
+<p style="{_P_STYLE}">
   Te informamos que has agotado las oportunidades de examen para la materia
-  <strong>{materia}</strong> ({rendiciones_usadas} de {max_rendiciones} rendiciones).
+  <strong>{{materia}}</strong> ({{rendiciones_usadas}} de {{max_rendiciones}} rendiciones).
 </p>
-<p style="color:#374151; line-height:1.6;">
-  Para aprobar esta materia deberás volver a cursarla.
-  Consultá en bedelía para más información.
+<p style="{_P_STYLE}">
+  Para aprobar esta materia deberas volver a cursarla.
+  Consulta en bedelia para mas informacion.
 </p>
 """)
 
 
 # ── 10. Baja/abandono procesado ─────────────────────────────────────────────
 
-BAJA_PROCESADA = _wrap("""
-<h2 style="margin:0 0 16px; color:#111827; font-size:18px;">Baja de programa procesada</h2>
-<p style="color:#374151; line-height:1.6;">
-  Hola <strong>{nombre}</strong>,
+BAJA_PROCESADA = _wrap(f"""
+<h2 style="{_H2_STYLE}">Baja de programa procesada</h2>
+<p style="{_P_STYLE}">
+  Hola <strong>{{nombre}}</strong>,
 </p>
-<p style="color:#374151; line-height:1.6;">
-  Tu baja del programa <strong>{programa}</strong> ha sido procesada.
+<p style="{_P_STYLE}">
+  Tu baja del programa <strong>{{programa}}</strong> ha sido procesada.
 </p>
-<table style="width:100%; border-collapse:collapse; margin:16px 0;">
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600; width:40%;">Programa</td>
-    <td style="padding:8px 12px;">{programa}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Fecha de baja</td>
-    <td style="padding:8px 12px;">{fecha_baja}</td>
-  </tr>
-  <tr>
-    <td style="padding:8px 12px; background:#f3f4f6; font-weight:600;">Motivo</td>
-    <td style="padding:8px 12px;">{motivo}</td>
-  </tr>
+{_TABLE_OPEN}
+  {_row("Programa", "{{programa}}")}
+  {_row("Fecha de baja", "{{fecha_baja}}")}
+  {_row("Motivo", "{{motivo}}")}
 </table>
-<p style="color:#374151; line-height:1.6;">
-  Si tenés consultas, comunicate con bedelía.
+<p style="{_P_STYLE}">
+  Si tenes consultas, comunicate con bedelia.
 </p>
 """)
 

@@ -11,7 +11,7 @@ from database.database import get_session
 from v2.services import V2Services, get_v2_services
 from v2.auth.dependencies import require_administrativo
 from v2.models.usuario import UsuarioRead
-from v2.models.enums import TipoNotificacion
+from v2.models.enums import TipoNotificacion, EstadoNotificacion
 
 
 router = APIRouter(
@@ -159,17 +159,57 @@ async def enviar_masivo(
 @router.get(
     "/historial",
     summary="Historial de notificaciones enviadas",
-    description="Retorna el log paginado de todas las notificaciones enviadas.",
+    description="Retorna el log paginado de todas las notificaciones enviadas. "
+                "Permite filtrar por estado=error para ver solo las que fallaron.",
 )
 async def get_historial(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=200),
     tipo: Optional[TipoNotificacion] = Query(default=None),
     usuario_id: Optional[int] = Query(default=None),
+    estado: Optional[EstadoNotificacion] = Query(default=None),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
     current_usuario: UsuarioRead = Depends(require_administrativo),
 ):
     return v2_services.notificationService.get_historial(
-        session, page=page, per_page=per_page, tipo=tipo, usuario_id=usuario_id
+        session, page=page, per_page=per_page, tipo=tipo, usuario_id=usuario_id, estado=estado
+    )
+
+
+@router.get(
+    "/rastreo/{id_rastreo}",
+    summary="Buscar notificación por número de rastreo",
+    description="Consulta puntual de una notificación dado su id_rastreo (UUID). "
+                "Permite verificar si un email particular se envió correctamente o falló.",
+)
+async def get_por_rastreo(
+    id_rastreo: str,
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+):
+    resultado = v2_services.notificationService.get_por_rastreo(id_rastreo, session)
+    if not resultado:
+        raise HTTPException(status_code=404, detail=f"No existe notificación con id_rastreo={id_rastreo}")
+    return resultado
+
+
+@router.get(
+    "/verificar/{referencia_tipo}/{referencia_id}",
+    summary="Verificar estado de notificaciones de una operación",
+    description="Reconciliación: dado el tipo y id de una operación de negocio "
+                "(ej: inscripcion_materia, inscripcion_examen), retorna si la operación "
+                "existe y el estado de todas las notificaciones asociadas a ella. "
+                "Util para saber si un alumno se inscribió pero el email nunca le llegó.",
+)
+async def verificar_estado_operacion(
+    referencia_tipo: str,
+    referencia_id: int,
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+):
+    return v2_services.notificationService.get_estado_operacion(
+        referencia_tipo, referencia_id, session
     )

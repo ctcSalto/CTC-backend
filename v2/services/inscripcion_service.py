@@ -126,6 +126,10 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
         self._sync_moodle_enrol(usuario_id, materia, session)
 
         # 8. Notificación (best-effort, no crítica)
+        # El id_rastreo de la notificación se adjunta a la respuesta para que
+        # quien inscribió pueda verificar después si el email se entregó
+        # (ver GET /v2/admin/notificaciones/rastreo/{id_rastreo}).
+        object.__setattr__(inscripcion, "id_rastreo_notificacion", None)
         try:
             from v2.services import get_v2_services
             from v2.models.usuario import Usuario
@@ -133,10 +137,11 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
             usuario = session.get(Usuario, usuario_id)
             programa = session.get(Programa, materia.programa_id)
             if usuario and programa:
-                get_v2_services().notificationService.notificar_inscripcion_materia(
+                resultado = get_v2_services().notificationService.notificar_inscripcion_materia(
                     inscripcion, usuario, materia,
                     programa.nombre, instancia_cursado.anio_lectivo, session
                 )
+                object.__setattr__(inscripcion, "id_rastreo_notificacion", resultado.get("id_rastreo"))
         except Exception:
             pass  # notificación nunca bloquea la inscripción
 

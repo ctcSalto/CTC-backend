@@ -66,6 +66,7 @@ class InscripcionExamenRead(SQLModel):
     notificacion_enviada: bool = False
     fecha_baja: Optional[datetime] = None
     id_rastreo: Optional[str] = None
+    id_rastreo_notificacion: Optional[str] = None
 
 
 class CalificarExamenRequest(SQLModel):

@@ -90,6 +90,7 @@ class InscripcionMateriaRead(SQLModel):
     fecha_baja: Optional[datetime] = None
     notificacion_calificacion_enviada: bool = False
     id_rastreo: Optional[str] = None
+    id_rastreo_notificacion: Optional[str] = None
 
 
 class InscripcionMateriaResumen(SQLModel):

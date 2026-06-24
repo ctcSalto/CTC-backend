@@ -121,6 +121,13 @@ La estructura de carpetas se crea automaticamente al subir el primer documento d
 └── administrativos/...
 ```
 
+### Notificaciones por email (Fase 5)
+
+```bash
+# Webhook de n8n para envio de emails de notificaciones
+N8N_EMAIL_WEBHOOK_URL=https://automatizaciones-n8n.vtu0xl.easypanel.host/webhook/webhook/ctc-email-send
+```
+
 ### Opcional para control de rendiciones (Migracion 6)
 
 ```bash

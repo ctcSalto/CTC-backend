@@ -87,3 +87,26 @@ function getTokenValue() {
 	token.subscribe((v) => (value = v))();
 	return value;
 }
+
+/**
+ * Helper para llamadas autenticadas a la API.
+ * Retorna {ok, data, error, status}.
+ */
+export async function apiFetch(url, options = {}) {
+	const jwt = getTokenValue();
+	const headers = {
+		Authorization: `Bearer ${jwt}`,
+		'Content-Type': 'application/json',
+		...options.headers,
+	};
+	try {
+		const res = await fetch(url, { ...options, headers });
+		const data = await res.json().catch(() => null);
+		if (!res.ok) {
+			return { ok: false, data: null, error: data?.detail || `Error ${res.status}`, status: res.status };
+		}
+		return { ok: true, data, error: null, status: res.status };
+	} catch (err) {
+		return { ok: false, data: null, error: err.message, status: 0 };
+	}
+}

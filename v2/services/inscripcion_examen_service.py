@@ -113,18 +113,22 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         session.refresh(inscripcion_examen)
 
         # Notificación (best-effort, no crítica)
+        # El id_rastreo de la notificación se adjunta a la respuesta para que
+        # quien inscribió pueda verificar después si el email se entregó
+        # (ver GET /v2/admin/notificaciones/rastreo/{id_rastreo}).
+        object.__setattr__(inscripcion_examen, "id_rastreo_notificacion", None)
         try:
             from v2.services import get_v2_services
             from v2.models.usuario import Usuario
-            from v2.models.materia import Materia
-            usuario = session.get(Usuario, inscripcion_materia.usuario_id)
+            usuario = session.get(Usuario, inscripcion.usuario_id)
             instancia = session.get(InstanciaExamen, instancia_examen_id)
-            ic_obj = session.get(InstanciaCursado, inscripcion_materia.instancia_cursado_id)
-            materia = session.get(Materia, ic_obj.materia_id) if ic_obj else None
-            if usuario and instancia and materia:
-                get_v2_services().notificationService.notificar_inscripcion_examen(
-                    inscripcion_examen, usuario, materia, instancia, session
+            ic_obj = session.get(InstanciaCursado, inscripcion.instancia_cursado_id)
+            mat_notif = session.get(Materia, ic_obj.materia_id) if ic_obj else None
+            if usuario and instancia and mat_notif:
+                resultado = get_v2_services().notificationService.notificar_inscripcion_examen(
+                    inscripcion_examen, usuario, mat_notif, instancia, session
                 )
+                object.__setattr__(inscripcion_examen, "id_rastreo_notificacion", resultado.get("id_rastreo"))
         except Exception:
             pass
 
@@ -373,14 +377,13 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         try:
             from v2.services import get_v2_services
             from v2.models.usuario import Usuario
-            from v2.models.materia import Materia
             usuario = session.get(Usuario, inscripcion.usuario_id)
             ic_obj = session.get(InstanciaCursado, inscripcion.instancia_cursado_id)
-            materia = session.get(Materia, ic_obj.materia_id) if ic_obj else None
+            mat_notif = session.get(Materia, ic_obj.materia_id) if ic_obj else None
             rendiciones = self._contar_rendiciones_previas(inscripcion_materia_id, session)
-            if usuario and materia:
+            if usuario and mat_notif:
                 get_v2_services().notificationService.notificar_reprobado_rendiciones(
-                    inscripcion, usuario, materia, rendiciones, max_oportunidades, session
+                    inscripcion, usuario, mat_notif, rendiciones, max_oportunidades, session
                 )
         except Exception:
             pass
