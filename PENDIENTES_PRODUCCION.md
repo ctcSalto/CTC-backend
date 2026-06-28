@@ -67,7 +67,33 @@ alembic upgrade head
      - Calificacion de examen reprobado verifica si se agotaron las rendiciones (cambia materia a REPROBADO)
      - Nuevo endpoint de revalida: `POST /v2/admin/inscripciones/{id}/revalidar`
 
-**Riesgo:** Las migraciones 1-3 crean/modifican tablas. La migracion 4 inserta datos (previaturas). La migracion 5 agrega columnas a usuario. Las migraciones 7 y 8 agregan columnas nullable/con defaults (sin impacto en datos existentes).
+9. `b2c3d4e5f6g7_fase5_notificaciones` — **Fase 5: sistema de notificaciones por email:**
+   - Tabla nueva: `notificacion_log` (registro de todos los emails enviados, con `id_rastreo` para trazabilidad)
+   - Columna nueva: `inscripcion_materia.notificacion_calificacion_enviada` (bool, default false)
+   - Esta migracion estaba aplicada en desarrollo pero no se habia documentado aqui; se detecto al
+     encontrar dos heads simultaneos en el historial de Alembic (ver migracion 10)
+
+10. `4fd4c9f395dd_merge_heads_usuario_v2_y_notificaciones` — **Merge de heads:**
+    - Migracion no-op (no toca esquema). Las migraciones 5 (`a1b2c3d4e5f6`) y 9 (`b2c3d4e5f6g7`)
+      se crearon ambas con el mismo padre (`087c21eff7fd`), generando dos heads divergentes en vez
+      de una cadena lineal. Esto rompia `alembic revision --autogenerate` (autogenerate no detecta
+      el estado real combinado) y podia generar ambigüedad en `alembic upgrade head`.
+    - **Importante:** si la BD de produccion ya tiene aplicada la migracion 5 (`a1b2c3d4e5f6`) pero
+      NO la 9 (`b2c3d4e5f6g7`), hay que correr `alembic upgrade head` normalmente (aplica 9 y luego
+      el merge). Si por algun motivo ya estuvieran ambas aplicadas via SQL manual, verificar con
+      `alembic current` y usar `alembic stamp` si hace falta alinear el historial.
+
+11. `bad9dad1cc40_agregar_tabla_testimony_video` — **Videos en testimonios:**
+    - Tabla nueva: `testimony_video` (`testimonyVideoId`, `testimonyId` FK a `testimony`, `url`,
+      `order`, `creationDate`)
+    - Permite N videos por testimonio (ej: testimonios con video de YouTube o Supabase Storage,
+      a definir cual proveedor se usa — la tabla no depende de esa decision, solo guarda la URL)
+    - Endpoints nuevos: `POST/PUT/DELETE /testimonies/{testimony_id}/videos[/{video_id}]`
+    - `TestimonyRead` y `TestimonyPublic` ahora incluyen `videos: List[TestimonyVideoRead]`
+
+**Riesgo:** Las migraciones 1-3 crean/modifican tablas. La migracion 4 inserta datos (previaturas). La migracion 5 agrega columnas a usuario. Las migraciones 7 y 8 agregan columnas nullable/con defaults (sin impacto en datos existentes). La migracion 9 crea una tabla nueva y una columna con default (sin impacto). La migracion 10 es no-op (solo ordena el historial). La migracion 11 crea una tabla nueva con FK a `testimony` (sin impacto en datos existentes).
+
+**Nota sobre `alembic/env.py`:** se detecto que el archivo no importaba `Career`, `Testimony` ni `News` en su `target_metadata`, lo cual hacia que `alembic revision --autogenerate` marcara esas tablas como "removidas" (¡riesgo real de DROP TABLE accidental si se aceptaba un autogenerate sin revisar el diff!). Se corrigio agregando esos imports. **Cualquier autogenerate futuro debe revisarse a mano antes de aplicarse** — el diff todavia puede traer ruido de tablas legacy (`author`, `profile`, `post`, `example`) que existen en algunas BDs pero no en los modelos actuales.
 
 ### Checklist de deploy
 
@@ -87,6 +113,11 @@ alembic upgrade head
 - [ ] Verificar columna `numero_rendicion` en `inscripcion_examen`: `SELECT numero_rendicion FROM inscripcion_examen LIMIT 1`
 - [ ] Verificar endpoint de revalida en Swagger (`/docs` -> seccion "Admin Inscripciones")
 - [ ] Agregar variable de entorno: `PLAZO_BAJA_EXAMEN_HORAS` (opcional, default 72)
+- [ ] Verificar tabla `notificacion_log` y columna `inscripcion_materia.notificacion_calificacion_enviada` (migracion 9, antes no documentada)
+- [ ] Correr `alembic current` ANTES de `alembic upgrade head` en produccion para confirmar en que revision esta (por el merge de heads de la migracion 10)
+- [ ] Verificar que la tabla `testimony_video` se creo (`\d testimony_video`)
+- [ ] Verificar endpoints de videos en Swagger (`/docs` -> seccion "Testimonies", rutas `/testimonies/{id}/videos`)
+- [ ] Decidir proveedor de hosting de video (YouTube vs Supabase Storage) — no bloquea el deploy de esta migracion, la tabla solo guarda una URL libre
 
 ## Variables de entorno nuevas
 
@@ -175,3 +206,4 @@ El backend corre detras de un proxy inverso que termina SSL. Sin la configuracio
 - Si se necesita rollback completo: `alembic downgrade 055950855a1a` (elimina todas las tablas v2)
 - Si se necesita rollback solo de Fase 2 (rendiciones): `alembic downgrade 4d769166125d` (quita max_oportunidades, numero_rendicion, motivo_revalida)
 - Si se necesita rollback de Fases 1+2: `alembic downgrade f3g4h5i6j7k8` (quita todo de Fase 1 y 2)
+- Si se necesita rollback solo de la tabla de videos: `alembic downgrade 4fd4c9f395dd` (elimina `testimony_video`)

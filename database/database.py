@@ -6,11 +6,13 @@ import os
 from .models.user import User
 from .models.career import Career
 from .models.testimony import Testimony
+from .models.testimony_video import TestimonyVideo
 from .models.news import News
 
 from .services.user_service import UserService
 from .services.carrer_service import CareerService
 from .services.testimony_service import TestimonyService
+from .services.testimony_video_service import TestimonyVideoService
 from .services.news_services import NewsService
 
 from .services.supabase.image_service import SupabaseService
@@ -49,6 +51,7 @@ class Services:
         self.userService = UserService()
         self.careerService = CareerService()
         self.testimonyService = TestimonyService()
+        self.testimonyVideoService = TestimonyVideoService()
         self.newsService = NewsService()
 
         # Utils Services
