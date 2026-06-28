@@ -1,4 +1,4 @@
-from sqlmodel import Session, select, func, and_, or_
+from sqlmodel import Session, select, and_, or_
 from ..models.career import Career, CareerCreate, CareerRead, CareerSimple, CareerUpdate, CareerInList, CareerReadOptimized, UserSimple, TestimonyForCareer, Area, CarrerDropdown
 from ..services.supabase.image_service import SupabaseService
 from typing import List, Optional
@@ -411,17 +411,24 @@ class CareerService(BaseServiceWithFilters[Career]):
                     if used_career_ids:
                         filters.append(~Career.careerId.in_(used_career_ids))
                     
-                    # Construir statement
-                    stmt = select(Career).where(and_(*filters)).order_by(func.random())
-                    
+                    # Construir statement (sin orden en DB, ordenamos en Python por proximidad de fecha)
+                    stmt = select(Career).where(and_(*filters))
+
                     # Obtener carreras disponibles
                     available_careers = session.exec(stmt).all()
-                    
-                    # Seleccionar las que necesitamos (sin repetir)
+
+                    # Ordenar por proximidad a la fecha actual: más próximas primero, nulls al final
                     if available_careers:
-                        careers_to_add = min(len(available_careers), remaining_count)
-                        random_careers = random.sample(list(available_careers), careers_to_add)
-                        selected_careers.extend(random_careers)
+                        today = date.today()
+
+                        def _sort_key(c):
+                            if c.startClasses is None:
+                                return (1, 0)
+                            return (0, abs((c.startClasses - today).days))
+
+                        sorted_careers = sorted(available_careers, key=_sort_key)
+                        careers_to_add = min(len(sorted_careers), remaining_count)
+                        selected_careers.extend(sorted_careers[:careers_to_add])
                 
                 return [CareerSimple.model_validate(career) for career in selected_careers]
                 
