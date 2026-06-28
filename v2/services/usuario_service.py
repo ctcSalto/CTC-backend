@@ -1,4 +1,4 @@
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func, or_
 from typing import Optional, List
 from datetime import datetime
 
@@ -56,6 +56,50 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
         session.refresh(usuario)
 
         # Auto-crear perfil según rol/OU
+        self._auto_crear_perfil(usuario, session)
+
+        return usuario
+
+    def create_manual(
+        self,
+        email: str,
+        nombre: str,
+        apellido: str,
+        rol: RolUsuario,
+        session: Session,
+        documento: Optional[str] = None,
+        telefono: Optional[str] = None,
+        email_personal: Optional[str] = None,
+    ) -> Usuario:
+        """
+        Crea un usuario manualmente (admin), sin requerir login de Google.
+        Util para ponentes que dan una charla puntual o asistentes a charlas
+        que deben quedar registrados pero nunca inician sesion en el portal.
+
+        Si la persona luego inicia sesion con Google usando el mismo email,
+        el callback de OAuth la encuentra por email y vincula la cuenta
+        (ver v2/routes/auth_google.py).
+        """
+        if self.get_by_email(email, session):
+            raise ValueError(f"Ya existe un usuario con el email {email}")
+
+        usuario = Usuario(
+            email=email,
+            nombre=nombre,
+            apellido=apellido,
+            documento=documento,
+            telefono=telefono,
+            email_personal=email_personal,
+            rol=rol,
+            activo=True,
+            google_activo=False,
+            moodle_activo=False,
+            fecha_creacion=datetime.now(get_uruguay_tz()),
+        )
+        session.add(usuario)
+        session.flush()
+        session.refresh(usuario)
+
         self._auto_crear_perfil(usuario, session)
 
         return usuario
@@ -186,6 +230,139 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
             "alumno": alumno,
             "profesor": profesor,
             "administrativo": administrativo,
+        }
+
+    # ── Dashboards de admin ──────────────────────────────────────────────
+
+    def get_alumnos_dashboard(
+        self,
+        session: Session,
+        page: int = 1,
+        per_page: int = 50,
+        search: Optional[str] = None,
+        activo: Optional[bool] = None,
+    ) -> dict:
+        """
+        Lista paginada de alumnos para el dashboard de admin, con datos de
+        usuario embebidos. Incluye tanto alumnos con cuenta de Google como
+        los creados manualmente (ej: asistentes a charlas) via tiene_login.
+        """
+        base_filters = [Usuario.eliminado == False]
+        if activo is not None:
+            base_filters.append(Usuario.activo == activo)
+        if search:
+            like = f"%{search}%"
+            base_filters.append(
+                or_(Usuario.nombre.ilike(like), Usuario.apellido.ilike(like), Usuario.email.ilike(like))
+            )
+
+        count_stmt = (
+            select(func.count())
+            .select_from(Alumno)
+            .join(Usuario, Alumno.usuario_id == Usuario.id)
+            .where(*base_filters)
+        )
+        total = session.exec(count_stmt).one()
+
+        stmt = (
+            select(Alumno, Usuario)
+            .join(Usuario, Alumno.usuario_id == Usuario.id)
+            .where(*base_filters)
+            .order_by(Usuario.apellido, Usuario.nombre)
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+        rows = session.exec(stmt).all()
+
+        items = [
+            {
+                "id": alumno.id,
+                "usuario_id": usuario.id,
+                "nombre": usuario.nombre,
+                "apellido": usuario.apellido,
+                "email": usuario.email,
+                "documento": usuario.documento,
+                "telefono": usuario.telefono,
+                "activo": usuario.activo,
+                "tiene_login": usuario.google_id is not None,
+                "fecha_ingreso": alumno.fecha_ingreso,
+            }
+            for alumno, usuario in rows
+        ]
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": (total + per_page - 1) // per_page if total > 0 else 0,
+        }
+
+    def get_docentes_dashboard(
+        self,
+        session: Session,
+        page: int = 1,
+        per_page: int = 50,
+        search: Optional[str] = None,
+        activo: Optional[bool] = None,
+    ) -> dict:
+        """
+        Lista paginada de docentes para el dashboard de admin, con datos de
+        usuario embebidos. Incluye tanto docentes con cuenta de Google como
+        los creados manualmente (ej: ponentes de una charla puntual).
+        """
+        base_filters = [Usuario.eliminado == False]
+        if activo is not None:
+            base_filters.append(Usuario.activo == activo)
+        if search:
+            like = f"%{search}%"
+            base_filters.append(
+                or_(Usuario.nombre.ilike(like), Usuario.apellido.ilike(like), Usuario.email.ilike(like))
+            )
+
+        count_stmt = (
+            select(func.count())
+            .select_from(Profesor)
+            .join(Usuario, Profesor.usuario_id == Usuario.id)
+            .where(*base_filters)
+        )
+        total = session.exec(count_stmt).one()
+
+        stmt = (
+            select(Profesor, Usuario)
+            .join(Usuario, Profesor.usuario_id == Usuario.id)
+            .where(*base_filters)
+            .order_by(Usuario.apellido, Usuario.nombre)
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+        rows = session.exec(stmt).all()
+
+        items = [
+            {
+                "id": profesor.id,
+                "usuario_id": usuario.id,
+                "nombre": usuario.nombre,
+                "apellido": usuario.apellido,
+                "email": usuario.email,
+                "documento": usuario.documento,
+                "telefono": usuario.telefono,
+                "activo": usuario.activo,
+                "tiene_login": usuario.google_id is not None,
+                "cargo": profesor.cargo,
+                "dedicacion": profesor.dedicacion,
+                "especialidad": profesor.especialidad,
+                "carga_horaria_semanal": profesor.carga_horaria_semanal,
+            }
+            for profesor, usuario in rows
+        ]
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": (total + per_page - 1) // per_page if total > 0 else 0,
         }
 
     def soft_delete(self, usuario_id: int, session: Session) -> Optional[Usuario]:

@@ -31,6 +31,7 @@ from v2.routes import (
     admin_examenes as v2_admin_examenes,
     admin_documentos as v2_admin_documentos,
     admin_notificaciones as v2_admin_notificaciones,
+    admin_usuarios as v2_admin_usuarios,
 )
 
 from pages.welcome import html
@@ -264,6 +265,7 @@ app.include_router(v2_instancias_examen.router)
 app.include_router(v2_admin_examenes.router)
 app.include_router(v2_admin_documentos.router)
 app.include_router(v2_admin_notificaciones.router)
+app.include_router(v2_admin_usuarios.router)
 
 # CORS
 app.add_middleware(
