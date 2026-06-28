@@ -685,10 +685,13 @@ class QueryBuilder:
                     return self
                 column = getattr(current_model, final_attribute)
             
+            # NULLS LAST siempre, sin importar la direccion: los registros que SI
+            # tienen el atributo de ordenamiento van primero, los null quedan al final.
+            # Postgres por defecto hace NULLS FIRST en DESC, lo cual es el bug reportado.
             if direction.lower() == "desc":
-                self.query = self.query.order_by(desc(column))
+                self.query = self.query.order_by(desc(column).nullslast())
             else:
-                self.query = self.query.order_by(asc(column))
+                self.query = self.query.order_by(asc(column).nullslast())
                 
         except Exception as e:
             logger.error(f"Error aplicando ordenamiento: {str(e)}")
