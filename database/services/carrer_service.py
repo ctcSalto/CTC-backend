@@ -1,5 +1,5 @@
 from sqlmodel import Session, select, and_, or_
-from ..models.career import Career, CareerCreate, CareerRead, CareerSimple, CareerUpdate, CareerInList, CareerReadOptimized, UserSimple, TestimonyForCareer, Area, CarrerDropdown
+from ..models.career import Career, CareerCreate, CareerRead, CareerSimple, CareerUpdate, CareerInList, CareerReadOptimized, UserSimple, TestimonyForCareer, CarrerDropdown
 from ..services.supabase.image_service import SupabaseService
 from typing import List, Optional
 from datetime import date 
@@ -303,65 +303,24 @@ class CareerService(BaseServiceWithFilters[Career]):
  
     def get_random_careers_by_area(self, session: Session, count: int = 4) -> List[CareerSimple]:
         """
-        Obtener carreras aleatorias asegurando diversidad de áreas
-        - Si count <= número de áreas: una carrera por área
-        - Si count > número de áreas: repite áreas de forma equitativa
-        - NO repite la misma carrera
-        - Solo carreras publicadas
+        Obtener las N carreras publicadas más próximas a comenzar, ordenadas por startClasses
+        (más cercana a la fecha actual primero, nulls al final).
         """
         try:
             with session:
-                areas = [area.value for area in Area]
-                selected_careers = []
-                used_career_ids = set()  # Para evitar repeticiones
-                
-                # Obtener carreras disponibles por área (SOLO PUBLICADAS)
-                careers_by_area = {}
-                for area in areas:
-                    stmt = select(Career).where(and_(
-                        Career.area == area, 
-                        Career.published == True
-                    ))
-                    area_careers = session.exec(stmt).all()
-                    if area_careers:  # Solo incluir áreas que tienen carreras
-                        careers_by_area[area] = area_careers
-                
-                if not careers_by_area:
+                stmt = select(Career).where(Career.published)
+                all_careers = session.exec(stmt).all()
+
+                if not all_careers:
                     return []
-                
-                available_areas = list(careers_by_area.keys())
-                
-                # Distribuir el count entre las áreas disponibles
-                for i in range(count):
-                    # Rotar entre las áreas disponibles
-                    area = available_areas[i % len(available_areas)]
-                    
-                    # Filtrar carreras no usadas de esta área
-                    available_careers_in_area = [
-                        career for career in careers_by_area[area] 
-                        if career.careerId not in used_career_ids
-                    ]
-                    
-                    # Si no hay carreras disponibles en esta área, pasar a la siguiente
-                    if not available_careers_in_area:
-                        continue
 
-                    # Seleccionar la carrera más próxima a comenzar de esta área (nulls al final)
-                    today = date.today()
-                    career = min(
-                        available_careers_in_area,
-                        key=lambda c: (1, 0) if c.startClasses is None else (0, abs((c.startClasses - today).days))
-                    )
-                    selected_careers.append(career)
-                    used_career_ids.add(career.careerId)
-
-                # Ordenar el resultado final también por proximidad a la fecha actual
                 today = date.today()
-                selected_careers.sort(
+                sorted_careers = sorted(
+                    all_careers,
                     key=lambda c: (1, 0) if c.startClasses is None else (0, abs((c.startClasses - today).days))
                 )
-                return [CareerSimple.model_validate(career) for career in selected_careers]
-                
+                return [CareerSimple.model_validate(c) for c in sorted_careers[:count]]
+
         except Exception as e:
             print(f"Error en servicio de carreras aleatorias: {e}")
             raise ValueError(f"Error al obtener carreras aleatorias: {str(e)}")
@@ -419,24 +378,26 @@ class CareerService(BaseServiceWithFilters[Career]):
                     if used_career_ids:
                         filters.append(~Career.careerId.in_(used_career_ids))
                     
-                    # Construir statement (sin orden en DB, ordenamos en Python por proximidad de fecha)
                     stmt = select(Career).where(and_(*filters))
-
-                    # Obtener carreras disponibles
                     available_careers = session.exec(stmt).all()
 
-                    # Ordenar por proximidad a la fecha actual: más próximas primero, nulls al final
                     if available_careers:
                         today = date.today()
 
-                        def _sort_key(c):
+                        def proximity_key(c):
                             if c.startClasses is None:
                                 return (1, 0)
                             return (0, abs((c.startClasses - today).days))
 
-                        sorted_careers = sorted(available_careers, key=_sort_key)
-                        careers_to_add = min(len(sorted_careers), remaining_count)
-                        selected_careers.extend(sorted_careers[:careers_to_add])
+                        # Pool: las 10 más próximas a comenzar
+                        pool = sorted(available_careers, key=proximity_key)[:10]
+
+                        # Elegir aleatoriamente del pool y ordenar el resultado por fecha
+                        import random
+                        sample_size = min(len(pool), remaining_count)
+                        chosen = random.sample(pool, sample_size)
+                        chosen.sort(key=proximity_key)
+                        selected_careers.extend(chosen)
                 
                 return [CareerSimple.model_validate(career) for career in selected_careers]
                 
