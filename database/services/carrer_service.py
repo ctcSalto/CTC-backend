@@ -5,7 +5,6 @@ from typing import List, Optional
 from datetime import date 
 from sqlalchemy.orm import selectinload
 from datetime import datetime
-import random
 
 from database.services.filter.filters import BaseServiceWithFilters
 
@@ -346,12 +345,21 @@ class CareerService(BaseServiceWithFilters[Career]):
                     # Si no hay carreras disponibles en esta área, pasar a la siguiente
                     if not available_careers_in_area:
                         continue
-                    
-                    # Seleccionar una carrera aleatoria de esta área
-                    career = random.choice(available_careers_in_area)
+
+                    # Seleccionar la carrera más próxima a comenzar de esta área (nulls al final)
+                    today = date.today()
+                    career = min(
+                        available_careers_in_area,
+                        key=lambda c: (1, 0) if c.startClasses is None else (0, abs((c.startClasses - today).days))
+                    )
                     selected_careers.append(career)
                     used_career_ids.add(career.careerId)
-                
+
+                # Ordenar el resultado final también por proximidad a la fecha actual
+                today = date.today()
+                selected_careers.sort(
+                    key=lambda c: (1, 0) if c.startClasses is None else (0, abs((c.startClasses - today).days))
+                )
                 return [CareerSimple.model_validate(career) for career in selected_careers]
                 
         except Exception as e:
