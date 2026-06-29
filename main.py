@@ -1,3 +1,4 @@
+import os
 import pathlib
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, FileResponse
@@ -13,31 +14,33 @@ from routes import auth, career, testimony, news
 from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_enrolment
 from routes.mercadopago import mercadopago
 from routes.google import google_test, google_analytics
-from v2.routes import auth_google as v2_auth_google
-from v2.routes import (
-    politicas_calificacion as v2_politicas_calificacion,
-    politicas_examen as v2_politicas_examen,
-    programas as v2_programas,
-    materias as v2_materias,
-    previaturas as v2_previaturas,
-    instancias_evaluacion as v2_instancias_evaluacion,
-    instancias_cursado as v2_instancias_cursado,
-    docentes_materia as v2_docentes_materia,
-    periodos_inscripcion as v2_periodos_inscripcion,
-    estudiante as v2_estudiante,
-    admin_inscripciones as v2_admin_inscripciones,
-    docente as v2_docente,
-    instancias_examen as v2_instancias_examen,
-    admin_examenes as v2_admin_examenes,
-    admin_documentos as v2_admin_documentos,
-    admin_notificaciones as v2_admin_notificaciones,
-    admin_usuarios as v2_admin_usuarios,
-)
+V2_ENABLED = os.getenv("V2_ENABLED", "false").lower() == "true"
+
+if V2_ENABLED:
+    from v2.routes import auth_google as v2_auth_google
+    from v2.routes import (
+        politicas_calificacion as v2_politicas_calificacion,
+        politicas_examen as v2_politicas_examen,
+        programas as v2_programas,
+        materias as v2_materias,
+        previaturas as v2_previaturas,
+        instancias_evaluacion as v2_instancias_evaluacion,
+        instancias_cursado as v2_instancias_cursado,
+        docentes_materia as v2_docentes_materia,
+        periodos_inscripcion as v2_periodos_inscripcion,
+        estudiante as v2_estudiante,
+        admin_inscripciones as v2_admin_inscripciones,
+        docente as v2_docente,
+        instancias_examen as v2_instancias_examen,
+        admin_examenes as v2_admin_examenes,
+        admin_documentos as v2_admin_documentos,
+        admin_notificaciones as v2_admin_notificaciones,
+        admin_usuarios as v2_admin_usuarios,
+    )
 
 from pages.welcome import html
 from database.database import reset_database, create_db_and_tables
 
-import os
 from zoneinfo import ZoneInfo
 from datetime import datetime
 
@@ -247,25 +250,26 @@ app.include_router(google_test.router)
 # Google Analytics
 app.include_router(google_analytics.router)
 
-# v2 - Portal Academico
-app.include_router(v2_auth_google.router)
-app.include_router(v2_politicas_calificacion.router)
-app.include_router(v2_politicas_examen.router)
-app.include_router(v2_programas.router)
-app.include_router(v2_materias.router)
-app.include_router(v2_previaturas.router)
-app.include_router(v2_instancias_evaluacion.router)
-app.include_router(v2_instancias_cursado.router)
-app.include_router(v2_docentes_materia.router)
-app.include_router(v2_periodos_inscripcion.router)
-app.include_router(v2_estudiante.router)
-app.include_router(v2_admin_inscripciones.router)
-app.include_router(v2_docente.router)
-app.include_router(v2_instancias_examen.router)
-app.include_router(v2_admin_examenes.router)
-app.include_router(v2_admin_documentos.router)
-app.include_router(v2_admin_notificaciones.router)
-app.include_router(v2_admin_usuarios.router)
+# v2 - Portal Academico (solo si V2_ENABLED=true)
+if V2_ENABLED:
+    app.include_router(v2_auth_google.router)
+    app.include_router(v2_politicas_calificacion.router)
+    app.include_router(v2_politicas_examen.router)
+    app.include_router(v2_programas.router)
+    app.include_router(v2_materias.router)
+    app.include_router(v2_previaturas.router)
+    app.include_router(v2_instancias_evaluacion.router)
+    app.include_router(v2_instancias_cursado.router)
+    app.include_router(v2_docentes_materia.router)
+    app.include_router(v2_periodos_inscripcion.router)
+    app.include_router(v2_estudiante.router)
+    app.include_router(v2_admin_inscripciones.router)
+    app.include_router(v2_docente.router)
+    app.include_router(v2_instancias_examen.router)
+    app.include_router(v2_admin_examenes.router)
+    app.include_router(v2_admin_documentos.router)
+    app.include_router(v2_admin_notificaciones.router)
+    app.include_router(v2_admin_usuarios.router)
 
 # CORS
 app.add_middleware(
