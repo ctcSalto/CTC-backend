@@ -303,8 +303,9 @@ class CareerService(BaseServiceWithFilters[Career]):
  
     def get_random_careers_by_area(self, session: Session, count: int = 4) -> List[CareerSimple]:
         """
-        Obtener las N carreras publicadas más próximas a comenzar, ordenadas por startClasses
-        (más cercana a la fecha actual primero, nulls al final).
+        Obtener una carrera por área: la más próxima a comenzar de cada área.
+        Nulls al final dentro de cada área. El parámetro count se ignora
+        (el resultado depende de cuántas áreas tengan carreras publicadas).
         """
         try:
             with session:
@@ -315,11 +316,21 @@ class CareerService(BaseServiceWithFilters[Career]):
                     return []
 
                 today = date.today()
-                sorted_careers = sorted(
-                    all_careers,
-                    key=lambda c: (1, 0) if c.startClasses is None else (0, abs((c.startClasses - today).days))
-                )
-                return [CareerSimple.model_validate(c) for c in sorted_careers[:count]]
+
+                def proximity_key(c):
+                    if c.startClasses is None:
+                        return (1, 0)
+                    return (0, abs((c.startClasses - today).days))
+
+                # Agrupar por área y quedarse con la más próxima de cada una
+                best_by_area = {}
+                for career in all_careers:
+                    area = career.area
+                    if area not in best_by_area or proximity_key(career) < proximity_key(best_by_area[area]):
+                        best_by_area[area] = career
+
+                result = sorted(best_by_area.values(), key=proximity_key)
+                return [CareerSimple.model_validate(c) for c in result]
 
         except Exception as e:
             print(f"Error en servicio de carreras aleatorias: {e}")
