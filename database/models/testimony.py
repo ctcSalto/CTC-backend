@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 if TYPE_CHECKING:
     from database.models.user import User, UserRead
     from database.models.career import Career, CareerRead
+    from database.models.testimony_video import TestimonyVideo, TestimonyVideoRead
     
 def get_uruguay_tz():
     """Lee la variable cada vez que se llama"""
@@ -32,6 +33,7 @@ class Testimony(TestimonyBase, table=True):
     creator_user: Optional["User"] = Relationship(back_populates="created_testimonies", sa_relationship_kwargs={"foreign_keys": "[Testimony.creator]"})
     modifier_user: Optional["User"] = Relationship(back_populates="modified_testimonies", sa_relationship_kwargs={"foreign_keys": "[Testimony.modifier]"})
     career_ref: Optional["Career"] = Relationship(back_populates="testimonies")
+    videos: List["TestimonyVideo"] = Relationship(back_populates="testimony")
 
 # Modelo para crear un testimonio (POST)
 class TestimonyCreate(TestimonyBase):
@@ -60,6 +62,7 @@ class TestimonyRead(TestimonyBase):
     creator_user: Optional["UserRead"] = None
     modifier_user: Optional["UserRead"] = None
     career: Optional[int] = None
+    videos: List["TestimonyVideoRead"] = []
 
 
 class TestimonyFilterResponse(SQLModel):
@@ -92,8 +95,11 @@ class TestimonyPublic(SQLModel):
     lastname: str
     career: int
     career_name: str
-    
+    videos: List["TestimonyVideoRead"] = []
+
 from .user import UserRead
 from .career import CareerRead
+from .testimony_video import TestimonyVideoRead
 # Rebuild después de definir todos los modelos
 TestimonyRead.model_rebuild()
+TestimonyPublic.model_rebuild()

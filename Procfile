@@ -1,1 +1,1 @@
-web: uvicorn main:app --host=0.0.0.0 --port=$PORT --timeout-keep-alive 60 --timeout-graceful-shutdown 60
+web: uvicorn main:app --host=0.0.0.0 --port=$PORT --timeout-keep-alive 60 --timeout-graceful-shutdown 60 --proxy-headers --forwarded-allow-ips='*'

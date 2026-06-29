@@ -839,12 +839,12 @@ async def update_news_files(
                 if old_images_to_delete:
                     for old_url in old_images_to_delete:
                         services.supabaseService.delete_file(old_url)
-                    print(f"🗑️ Eliminadas {len(old_images_to_delete)} imágenes anteriores")
+                    print(f"[DEL] Eliminadas {len(old_images_to_delete)} imágenes anteriores")
                 
 
                     
             except Exception as cleanup_error:
-                print(f"⚠️ Error limpiando archivos antiguos: {cleanup_error}")
+                print(f"[WARN] Error limpiando archivos antiguos: {cleanup_error}")
                 # No fallar la operación por esto, solo loguear
         
         show(f"Archivos actualizados en la noticia {news_id}")

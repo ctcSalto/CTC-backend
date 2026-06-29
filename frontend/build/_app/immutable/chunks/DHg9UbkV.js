@@ -1,0 +1,1 @@
+import{C as c}from"./BQRiVByQ.js";let u=0;const r=c([]);function i(t,e,s=4e3){const a=u++;r.update(o=>[...o,{id:a,type:t,message:e}]),setTimeout(()=>{r.update(o=>o.filter(n=>n.id!==a))},s)}function f(t){i("success",t)}function p(t){i("error",t,6e3)}function l(t){r.update(e=>e.filter(s=>s.id!==t))}export{p as e,l as r,f as s,r as t};

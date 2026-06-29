@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 *.pyd
@@ -19,7 +20,6 @@ venv/
 credentials/
 *.json
 !package.json
-!package-lock.json
 
 # OS files
 .DS_Store
@@ -28,10 +28,30 @@ Thumbs.db
 # Logs
 *.log
 
-# Test scripts (no commitear)
-test_analytics_endpoints.py
-test_ga4_init.py
-.buildpack-cache-clear
+# Test scripts de integracion (requieren servidor corriendo)
+test_*.py
+!v2/tests/test_*.py
+
+# Claude / Agents
+.claude/
+.agents/
+SKILL.md
+
+# Excel / VBA (datos locales)
+*.xlsx
+*.vba
+
+# Frontend
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend-test-login/node_modules/
+frontend-test-login/.svelte-kit/
+**/package-lock.json
+
+# PDFs generados
+*.pdf
 
 # Others
 .idea/
+nul
+.buildpack-cache-clear

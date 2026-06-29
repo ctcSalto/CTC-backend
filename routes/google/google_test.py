@@ -1,16 +1,22 @@
 """
-Endpoints de testing para Google Workspace API vía n8n
+Endpoints de Google Workspace API vía n8n
 """
-from fastapi import APIRouter, HTTPException, status
+import logging
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 
+logger = logging.getLogger(__name__)
+
+from database.models.user import UserRead
+from database.services.auth.dependencies import require_admin_role
 from external_services.google.google_service import google_workspace_service
 from external_services.google.utils import generate_secure_password
+from external_services.google.notification_service import send_credentials_notification
 
 router = APIRouter(
     prefix="/google/test",
-    tags=["Google Workspace - Testing"]
+    tags=["Google Workspace"]
 )
 
 
@@ -26,6 +32,16 @@ class CreateGoogleAccountRequest(BaseModel):
     password: Optional[str] = Field(None, description="Contraseña personalizada (opcional)")
 
 
+class CreateAccountAndNotifyRequest(BaseModel):
+    """Schema para crear cuenta y enviar notificación"""
+    primaryEmail: EmailStr = Field(..., description="Email del usuario @ctcsalto.edu.uy")
+    givenName: str = Field(..., min_length=1, max_length=50, description="Nombre")
+    familyName: str = Field(..., min_length=1, max_length=50, description="Apellido")
+    orgUnitPath: str = Field(default="/Alumnos", description="Unidad organizativa")
+    notificationEmail: EmailStr = Field(..., description="Email personal para enviar credenciales")
+    password: Optional[str] = Field(None, description="Contraseña personalizada (opcional)")
+
+
 class UpdateGoogleAccountRequest(BaseModel):
     """Schema para actualizar cuenta de Google"""
     primaryEmail: EmailStr = Field(..., description="Email del usuario")
@@ -33,6 +49,7 @@ class UpdateGoogleAccountRequest(BaseModel):
     familyName: Optional[str] = Field(None, min_length=1, max_length=50)
     orgUnitPath: Optional[str] = None
     suspended: Optional[bool] = None
+    password: Optional[str] = Field(None, min_length=8, description="Nueva contraseña (mínimo 8 caracteres)")
 
 
 class UserEmailRequest(BaseModel):
@@ -74,18 +91,16 @@ class GroupEmailRequest(BaseModel):
 # ========== Endpoints de Usuarios ==========
 
 @router.post("/create-account", status_code=status.HTTP_201_CREATED)
-async def create_google_account(request: CreateGoogleAccountRequest):
+async def create_google_account(
+    request: CreateGoogleAccountRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Crear una cuenta de Google Workspace
-
-    Crea un nuevo usuario en Google Workspace con los datos proporcionados.
-    La contraseña se genera automáticamente de forma segura.
+    Crear una cuenta de Google Workspace
     """
     try:
-        # Generar contraseña si es necesario
         password = request.password if request.password else generate_secure_password(12)
 
-        # Llamar al servicio de Google
         result = google_workspace_service.create_google_account(
             primary_email=request.primaryEmail,
             given_name=request.givenName,
@@ -94,7 +109,6 @@ async def create_google_account(request: CreateGoogleAccountRequest):
             org_unit_path=request.orgUnitPath
         )
 
-        # Incluir la contraseña generada en la respuesta (solo para testing)
         return {
             "status": "success",
             "message": "Usuario creado exitosamente en Google Workspace",
@@ -114,26 +128,49 @@ async def create_google_account(request: CreateGoogleAccountRequest):
         )
 
 
-@router.post("/update-account")
-async def update_google_account(request: UpdateGoogleAccountRequest):
+@router.post("/create-account-and-notify", status_code=status.HTTP_201_CREATED)
+async def create_account_and_notify(
+    request: CreateAccountAndNotifyRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Actualizar una cuenta de Google Workspace
+    Crear cuenta de Google Workspace y enviar credenciales por email.
 
-    Actualiza los datos de un usuario existente en Google Workspace.
+    Crea la cuenta y luego envía un email al correo personal del usuario
+    con las credenciales de acceso via n8n.
     """
     try:
-        result = google_workspace_service.update_google_account(
-            user_email=request.primaryEmail,
+        password = request.password if request.password else generate_secure_password(12)
+
+        result = google_workspace_service.create_google_account(
+            primary_email=request.primaryEmail,
             given_name=request.givenName,
             family_name=request.familyName,
-            org_unit_path=request.orgUnitPath,
-            suspended=request.suspended
+            password=password,
+            org_unit_path=request.orgUnitPath
         )
+
+        notification_sent = False
+        notification_error = None
+        try:
+            send_credentials_notification(
+                nuevo_correo=request.primaryEmail,
+                nueva_contrasena=password,
+                firstname=request.givenName,
+                lastname=request.familyName,
+                email_original=request.notificationEmail,
+            )
+            notification_sent = True
+        except Exception as e:
+            notification_error = str(e)
 
         return {
             "status": "success",
-            "message": "Usuario actualizado exitosamente",
-            "data": result
+            "message": "Usuario creado exitosamente en Google Workspace",
+            "data": result,
+            "temporaryPassword": password,
+            "notificationSent": notification_sent,
+            "notificationError": notification_error,
         }
 
     except ValueError as e:
@@ -148,12 +185,52 @@ async def update_google_account(request: UpdateGoogleAccountRequest):
         )
 
 
-@router.post("/delete-account")
-async def delete_google_account(request: UserEmailRequest):
+@router.post("/update-account")
+async def update_google_account(
+    request: UpdateGoogleAccountRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Eliminar una cuenta de Google Workspace
+    Actualizar una cuenta de Google Workspace
+    """
+    try:
+        result = google_workspace_service.update_google_account(
+            user_email=request.primaryEmail,
+            given_name=request.givenName,
+            family_name=request.familyName,
+            org_unit_path=request.orgUnitPath,
+            suspended=request.suspended,
+            password=request.password
+        )
 
-    CUIDADO: Esta operación elimina permanentemente el usuario de Google Workspace.
+        return {
+            "status": "success",
+            "message": "Usuario actualizado exitosamente",
+            "data": result
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error en update-account para {request.primaryEmail}: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error inesperado: {str(e)}"
+        )
+
+
+@router.post("/delete-account")
+async def delete_google_account(
+    request: UserEmailRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
+    """
+    Eliminar una cuenta de Google Workspace
+
+    CUIDADO: Esta operación elimina permanentemente el usuario.
     """
     try:
         result = google_workspace_service.delete_google_account(
@@ -179,11 +256,12 @@ async def delete_google_account(request: UserEmailRequest):
 
 
 @router.post("/suspend-account")
-async def suspend_google_account(request: UserEmailRequest):
+async def suspend_google_account(
+    request: UserEmailRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Suspender una cuenta de Google Workspace
-
-    Suspende el acceso del usuario sin eliminarlo.
+    Suspender una cuenta de Google Workspace
     """
     try:
         result = google_workspace_service.suspend_google_account(
@@ -209,9 +287,12 @@ async def suspend_google_account(request: UserEmailRequest):
 
 
 @router.post("/unsuspend-account")
-async def unsuspend_google_account(request: UserEmailRequest):
+async def unsuspend_google_account(
+    request: UserEmailRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Reactivar una cuenta suspendida de Google Workspace
+    Reactivar una cuenta suspendida de Google Workspace
     """
     try:
         result = google_workspace_service.unsuspend_google_account(
@@ -237,9 +318,12 @@ async def unsuspend_google_account(request: UserEmailRequest):
 
 
 @router.post("/get-account")
-async def get_google_account(request: UserEmailRequest):
+async def get_google_account(
+    request: UserEmailRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Obtener información de una cuenta de Google Workspace
+    Obtener información de una cuenta de Google Workspace
     """
     try:
         result = google_workspace_service.get_google_account(
@@ -267,10 +351,11 @@ async def get_google_account(request: UserEmailRequest):
 async def list_google_accounts(
     max_results: int = 100,
     page_token: Optional[str] = None,
-    query: Optional[str] = None
+    query: Optional[str] = None,
+    current_user: UserRead = Depends(require_admin_role)
 ):
     """
-    TEST: Listar cuentas de Google Workspace
+    Listar cuentas de Google Workspace
 
     Parámetros:
     - max_results: Número máximo de resultados (default: 100)
@@ -304,9 +389,12 @@ async def list_google_accounts(
 # ========== Endpoints de Grupos ==========
 
 @router.post("/add-to-group")
-async def add_user_to_group(request: AddToGroupRequest):
+async def add_user_to_group(
+    request: AddToGroupRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Agregar usuario a un grupo de Google Workspace
+    Agregar usuario a un grupo de Google Workspace
     """
     try:
         result = google_workspace_service.add_user_to_group(
@@ -333,9 +421,12 @@ async def add_user_to_group(request: AddToGroupRequest):
 
 
 @router.post("/remove-from-group")
-async def remove_user_from_group(request: AddToGroupRequest):
+async def remove_user_from_group(
+    request: AddToGroupRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Remover usuario de un grupo de Google Workspace
+    Remover usuario de un grupo de Google Workspace
     """
     try:
         result = google_workspace_service.remove_user_from_group(
@@ -362,9 +453,12 @@ async def remove_user_from_group(request: AddToGroupRequest):
 
 
 @router.post("/create-group", status_code=status.HTTP_201_CREATED)
-async def create_google_group(request: CreateGroupRequest):
+async def create_google_group(
+    request: CreateGroupRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Crear un grupo en Google Workspace
+    Crear un grupo en Google Workspace
     """
     try:
         result = google_workspace_service.create_google_group(
@@ -394,10 +488,11 @@ async def create_google_group(request: CreateGroupRequest):
 @router.get("/list-groups")
 async def list_google_groups(
     max_results: int = 100,
-    page_token: Optional[str] = None
+    page_token: Optional[str] = None,
+    current_user: UserRead = Depends(require_admin_role)
 ):
     """
-    TEST: Listar grupos de Google Workspace
+    Listar grupos de Google Workspace
 
     Parámetros:
     - max_results: Número máximo de resultados (default: 100)
@@ -427,11 +522,12 @@ async def list_google_groups(
 
 
 @router.post("/get-group")
-async def get_google_group(request: GroupIdRequest):
+async def get_google_group(
+    request: GroupIdRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Obtener información de un grupo de Google Workspace
-
-    Acepta tanto el ID del grupo como el email del grupo
+    Obtener información de un grupo de Google Workspace
     """
     try:
         result = google_workspace_service.get_google_group(
@@ -456,11 +552,12 @@ async def get_google_group(request: GroupIdRequest):
 
 
 @router.post("/update-group")
-async def update_google_group(request: UpdateGroupRequest):
+async def update_google_group(
+    request: UpdateGroupRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Actualizar un grupo de Google Workspace
-
-    Actualiza los campos proporcionados del grupo.
+    Actualizar un grupo de Google Workspace
     """
     try:
         result = google_workspace_service.update_google_group(
@@ -489,12 +586,14 @@ async def update_google_group(request: UpdateGroupRequest):
 
 
 @router.post("/delete-group")
-async def delete_google_group(request: GroupIdRequest):
+async def delete_google_group(
+    request: GroupIdRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Eliminar un grupo de Google Workspace
+    Eliminar un grupo de Google Workspace
 
     CUIDADO: Esta operación elimina permanentemente el grupo.
-    Acepta tanto el ID del grupo como el email del grupo.
     """
     try:
         result = google_workspace_service.delete_google_group(
@@ -520,9 +619,12 @@ async def delete_google_group(request: GroupIdRequest):
 
 
 @router.post("/list-group-members")
-async def list_group_members(request: GroupEmailRequest):
+async def list_group_members(
+    request: GroupEmailRequest,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Listar miembros de un grupo de Google Workspace
+    Listar miembros de un grupo de Google Workspace
     """
     try:
         result = google_workspace_service.list_group_members(
@@ -549,11 +651,12 @@ async def list_group_members(request: GroupEmailRequest):
 # ========== Utilidades ==========
 
 @router.get("/generate-password")
-async def generate_password(length: int = 12):
+async def generate_password(
+    length: int = 12,
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    TEST: Generar una contraseña segura aleatoria
-
-    Útil para ver ejemplos de contraseñas que cumplan con los requisitos.
+    Generar una contraseña segura aleatoria
     """
     try:
         if length < 8:

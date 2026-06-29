@@ -16,25 +16,30 @@ try:
     # Solo carga .env si existe el archivo
     if os.path.exists('.env'):
         load_dotenv(override=True)
-        print("✅ Variables de entorno cargadas desde .env")
+        print("[OK] Variables de entorno cargadas desde .env")
     else:
-        print("ℹ️ Usando variables del sistema (producción)")
+        print("[INFO] Usando variables del sistema (produccion)")
 except ImportError:
     # En producción donde python-dotenv no está instalado
-    print("ℹ️ python-dotenv no disponible, usando variables del sistema")
+    print("[INFO] python-dotenv no disponible, usando variables del sistema")
 except Exception as e:
-    print(f"⚠️ Error cargando .env: {e}")
+    print(f"[WARN] Error cargando .env: {e}")
 
 # Importa todos tus modelos aquí para que Alembic los detecte
 # IMPORTANTE: Asegúrate de que estas importaciones sean correctas según tu estructura
 try:
     from database.models.example import Example
     from database.models.user import User
-    # Agrega aquí cualquier otro modelo que tengas
-    print("✓ Modelos importados correctamente")
+    from database.models.career import Career
+    from database.models.testimony import Testimony
+    from database.models.testimony_video import TestimonyVideo
+    from database.models.news import News
+    # Modelos v2 - Portal Académico
+    import v2.models  # noqa: F401 - Registra todos los modelos v2 en SQLModel.metadata
+    print("[OK] Modelos v1 y v2 importados correctamente")
 except ImportError as e:
-    print(f"❌ Error importando modelos: {e}")
-    print("📁 Estructura actual del directorio:")
+    print(f"[ERROR] Error importando modelos: {e}")
+    print("Estructura actual del directorio:")
     print(f"   - Directorio actual: {os.getcwd()}")
     print(f"   - Directorio del script: {Path(__file__).parent}")
     print(f"   - Directorio raíz del proyecto: {project_root}")
@@ -67,18 +72,18 @@ def get_database_url():
     database_url = os.getenv("DATABASE_URL")
     
     if database_url:
-        print(f"✓ Usando DATABASE_URL desde variables de entorno")
+        print("[OK] Usando DATABASE_URL desde variables de entorno")
         return database_url
     
     # Fallback a la configuración del alembic.ini
     url = config.get_main_option("sqlalchemy.url")
     if url:
-        print(f"✓ Usando URL desde alembic.ini")
+        print("[OK] Usando URL desde alembic.ini")
         return url
     
     # URL por defecto para desarrollo
     default_url = "sqlite:///./database.db"
-    print(f"⚠️  Usando URL por defecto: {default_url}")
+    print(f"[WARN] Usando URL por defecto: {default_url}")
     return default_url
 
 def run_migrations_offline() -> None:

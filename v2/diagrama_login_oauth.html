@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagrama de Secuencia - Login Google OAuth 2.0 - CTC Portal Academico v2</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f0f1a;
+            color: #e0e0e0;
+            padding: 2rem;
+        }
+        h1 {
+            text-align: center;
+            color: #fff;
+            margin-bottom: 0.5rem;
+            font-size: 1.6rem;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 2rem;
+            font-size: 0.95rem;
+        }
+        .svg-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #12121f;
+            border-radius: 12px;
+            padding: 2rem 1rem;
+            border: 1px solid #222;
+            overflow-x: auto;
+        }
+        svg { width: 100%; overflow: visible; }
+
+        /* Leyenda */
+        .legend {
+            max-width: 1200px;
+            margin: 1.5rem auto;
+            display: flex;
+            gap: 2rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.82rem;
+            color: #aaa;
+        }
+        .legend-line {
+            width: 30px;
+            height: 3px;
+        }
+        .legend-line-dashed {
+            width: 30px;
+            height: 3px;
+            background: repeating-linear-gradient(to right, #888 0px, #888 5px, transparent 5px, transparent 9px);
+        }
+
+        /* Tabla resumen */
+        .summary {
+            max-width: 1200px;
+            margin: 3rem auto 0;
+        }
+        .summary h2 {
+            color: #fff;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        .summary-card {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 1.2rem;
+            border: 1px solid #333;
+        }
+        .summary-card h3 {
+            margin-bottom: 0.8rem;
+            font-size: 0.95rem;
+        }
+        .summary-card ul {
+            list-style: none;
+            padding: 0;
+        }
+        .summary-card li {
+            padding: 0.3rem 0;
+            font-size: 0.85rem;
+            color: #bbb;
+        }
+        .summary-card code {
+            background: #0f0f1a;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+            color: #4285f4;
+        }
+        .endpoint {
+            display: flex;
+            align-items: baseline;
+            gap: 0.5rem;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid #222;
+        }
+        .endpoint:last-child { border-bottom: none; }
+        .method {
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        .method-get { background: #1a3a1a; color: #34a853; }
+        .method-post { background: #1a1a3a; color: #4285f4; }
+        .endpoint-path {
+            font-family: monospace;
+            font-size: 0.82rem;
+            color: #ccc;
+        }
+        .endpoint-desc {
+            font-size: 0.75rem;
+            color: #888;
+        }
+        .ou-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 0.5rem;
+        }
+        .ou-table th, .ou-table td {
+            padding: 0.4rem 0.6rem;
+            text-align: left;
+            font-size: 0.82rem;
+            border-bottom: 1px solid #222;
+        }
+        .ou-table th {
+            color: #888;
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+        .ou-table td:first-child {
+            font-family: monospace;
+            color: #fbbc05;
+        }
+        .ou-table td:last-child {
+            color: #34a853;
+        }
+
+        /* Produccion */
+        .prod-section {
+            max-width: 1200px;
+            margin: 3rem auto 0;
+        }
+        .prod-section h2 {
+            color: #fff;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+        .prod-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        .prod-card {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 1.2rem;
+            border: 1px solid #333;
+        }
+        .prod-card h3 {
+            margin-bottom: 0.8rem;
+            font-size: 0.95rem;
+        }
+        .prod-card pre {
+            background: #0f0f1a;
+            padding: 0.8rem;
+            border-radius: 6px;
+            font-size: 0.78rem;
+            color: #ccc;
+            overflow-x: auto;
+            line-height: 1.6;
+        }
+        .prod-card .comment { color: #666; }
+        .prod-card .url { color: #4285f4; }
+        .prod-card .var { color: #fbbc05; }
+    </style>
+</head>
+<body>
+    <h1>Login Google OAuth 2.0 — Portal Academico CTC v2</h1>
+    <p class="subtitle">Diagrama de secuencia del flujo de autenticacion — incluye el navegador del usuario</p>
+
+    <!-- Leyenda -->
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-line" style="background: #4285f4;"></div>
+            <span>Redirect HTTP (pasa por el navegador)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-line" style="background: #34a853;"></div>
+            <span>Llamada server-to-server</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-line-dashed"></div>
+            <span>Respuesta</span>
+        </div>
+    </div>
+
+    <div class="svg-container">
+        <svg viewBox="0 0 1150 1650" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <marker id="ar-blue" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 Z" fill="#4285f4"/>
+                </marker>
+                <marker id="al-blue" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto">
+                    <path d="M8,0 L0,4 L8,8 Z" fill="#4285f4"/>
+                </marker>
+                <marker id="ar-green" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 Z" fill="#34a853"/>
+                </marker>
+                <marker id="al-green" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto">
+                    <path d="M8,0 L0,4 L8,8 Z" fill="#34a853"/>
+                </marker>
+                <marker id="ar-yellow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 Z" fill="#fbbc05"/>
+                </marker>
+                <marker id="al-yellow" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto">
+                    <path d="M8,0 L0,4 L8,8 Z" fill="#fbbc05"/>
+                </marker>
+                <marker id="ar-red" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 Z" fill="#ea4335"/>
+                </marker>
+                <marker id="al-red" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto">
+                    <path d="M8,0 L0,4 L8,8 Z" fill="#ea4335"/>
+                </marker>
+                <marker id="ar-purple" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 Z" fill="#a259ff"/>
+                </marker>
+                <marker id="al-purple" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto">
+                    <path d="M8,0 L0,4 L8,8 Z" fill="#a259ff"/>
+                </marker>
+            </defs>
+
+            <!-- ══════════════════ ACTORES ══════════════════ -->
+            <!-- Frontend (Next.js) -->
+            <rect x="20" y="10" width="130" height="44" rx="6" fill="#1a1a2e" stroke="#4285f4" stroke-width="2"/>
+            <text x="85" y="30" text-anchor="middle" fill="#4285f4" font-size="12" font-weight="600">Frontend</text>
+            <text x="85" y="46" text-anchor="middle" fill="#666" font-size="9">(Next.js)</text>
+
+            <!-- Navegador -->
+            <rect x="200" y="10" width="130" height="44" rx="6" fill="#1a1a2e" stroke="#ff9800" stroke-width="2"/>
+            <text x="265" y="30" text-anchor="middle" fill="#ff9800" font-size="12" font-weight="600">Navegador</text>
+            <text x="265" y="46" text-anchor="middle" fill="#666" font-size="9">(usuario)</text>
+
+            <!-- Backend -->
+            <rect x="400" y="10" width="130" height="44" rx="6" fill="#1a1a2e" stroke="#34a853" stroke-width="2"/>
+            <text x="465" y="30" text-anchor="middle" fill="#34a853" font-size="12" font-weight="600">Backend</text>
+            <text x="465" y="46" text-anchor="middle" fill="#666" font-size="9">(FastAPI)</text>
+
+            <!-- Google -->
+            <rect x="610" y="10" width="130" height="44" rx="6" fill="#1a1a2e" stroke="#fbbc05" stroke-width="2"/>
+            <text x="675" y="35" text-anchor="middle" fill="#fbbc05" font-size="12" font-weight="600">Google</text>
+
+            <!-- n8n -->
+            <rect x="820" y="10" width="100" height="44" rx="6" fill="#1a1a2e" stroke="#ea4335" stroke-width="2"/>
+            <text x="870" y="35" text-anchor="middle" fill="#ea4335" font-size="12" font-weight="600">n8n</text>
+
+            <!-- BD -->
+            <rect x="990" y="10" width="110" height="44" rx="6" fill="#1a1a2e" stroke="#a259ff" stroke-width="2"/>
+            <text x="1045" y="35" text-anchor="middle" fill="#a259ff" font-size="12" font-weight="600">Base de Datos</text>
+
+            <!-- ══════════════════ LINEAS DE VIDA ══════════════════ -->
+            <line x1="85" y1="54" x2="85" y2="1620" stroke="#333" stroke-width="1" stroke-dasharray="6,6"/>
+            <line x1="265" y1="54" x2="265" y2="1620" stroke="#333" stroke-width="1" stroke-dasharray="6,6"/>
+            <line x1="465" y1="54" x2="465" y2="1620" stroke="#333" stroke-width="1" stroke-dasharray="6,6"/>
+            <line x1="675" y1="54" x2="675" y2="1620" stroke="#333" stroke-width="1" stroke-dasharray="6,6"/>
+            <line x1="870" y1="54" x2="870" y2="1620" stroke="#333" stroke-width="1" stroke-dasharray="6,6"/>
+            <line x1="1045" y1="54" x2="1045" y2="1620" stroke="#333" stroke-width="1" stroke-dasharray="6,6"/>
+
+            <!-- ══════════════════ PASO 1: Click en boton ══════════════════ -->
+            <g>
+                <circle cx="15" cy="100" r="13" fill="#e94560"/>
+                <text x="15" y="104" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">1</text>
+                <line x1="85" y1="100" x2="255" y2="100" stroke="#ff9800" stroke-width="2" marker-end="url(#ar-yellow)"/>
+                <text x="170" y="92" text-anchor="middle" fill="#ff9800" font-size="10" font-weight="600">Click "Login con Google"</text>
+                <text x="170" y="116" text-anchor="middle" fill="#888" font-size="9">El frontend redirige al navegador</text>
+            </g>
+
+            <!-- ══════════════════ PASO 2: Navegador va al backend ══════════════════ -->
+            <g>
+                <circle cx="15" cy="175" r="13" fill="#e94560"/>
+                <text x="15" y="179" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">2</text>
+                <line x1="265" y1="175" x2="455" y2="175" stroke="#4285f4" stroke-width="2" marker-end="url(#ar-blue)"/>
+                <text x="360" y="165" text-anchor="middle" fill="#4285f4" font-size="9.5" font-weight="600" font-family="monospace">GET /v2/auth/google/login</text>
+                <text x="360" y="193" text-anchor="middle" fill="#888" font-size="9">?redirect_to=https://portal.ctcsalto.edu.uy/callback</text>
+            </g>
+
+            <!-- ══════════════════ PASO 3: Backend responde 302 al navegador ══════════════════ -->
+            <g>
+                <circle cx="15" cy="250" r="13" fill="#e94560"/>
+                <text x="15" y="254" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">3</text>
+                <line x1="455" y1="250" x2="275" y2="250" stroke="#4285f4" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#al-blue)"/>
+                <text x="360" y="240" text-anchor="middle" fill="#4285f4" font-size="10" font-weight="600">302 Redirect</text>
+                <text x="360" y="268" text-anchor="middle" fill="#888" font-size="9">Location: accounts.google.com/o/oauth2/auth?...</text>
+
+                <!-- Nota: guarda redirect_to en session -->
+                <rect x="480" y="230" width="180" height="35" rx="5" fill="#1a1a0e" stroke="#34a853" stroke-width="1"/>
+                <text x="570" y="248" text-anchor="middle" fill="#34a853" font-size="8.5">Backend guarda redirect_to</text>
+                <text x="570" y="260" text-anchor="middle" fill="#888" font-size="8">en session del servidor</text>
+            </g>
+
+            <!-- ══════════════════ PASO 4: Navegador va a Google ══════════════════ -->
+            <g>
+                <circle cx="15" cy="325" r="13" fill="#e94560"/>
+                <text x="15" y="329" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">4</text>
+                <line x1="265" y1="325" x2="665" y2="325" stroke="#fbbc05" stroke-width="2" marker-end="url(#ar-yellow)"/>
+                <text x="465" y="315" text-anchor="middle" fill="#fbbc05" font-size="10" font-weight="600">Navegador sigue el redirect a Google</text>
+                <text x="465" y="343" text-anchor="middle" fill="#888" font-size="9">El usuario ve la pantalla de seleccion de cuenta de Google</text>
+            </g>
+
+            <!-- ══════════════════ PASO 5: Consent Screen ══════════════════ -->
+            <g>
+                <circle cx="15" cy="405" r="13" fill="#e94560"/>
+                <text x="15" y="409" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">5</text>
+
+                <!-- Pantalla de Google centrada entre Navegador y Google -->
+                <rect x="350" y="380" width="270" height="55" rx="6" fill="#1a1a0e" stroke="#fbbc05" stroke-width="1.5"/>
+                <text x="485" y="401" text-anchor="middle" fill="#fbbc05" font-size="11" font-weight="600">Consent Screen de Google</text>
+                <text x="485" y="418" text-anchor="middle" fill="#ccc" font-size="9.5">El usuario ve esto en SU navegador</text>
+                <text x="485" y="430" text-anchor="middle" fill="#888" font-size="9">Elige su cuenta @ctcsalto.edu.uy</text>
+            </g>
+
+            <!-- ══════════════════ PASO 6: Google redirige al navegador ══════════════════ -->
+            <g>
+                <circle cx="15" cy="485" r="13" fill="#e94560"/>
+                <text x="15" y="489" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">6</text>
+                <line x1="665" y1="485" x2="275" y2="485" stroke="#fbbc05" stroke-width="2" marker-end="url(#al-yellow)"/>
+                <text x="465" y="475" text-anchor="middle" fill="#fbbc05" font-size="10" font-weight="600">302 Redirect al navegador</text>
+                <text x="465" y="503" text-anchor="middle" fill="#888" font-size="9">Location: backend.com/v2/auth/google/callback?code=xxx&amp;state=yyy</text>
+            </g>
+
+            <!-- ══════════════════ PASO 7: Navegador va al backend callback ══════════════════ -->
+            <g>
+                <circle cx="15" cy="555" r="13" fill="#e94560"/>
+                <text x="15" y="559" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">7</text>
+                <line x1="265" y1="555" x2="455" y2="555" stroke="#4285f4" stroke-width="2" marker-end="url(#ar-blue)"/>
+                <text x="360" y="545" text-anchor="middle" fill="#4285f4" font-size="9.5" font-weight="600" font-family="monospace">GET /v2/auth/google/callback</text>
+                <text x="360" y="573" text-anchor="middle" fill="#888" font-size="9">?code=xxx&amp;state=yyy</text>
+            </g>
+
+            <!-- ══════════════════ PASO 8: Backend intercambia code (SERVER-TO-SERVER) ══════════════════ -->
+            <g>
+                <circle cx="15" cy="635" r="13" fill="#e94560"/>
+                <text x="15" y="639" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">8</text>
+                <line x1="465" y1="628" x2="665" y2="628" stroke="#34a853" stroke-width="2" marker-end="url(#ar-green)"/>
+                <text x="565" y="618" text-anchor="middle" fill="#34a853" font-size="10" font-weight="600">Intercambia code por token</text>
+
+                <!-- Nota: server to server -->
+                <rect x="710" y="610" width="155" height="25" rx="4" fill="#0e1a0e" stroke="#34a853" stroke-width="1"/>
+                <text x="787" y="627" text-anchor="middle" fill="#34a853" font-size="8.5">SERVER-TO-SERVER</text>
+
+                <line x1="665" y1="648" x2="475" y2="648" stroke="#34a853" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#al-green)"/>
+                <text x="565" y="666" text-anchor="middle" fill="#34a853" font-size="9" font-family="monospace">{email, nombre, foto, hd: "ctcsalto.edu.uy"}</text>
+            </g>
+
+            <!-- ══════════════════ PASO 9: Validacion dominio ══════════════════ -->
+            <g>
+                <circle cx="15" cy="720" r="13" fill="#e94560"/>
+                <text x="15" y="724" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">9</text>
+                <rect x="390" y="700" width="150" height="55" rx="6" fill="#1a1a0e" stroke="#fbbc05" stroke-width="1"/>
+                <text x="465" y="720" text-anchor="middle" fill="#fbbc05" font-size="10" font-weight="600">Valida dominio</text>
+                <text x="465" y="736" text-anchor="middle" fill="#ccc" font-size="9">hd == ctcsalto.edu.uy</text>
+                <text x="465" y="749" text-anchor="middle" fill="#ea4335" font-size="8.5">Si no pasa → 403 Forbidden</text>
+            </g>
+
+            <!-- ══════════════════ PASO 10: Backend → n8n (SERVER-TO-SERVER) ══════════════════ -->
+            <g>
+                <circle cx="15" cy="805" r="13" fill="#e94560"/>
+                <text x="15" y="809" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">10</text>
+                <line x1="465" y1="798" x2="860" y2="798" stroke="#ea4335" stroke-width="2" marker-end="url(#ar-red)"/>
+                <text x="660" y="788" text-anchor="middle" fill="#ea4335" font-size="10" font-weight="600">POST n8n/google-user-ou</text>
+
+                <!-- Nota: server to server -->
+                <rect x="900" y="785" width="155" height="25" rx="4" fill="#1a0e0e" stroke="#ea4335" stroke-width="1"/>
+                <text x="977" y="802" text-anchor="middle" fill="#ea4335" font-size="8.5">SERVER-TO-SERVER</text>
+
+                <line x1="860" y1="822" x2="475" y2="822" stroke="#ea4335" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#al-red)"/>
+                <text x="660" y="840" text-anchor="middle" fill="#ea4335" font-size="9" font-family="monospace">{orgUnitPath: "/Alumnos"}</text>
+            </g>
+
+            <!-- ══════════════════ PASO 11: Mapeo OU → Rol ══════════════════ -->
+            <g>
+                <circle cx="15" cy="900" r="13" fill="#e94560"/>
+                <text x="15" y="904" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">11</text>
+                <rect x="385" y="875" width="160" height="70" rx="6" fill="#0e1a0e" stroke="#34a853" stroke-width="1"/>
+                <text x="465" y="894" text-anchor="middle" fill="#34a853" font-size="10" font-weight="600">Mapea OU → Rol</text>
+                <text x="465" y="912" text-anchor="middle" fill="#ccc" font-size="8.5" font-family="monospace">/Alumnos → ESTUDIANTE</text>
+                <text x="465" y="926" text-anchor="middle" fill="#ccc" font-size="8.5" font-family="monospace">/Equipo Docente → DOCENTE</text>
+                <text x="465" y="940" text-anchor="middle" fill="#ccc" font-size="8.5" font-family="monospace">/Adm. y Ventas → ADMIN</text>
+            </g>
+
+            <!-- ══════════════════ PASO 12: Backend → BD (SERVER-TO-SERVER) ══════════════════ -->
+            <g>
+                <circle cx="15" cy="995" r="13" fill="#e94560"/>
+                <text x="15" y="999" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">12</text>
+                <line x1="465" y1="990" x2="1035" y2="990" stroke="#a259ff" stroke-width="2" marker-end="url(#ar-purple)"/>
+                <text x="750" y="980" text-anchor="middle" fill="#a259ff" font-size="10" font-weight="600">Busca usuario por google_id o email</text>
+                <line x1="1035" y1="1010" x2="475" y2="1010" stroke="#a259ff" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#al-purple)"/>
+                <text x="750" y="1028" text-anchor="middle" fill="#888" font-size="9">No existe → crea usuario con rol | Existe → actualiza datos</text>
+            </g>
+
+            <!-- ══════════════════ PASO 13: Genera JWT ══════════════════ -->
+            <g>
+                <circle cx="15" cy="1080" r="13" fill="#e94560"/>
+                <text x="15" y="1084" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">13</text>
+                <rect x="390" y="1060" width="150" height="45" rx="6" fill="#1a1a2e" stroke="#34a853" stroke-width="1"/>
+                <text x="465" y="1080" text-anchor="middle" fill="#34a853" font-size="10" font-weight="600">Genera JWT</text>
+                <text x="465" y="1096" text-anchor="middle" fill="#ccc" font-size="8.5" font-family="monospace">{sub, rol, usuario_id}</text>
+            </g>
+
+            <!-- ══════════════════ PASO 14: Backend redirige al navegador ══════════════════ -->
+            <g>
+                <circle cx="15" cy="1155" r="13" fill="#e94560"/>
+                <text x="15" y="1159" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">14</text>
+                <line x1="455" y1="1155" x2="275" y2="1155" stroke="#4285f4" stroke-width="2" marker-end="url(#al-blue)"/>
+                <text x="360" y="1145" text-anchor="middle" fill="#4285f4" font-size="10" font-weight="600">302 Redirect</text>
+                <text x="360" y="1173" text-anchor="middle" fill="#888" font-size="9">Location: portal.ctcsalto.edu.uy/callback?token=eyJhb...</text>
+            </g>
+
+            <!-- ══════════════════ PASO 15: Navegador va al frontend ══════════════════ -->
+            <g>
+                <circle cx="15" cy="1225" r="13" fill="#e94560"/>
+                <text x="15" y="1229" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">15</text>
+                <line x1="255" y1="1225" x2="95" y2="1225" stroke="#ff9800" stroke-width="2" marker-end="url(#al-yellow)"/>
+                <text x="170" y="1215" text-anchor="middle" fill="#ff9800" font-size="10" font-weight="600">Navega al frontend</text>
+                <text x="170" y="1243" text-anchor="middle" fill="#888" font-size="9">/callback?token=eyJhb...</text>
+            </g>
+
+            <!-- ══════════════════ PASO 16: Frontend guarda + pide /me ══════════════════ -->
+            <g>
+                <circle cx="15" cy="1295" r="13" fill="#e94560"/>
+                <text x="15" y="1299" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">16</text>
+                <rect x="25" y="1275" width="120" height="30" rx="5" fill="#1a1a2e" stroke="#4285f4" stroke-width="1"/>
+                <text x="85" y="1295" text-anchor="middle" fill="#4285f4" font-size="9">Guarda en localStorage</text>
+
+                <line x1="85" y1="1325" x2="455" y2="1325" stroke="#4285f4" stroke-width="2" marker-end="url(#ar-blue)"/>
+                <text x="270" y="1315" text-anchor="middle" fill="#4285f4" font-size="9.5" font-weight="600" font-family="monospace">GET /v2/auth/me</text>
+                <text x="270" y="1343" text-anchor="middle" fill="#888" font-size="9">Header: Authorization: Bearer eyJhb...</text>
+
+                <line x1="455" y1="1365" x2="95" y2="1365" stroke="#34a853" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#al-green)"/>
+                <text x="270" y="1383" text-anchor="middle" fill="#34a853" font-size="9" font-family="monospace">{id, email, nombre, rol, foto_url, ...}</text>
+            </g>
+
+            <!-- ══════════════════ PASO 17: Muestra panel segun rol ══════════════════ -->
+            <g>
+                <circle cx="15" cy="1435" r="13" fill="#e94560"/>
+                <text x="15" y="1439" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">17</text>
+                <rect x="20" y="1410" width="130" height="75" rx="6" fill="#1a1a2e" stroke="#4285f4" stroke-width="1"/>
+                <text x="85" y="1430" text-anchor="middle" fill="#4285f4" font-size="10" font-weight="600">Segun usuario.rol</text>
+                <text x="85" y="1450" text-anchor="middle" fill="#34a853" font-size="9">estudiante → Panel Est.</text>
+                <text x="85" y="1465" text-anchor="middle" fill="#fbbc05" font-size="9">docente → Panel Doc.</text>
+                <text x="85" y="1480" text-anchor="middle" fill="#ea4335" font-size="9">admin → Panel Admin</text>
+            </g>
+
+            <!-- ══════════════════ SEPARADOR LOGOUT ══════════════════ -->
+            <line x1="10" y1="1520" x2="1140" y2="1520" stroke="#444" stroke-width="1" stroke-dasharray="3,3"/>
+            <text x="575" y="1545" text-anchor="middle" fill="#888" font-size="11" font-weight="600">LOGOUT</text>
+
+            <!-- Logout -->
+            <g>
+                <line x1="85" y1="1575" x2="455" y2="1575" stroke="#ea4335" stroke-width="2" marker-end="url(#ar-red)"/>
+                <text x="270" y="1565" text-anchor="middle" fill="#ea4335" font-size="10" font-weight="600" font-family="monospace">POST /v2/auth/logout</text>
+                <text x="270" y="1593" text-anchor="middle" fill="#888" font-size="9">Header: Bearer token → se agrega a blacklist en Redis → token invalidado</text>
+            </g>
+        </svg>
+    </div>
+
+    <!-- Resumen para frontend -->
+    <div class="summary">
+        <h2>Resumen para integracion en Frontend</h2>
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h3 style="color: #4285f4;">Endpoints que usa el Frontend</h3>
+                <div class="endpoint">
+                    <span class="method method-get">GET</span>
+                    <div>
+                        <div class="endpoint-path">/v2/auth/google/login?redirect_to=URL</div>
+                        <div class="endpoint-desc">Inicia el flujo OAuth. Redirigir al usuario aca.</div>
+                    </div>
+                </div>
+                <div class="endpoint">
+                    <span class="method method-get">GET</span>
+                    <div>
+                        <div class="endpoint-path">/v2/auth/me</div>
+                        <div class="endpoint-desc">Obtiene datos del usuario y su rol. Header: Bearer token</div>
+                    </div>
+                </div>
+                <div class="endpoint">
+                    <span class="method method-post">POST</span>
+                    <div>
+                        <div class="endpoint-path">/v2/auth/logout</div>
+                        <div class="endpoint-desc">Cierra sesion (invalida token). Header: Bearer token</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="summary-card">
+                <h3 style="color: #fbbc05;">Mapeo OU de Google → Rol</h3>
+                <p style="font-size: 0.8rem; color: #888; margin-bottom: 0.5rem;">
+                    El rol se determina por la Unidad Organizativa (OU) del usuario en Google Workspace, consultada via n8n.
+                    El frontend NO asigna el rol, solo lo lee.
+                </p>
+                <table class="ou-table">
+                    <thead>
+                        <tr><th>OU en Google Workspace</th><th>Rol en el sistema</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>/Alumnos</td><td>ESTUDIANTE</td></tr>
+                        <tr><td>/Equipo Docente</td><td>DOCENTE</td></tr>
+                        <tr><td>/Administracion y Ventas</td><td>ADMINISTRATIVO</td></tr>
+                        <tr><td>(cualquier otra / error n8n)</td><td>ESTUDIANTE (default)</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="summary-card">
+                <h3 style="color: #34a853;">Pasos para el Frontend</h3>
+                <ul>
+                    <li><strong>1.</strong> Redirigir a <code>GET /v2/auth/google/login?redirect_to=TU_URL_CALLBACK</code></li>
+                    <li><strong>2.</strong> En tu pagina de callback, capturar el <code>?token=xxx</code> de la URL</li>
+                    <li><strong>3.</strong> Guardar el token en <code>localStorage</code></li>
+                    <li><strong>4.</strong> Llamar a <code>GET /v2/auth/me</code> con header <code>Authorization: Bearer token</code></li>
+                    <li><strong>5.</strong> Leer <code>usuario.rol</code> y mostrar el panel correspondiente</li>
+                    <li><strong>6.</strong> Para logout: <code>POST /v2/auth/logout</code> + limpiar localStorage</li>
+                </ul>
+            </div>
+
+            <div class="summary-card">
+                <h3 style="color: #ea4335;">Respuesta de /v2/auth/me</h3>
+                <pre style="background: #0f0f1a; padding: 0.8rem; border-radius: 6px; font-size: 0.78rem; color: #ccc; overflow-x: auto; line-height: 1.5;">{
+  "id": 5,
+  "google_id": "108197...",
+  "email": "usuario@ctcsalto.edu.uy",
+  "nombre": "Juan",
+  "apellido": "Perez",
+  "foto_url": "https://lh3.google...",
+  "rol": "estudiante",
+  "ou_google": "/Alumnos",
+  "activo": true,
+  "moodle_id": 42,
+  "fecha_creacion": "2026-06-07T...",
+  "ultimo_acceso": "2026-06-08T..."
+}</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Produccion vs desarrollo -->
+    <div class="prod-section">
+        <h2>Configuracion: Desarrollo vs Produccion</h2>
+        <div class="prod-grid">
+            <div class="prod-card">
+                <h3 style="color: #34a853;">Desarrollo (mismo servidor)</h3>
+                <pre><span class="comment"># Frontend y backend en el mismo puerto</span>
+<span class="var">redirect_to</span> = <span class="url">http://localhost:8000/test-login/callback</span>
+
+<span class="comment"># .env del backend</span>
+<span class="var">GOOGLE_REDIRECT_URI</span> = <span class="url">http://localhost:8000/v2/auth/google/callback</span>
+
+<span class="comment"># Google Console → Authorized redirect URIs</span>
+<span class="url">http://localhost:8000/v2/auth/google/callback</span></pre>
+            </div>
+            <div class="prod-card">
+                <h3 style="color: #4285f4;">Produccion (servidores separados)</h3>
+                <pre><span class="comment"># Frontend en un dominio, backend en otro</span>
+<span class="var">redirect_to</span> = <span class="url">https://portal.ctcsalto.edu.uy/callback</span>
+
+<span class="comment"># .env del backend</span>
+<span class="var">GOOGLE_REDIRECT_URI</span> = <span class="url">https://api.ctcsalto.edu.uy/v2/auth/google/callback</span>
+
+<span class="comment"># Google Console → Authorized redirect URIs</span>
+<span class="url">https://api.ctcsalto.edu.uy/v2/auth/google/callback</span></pre>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

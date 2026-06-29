@@ -6,11 +6,13 @@ import os
 from .models.user import User
 from .models.career import Career
 from .models.testimony import Testimony
+from .models.testimony_video import TestimonyVideo
 from .models.news import News
 
 from .services.user_service import UserService
 from .services.carrer_service import CareerService
 from .services.testimony_service import TestimonyService
+from .services.testimony_video_service import TestimonyVideoService
 from .services.news_services import NewsService
 
 from .services.supabase.image_service import SupabaseService
@@ -27,14 +29,14 @@ try:
     # Solo carga .env si existe el archivo
     if os.path.exists('.env'):
         load_dotenv(override=True)
-        print("✅ Variables de entorno cargadas desde .env")
+        print("Variables de entorno cargadas desde .env")
     else:
-        print("ℹ️ Usando variables del sistema (producción)")
+        print("Usando variables del sistema (produccion)")
 except ImportError:
     # En producción donde python-dotenv no está instalado
-    print("ℹ️ python-dotenv no disponible, usando variables del sistema")
+    print("python-dotenv no disponible, usando variables del sistema")
 except Exception as e:
-    print(f"⚠️ Error cargando .env: {e}")
+    print(f"Error cargando .env: {e}")
 
 engine = create_engine(
     os.getenv("DATABASE_URL"),
@@ -49,6 +51,7 @@ class Services:
         self.userService = UserService()
         self.careerService = CareerService()
         self.testimonyService = TestimonyService()
+        self.testimonyVideoService = TestimonyVideoService()
         self.newsService = NewsService()
 
         # Utils Services
@@ -73,9 +76,9 @@ def create_db_and_tables():
     try:
         # SQLAlchemy solo crea las tablas que NO existen
         SQLModel.metadata.create_all(bind=engine, checkfirst=True)
-        print("✅ Verificación de tablas completada")
+        print("[OK] Verificación de tablas completada")
     except Exception as e:
-        print(f"❌ Error creando/verificando tablas: {e}")
+        print(f"[ERROR] Error creando/verificando tablas: {e}")
         raise
 
 def reset_database():

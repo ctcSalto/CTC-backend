@@ -73,10 +73,17 @@ class GoogleWorkspaceService:
                 error_message = response.text
                 try:
                     error_json = response.json()
-                    error_message = error_json.get('message', error_message)
+                    description = error_json.get('description', '')
+                    message = error_json.get('message', '')
+                    # Asegurar que sean strings (n8n puede devolver objetos)
+                    if not isinstance(description, str):
+                        description = str(description) if description else ''
+                    if not isinstance(message, str):
+                        message = str(message) if message else ''
+                    error_message = description if description else message if message else error_message
                 except:
                     pass
-                raise ValueError(f"Error en n8n webhook: {error_message}")
+                raise ValueError(error_message)
 
             # Intentar parsear JSON
             try:
@@ -133,7 +140,8 @@ class GoogleWorkspaceService:
         given_name: Optional[str] = None,
         family_name: Optional[str] = None,
         org_unit_path: Optional[str] = None,
-        suspended: Optional[bool] = None
+        suspended: Optional[bool] = None,
+        password: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Actualiza una cuenta de usuario en Google Workspace
@@ -144,6 +152,7 @@ class GoogleWorkspaceService:
             family_name: Nuevo apellido (opcional)
             org_unit_path: Nueva unidad organizativa (opcional)
             suspended: Suspender/activar cuenta (opcional)
+            password: Nueva contraseña (opcional)
 
         Returns:
             Dict con los datos del usuario actualizado
@@ -158,6 +167,8 @@ class GoogleWorkspaceService:
             data["orgUnitPath"] = org_unit_path
         if suspended is not None:
             data["suspended"] = suspended
+        if password:
+            data["password"] = password
 
         return self._make_request('updateGoogleAccount', method='POST', data=data)
 

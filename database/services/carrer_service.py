@@ -1,11 +1,10 @@
-from sqlmodel import Session, select, func, and_, or_
-from ..models.career import Career, CareerCreate, CareerRead, CareerSimple, CareerUpdate, CareerInList, CareerReadOptimized, UserSimple, TestimonyForCareer, Area, CarrerDropdown
+from sqlmodel import Session, select, and_, or_
+from ..models.career import Career, CareerCreate, CareerRead, CareerSimple, CareerUpdate, CareerInList, CareerReadOptimized, UserSimple, TestimonyForCareer, CarrerDropdown
 from ..services.supabase.image_service import SupabaseService
 from typing import List, Optional
 from datetime import date 
 from sqlalchemy.orm import selectinload
 from datetime import datetime
-import random
 
 from database.services.filter.filters import BaseServiceWithFilters
 
@@ -304,56 +303,35 @@ class CareerService(BaseServiceWithFilters[Career]):
  
     def get_random_careers_by_area(self, session: Session, count: int = 4) -> List[CareerSimple]:
         """
-        Obtener carreras aleatorias asegurando diversidad de áreas
-        - Si count <= número de áreas: una carrera por área
-        - Si count > número de áreas: repite áreas de forma equitativa
-        - NO repite la misma carrera
-        - Solo carreras publicadas
+        Obtener una carrera por área: la más próxima a comenzar de cada área.
+        Nulls al final dentro de cada área. El parámetro count se ignora
+        (el resultado depende de cuántas áreas tengan carreras publicadas).
         """
         try:
             with session:
-                areas = [area.value for area in Area]
-                selected_careers = []
-                used_career_ids = set()  # Para evitar repeticiones
-                
-                # Obtener carreras disponibles por área (SOLO PUBLICADAS)
-                careers_by_area = {}
-                for area in areas:
-                    stmt = select(Career).where(and_(
-                        Career.area == area, 
-                        Career.published == True
-                    ))
-                    area_careers = session.exec(stmt).all()
-                    if area_careers:  # Solo incluir áreas que tienen carreras
-                        careers_by_area[area] = area_careers
-                
-                if not careers_by_area:
+                stmt = select(Career).where(Career.published)
+                all_careers = session.exec(stmt).all()
+
+                if not all_careers:
                     return []
-                
-                available_areas = list(careers_by_area.keys())
-                
-                # Distribuir el count entre las áreas disponibles
-                for i in range(count):
-                    # Rotar entre las áreas disponibles
-                    area = available_areas[i % len(available_areas)]
-                    
-                    # Filtrar carreras no usadas de esta área
-                    available_careers_in_area = [
-                        career for career in careers_by_area[area] 
-                        if career.careerId not in used_career_ids
-                    ]
-                    
-                    # Si no hay carreras disponibles en esta área, pasar a la siguiente
-                    if not available_careers_in_area:
-                        continue
-                    
-                    # Seleccionar una carrera aleatoria de esta área
-                    career = random.choice(available_careers_in_area)
-                    selected_careers.append(career)
-                    used_career_ids.add(career.careerId)
-                
-                return [CareerSimple.model_validate(career) for career in selected_careers]
-                
+
+                today = date.today()
+
+                def proximity_key(c):
+                    if c.startClasses is None:
+                        return (1, 0)
+                    return (0, abs((c.startClasses - today).days))
+
+                # Agrupar por área y quedarse con la más próxima de cada una
+                best_by_area = {}
+                for career in all_careers:
+                    area = career.area
+                    if area not in best_by_area or proximity_key(career) < proximity_key(best_by_area[area]):
+                        best_by_area[area] = career
+
+                result = sorted(best_by_area.values(), key=proximity_key)
+                return [CareerSimple.model_validate(c) for c in result]
+
         except Exception as e:
             print(f"Error en servicio de carreras aleatorias: {e}")
             raise ValueError(f"Error al obtener carreras aleatorias: {str(e)}")
@@ -411,17 +389,26 @@ class CareerService(BaseServiceWithFilters[Career]):
                     if used_career_ids:
                         filters.append(~Career.careerId.in_(used_career_ids))
                     
-                    # Construir statement
-                    stmt = select(Career).where(and_(*filters)).order_by(func.random())
-                    
-                    # Obtener carreras disponibles
+                    stmt = select(Career).where(and_(*filters))
                     available_careers = session.exec(stmt).all()
-                    
-                    # Seleccionar las que necesitamos (sin repetir)
+
                     if available_careers:
-                        careers_to_add = min(len(available_careers), remaining_count)
-                        random_careers = random.sample(list(available_careers), careers_to_add)
-                        selected_careers.extend(random_careers)
+                        today = date.today()
+
+                        def proximity_key(c):
+                            if c.startClasses is None:
+                                return (1, 0)
+                            return (0, abs((c.startClasses - today).days))
+
+                        # Pool: las 10 más próximas a comenzar
+                        pool = sorted(available_careers, key=proximity_key)[:10]
+
+                        # Elegir aleatoriamente del pool y ordenar el resultado por fecha
+                        import random
+                        sample_size = min(len(pool), remaining_count)
+                        chosen = random.sample(pool, sample_size)
+                        chosen.sort(key=proximity_key)
+                        selected_careers.extend(chosen)
                 
                 return [CareerSimple.model_validate(career) for career in selected_careers]
                 
