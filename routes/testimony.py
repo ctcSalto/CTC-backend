@@ -9,11 +9,6 @@ from database.models.testimony import (
     TestimonyInList,
     TestimonyPublic
 )
-from database.models.testimony_video import (
-    TestimonyVideoCreate,
-    TestimonyVideoRead,
-    TestimonyVideoUpdate,
-)
 from database.models.user import UserRead
 from database.services.filter.filters import Filter
 
@@ -264,89 +259,6 @@ async def delete_testimony(
             detail=f"Error interno del servidor: {str(e)}"
         )
 
-# =================== ENDPOINTS DE VIDEOS ===================
-
-@router.post("/{testimony_id}/videos", response_model=TestimonyVideoRead, status_code=status.HTTP_201_CREATED)
-async def add_testimony_video(
-    testimony_id: int,
-    video_data: TestimonyVideoCreate,
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> TestimonyVideoRead:
-    """Agregar un video a un testimonio (solo administradores)"""
-    try:
-        testimony = services.testimonyService.get_testimony_by_id(testimony_id, session)
-        if not testimony:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Testimonio no encontrado"
-            )
-
-        new_video = services.testimonyVideoService.add_video(testimony_id, video_data, session)
-        show(f"Video agregado al testimonio {testimony_id}: {new_video}")
-        return new_video
-    except HTTPException:
-        raise
-    except Exception as e:
-        show(f"Error al agregar video: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error interno del servidor: {str(e)}"
-        )
-
-@router.put("/{testimony_id}/videos/{video_id}", response_model=TestimonyVideoRead, status_code=status.HTTP_200_OK)
-async def update_testimony_video(
-    testimony_id: int,
-    video_id: int,
-    video_update: TestimonyVideoUpdate,
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-) -> TestimonyVideoRead:
-    """Actualizar un video de un testimonio (solo administradores)"""
-    try:
-        updated_video = services.testimonyVideoService.update_video(video_id, video_update, session)
-        if not updated_video:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Video no encontrado"
-            )
-        return updated_video
-    except HTTPException:
-        raise
-    except Exception as e:
-        show(f"Error al actualizar video: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error interno del servidor: {str(e)}"
-        )
-
-@router.delete("/{testimony_id}/videos/{video_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_testimony_video(
-    testimony_id: int,
-    video_id: int,
-    current_user: UserRead = Depends(require_admin_role),
-    services: Services = Depends(get_services),
-    session: Session = Depends(get_session)
-):
-    """Eliminar un video de un testimonio (solo administradores)"""
-    try:
-        deleted = services.testimonyVideoService.delete_video(video_id, session)
-        if not deleted:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Video no encontrado"
-            )
-        show(f"Video {video_id} eliminado del testimonio {testimony_id}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        show(f"Error al eliminar video: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error interno del servidor: {str(e)}"
-        )
 
 # =================== ENDPOINTS DE BÚSQUEDA ===================
 

@@ -7,9 +7,8 @@ from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
     from database.models.user import User, UserRead
-    from database.models.career import Career, CareerRead
-    from database.models.testimony_video import TestimonyVideo, TestimonyVideoRead
-    
+    from database.models.career import Career
+
 def get_uruguay_tz():
     """Lee la variable cada vez que se llama"""
     tz_name = os.getenv('TIME_ZONE', 'America/Montevideo')
@@ -21,6 +20,7 @@ class TestimonyBase(SQLModel):
     name: str = Field(max_length=50, description="Nombre de la persona")
     lastname: str = Field(max_length=50, description="Apellido de la persona")
     career: int = Field(foreign_key="career.careerId", description="ID de la carrera")
+    videoUrl: Optional[str] = Field(default=None, max_length=500, description="URL del video (YouTube, etc.). Si se provee, el testimonio es de video; si no, es de texto.")
 
 # Modelo para la tabla (con relaciones)
 class Testimony(TestimonyBase, table=True):
@@ -29,27 +29,27 @@ class Testimony(TestimonyBase, table=True):
     modificationDate: Optional[date] = Field(default=None, description="Fecha de modificación")
     creator: int = Field(foreign_key="user.userId", description="ID del usuario creador")
     modifier: Optional[int] = Field(default=None, foreign_key="user.userId", description="ID del usuario modificador")
-    
+
     creator_user: Optional["User"] = Relationship(back_populates="created_testimonies", sa_relationship_kwargs={"foreign_keys": "[Testimony.creator]"})
     modifier_user: Optional["User"] = Relationship(back_populates="modified_testimonies", sa_relationship_kwargs={"foreign_keys": "[Testimony.modifier]"})
     career_ref: Optional["Career"] = Relationship(back_populates="testimonies")
-    videos: List["TestimonyVideo"] = Relationship(back_populates="testimony")
 
 # Modelo para crear un testimonio (POST)
 class TestimonyCreate(TestimonyBase):
     creator: int
+
 # Modelo para actualizar un testimonio (PUT/PATCH)
 class TestimonyUpdate(SQLModel):
     text: Optional[str] = Field(default=None, max_length=350)
     name: Optional[str] = Field(default=None, max_length=50)
     lastname: Optional[str] = Field(default=None, max_length=50)
     career: Optional[int] = None
+    videoUrl: Optional[str] = Field(default=None, max_length=500)
     modifier: Optional[int] = None
     modificationDate: Optional[date] = Field(default_factory=lambda: datetime.now(get_uruguay_tz()).date())
-    
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Actualizar fecha de modificación automáticamente
         self.modificationDate = datetime.now(get_uruguay_tz()).date()
 
 # Modelo para leer un testimonio (GET) - incluye todos los campos
@@ -62,7 +62,6 @@ class TestimonyRead(TestimonyBase):
     creator_user: Optional["UserRead"] = None
     modifier_user: Optional["UserRead"] = None
     career: Optional[int] = None
-    videos: List["TestimonyVideoRead"] = []
 
 
 class TestimonyFilterResponse(SQLModel):
@@ -74,10 +73,11 @@ class TestimonyFilterResponse(SQLModel):
     creator_user: Optional["UserRead"] = None
     modifier_user: Optional["UserRead"] = None
     career: Optional[int] = None
-    
+
 class TestimonyFilterWithCountResponse(SQLModel):
     data: List[TestimonyFilterResponse] = []
     total_count: int = 0
+
 # Modelo para respuestas de lista
 class TestimonyInList(SQLModel):
     testimonyId: int
@@ -95,11 +95,9 @@ class TestimonyPublic(SQLModel):
     lastname: str
     career: int
     career_name: str
-    videos: List["TestimonyVideoRead"] = []
+    videoUrl: Optional[str] = None
 
 from .user import UserRead
-from .career import CareerRead
-from .testimony_video import TestimonyVideoRead
 # Rebuild después de definir todos los modelos
 TestimonyRead.model_rebuild()
 TestimonyPublic.model_rebuild()

@@ -83,15 +83,18 @@ alembic upgrade head
       el merge). Si por algun motivo ya estuvieran ambas aplicadas via SQL manual, verificar con
       `alembic current` y usar `alembic stamp` si hace falta alinear el historial.
 
-11. `bad9dad1cc40_agregar_tabla_testimony_video` — **Videos en testimonios:**
-    - Tabla nueva: `testimony_video` (`testimonyVideoId`, `testimonyId` FK a `testimony`, `url`,
-      `order`, `creationDate`)
-    - Permite N videos por testimonio (ej: testimonios con video de YouTube o Supabase Storage,
-      a definir cual proveedor se usa — la tabla no depende de esa decision, solo guarda la URL)
-    - Endpoints nuevos: `POST/PUT/DELETE /testimonies/{testimony_id}/videos[/{video_id}]`
-    - `TestimonyRead` y `TestimonyPublic` ahora incluyen `videos: List[TestimonyVideoRead]`
+11. `bad9dad1cc40_agregar_tabla_testimony_video` — **Videos en testimonios (INTERMEDIA, ver migración 12):**
+    - Crea la tabla `testimony_video`. Fue reemplazada por la migración 12 antes de llegar a producción.
+    - **En producción:** aplicar igualmente (`alembic upgrade head` la aplica en cadena); la migración 12 la elimina de inmediato.
 
-**Riesgo:** Las migraciones 1-3 crean/modifican tablas. La migracion 4 inserta datos (previaturas). La migracion 5 agrega columnas a usuario. Las migraciones 7 y 8 agregan columnas nullable/con defaults (sin impacto en datos existentes). La migracion 9 crea una tabla nueva y una columna con default (sin impacto). La migracion 10 es no-op (solo ordena el historial). La migracion 11 crea una tabla nueva con FK a `testimony` (sin impacto en datos existentes).
+12. `e578594a9f4b_reemplazar_testimony_video_por_videoUrl_en_testimony` — **Simplificación de videos en testimonios:**
+    - Elimina la tabla `testimony_video` (relación 1-N descartada antes del primer despliegue)
+    - Agrega columna `testimony.videoUrl` (varchar 500, nullable)
+    - Un testimonio es texto (`text`) o video (`videoUrl`), no ambos ni múltiples videos
+    - Los endpoints `POST/PUT/DELETE /testimonies/{id}/videos` fueron eliminados
+    - `TestimonyRead` y `TestimonyPublic` incluyen `videoUrl: Optional[str]` en lugar de `videos: List`
+
+**Riesgo:** Las migraciones 1-3 crean/modifican tablas. La migracion 4 inserta datos (previaturas). La migracion 5 agrega columnas a usuario. Las migraciones 7 y 8 agregan columnas nullable/con defaults (sin impacto en datos existentes). La migracion 9 crea una tabla nueva y una columna con default (sin impacto). La migracion 10 es no-op (solo ordena el historial). Las migraciones 11 y 12 se aplican en cadena: crean y eliminan `testimony_video`, y agregan `testimony.videoUrl` (nullable, sin impacto en datos existentes).
 
 **Nota sobre `alembic/env.py`:** se detecto que el archivo no importaba `Career`, `Testimony` ni `News` en su `target_metadata`, lo cual hacia que `alembic revision --autogenerate` marcara esas tablas como "removidas" (¡riesgo real de DROP TABLE accidental si se aceptaba un autogenerate sin revisar el diff!). Se corrigio agregando esos imports. **Cualquier autogenerate futuro debe revisarse a mano antes de aplicarse** — el diff todavia puede traer ruido de tablas legacy (`author`, `profile`, `post`, `example`) que existen en algunas BDs pero no en los modelos actuales.
 
@@ -115,9 +118,9 @@ alembic upgrade head
 - [ ] Agregar variable de entorno: `PLAZO_BAJA_EXAMEN_HORAS` (opcional, default 72)
 - [ ] Verificar tabla `notificacion_log` y columna `inscripcion_materia.notificacion_calificacion_enviada` (migracion 9, antes no documentada)
 - [ ] Correr `alembic current` ANTES de `alembic upgrade head` en produccion para confirmar en que revision esta (por el merge de heads de la migracion 10)
-- [ ] Verificar que la tabla `testimony_video` se creo (`\d testimony_video`)
-- [ ] Verificar endpoints de videos en Swagger (`/docs` -> seccion "Testimonies", rutas `/testimonies/{id}/videos`)
-- [ ] Decidir proveedor de hosting de video (YouTube vs Supabase Storage) — no bloquea el deploy de esta migracion, la tabla solo guarda una URL libre
+- [ ] Verificar columna `videoUrl` en tabla `testimony`: `SELECT "videoUrl" FROM testimony LIMIT 1`
+- [ ] Verificar que la tabla `testimony_video` NO existe (`\d testimony_video` debe dar error)
+- [ ] Decidir proveedor de hosting de video (YouTube vs Supabase Storage) — el campo `videoUrl` acepta cualquier URL
 
 ## Variables de entorno nuevas
 
@@ -206,4 +209,4 @@ El backend corre detras de un proxy inverso que termina SSL. Sin la configuracio
 - Si se necesita rollback completo: `alembic downgrade 055950855a1a` (elimina todas las tablas v2)
 - Si se necesita rollback solo de Fase 2 (rendiciones): `alembic downgrade 4d769166125d` (quita max_oportunidades, numero_rendicion, motivo_revalida)
 - Si se necesita rollback de Fases 1+2: `alembic downgrade f3g4h5i6j7k8` (quita todo de Fase 1 y 2)
-- Si se necesita rollback solo de la tabla de videos: `alembic downgrade 4fd4c9f395dd` (elimina `testimony_video`)
+- Si se necesita rollback de videoUrl en testimony: `alembic downgrade bad9dad1cc40` (quita videoUrl, restaura testimony_video)

@@ -79,7 +79,6 @@ class TestimonyService(BaseServiceWithFilters[Testimony]):
             for testimony, career_name in results:
                 testimony_dict = testimony.model_dump()
                 testimony_dict['career_name'] = career_name
-                testimony_dict['videos'] = [video.model_dump() for video in testimony.videos]
                 testimonies_public.append(TestimonyPublic.model_validate(testimony_dict))
             
             return testimonies_public
