@@ -102,6 +102,7 @@ class CareerService(BaseServiceWithFilters[Career]):
                     {
                         "testimonyId": t.testimonyId,
                         "text": t.text,
+                        "videoUrl": t.videoUrl,
                         "name": t.name,
                         "lastname": t.lastname,
                         "creationDate": t.creationDate
@@ -155,13 +156,14 @@ class CareerService(BaseServiceWithFilters[Career]):
                 TestimonyForCareer(
                     testimonyId=t.testimonyId,
                     text=t.text,
+                    videoUrl=t.videoUrl,
                     name=t.name,
                     lastname=t.lastname,
                     creationDate=t.creationDate
                 )
                 for t in career.testimonies
             ]
-            
+
             return CareerReadOptimized(
                 careerId=career.careerId,
                 careerType=career.careerType,
@@ -183,7 +185,7 @@ class CareerService(BaseServiceWithFilters[Career]):
                 modifier_user=modifier_user,
                 testimonies=testimonies
             )
-            
+
     def get_public_career_optimized_by_id(self, session: Session, career_id: int) -> Optional[CareerReadOptimized]:
         """Obtener una carrera específica con información optimizada"""
         with session:
@@ -223,13 +225,14 @@ class CareerService(BaseServiceWithFilters[Career]):
                 TestimonyForCareer(
                     testimonyId=t.testimonyId,
                     text=t.text,
+                    videoUrl=t.videoUrl,
                     name=t.name,
                     lastname=t.lastname,
                     creationDate=t.creationDate
                 )
                 for t in career.testimonies
             ]
-            
+
             return CareerReadOptimized(
                 careerId=career.careerId,
                 careerType=career.careerType,

@@ -366,7 +366,10 @@ class CacheService:
                 f"{self.CAREERS_LIST_PREFIX}*",
                 f"{self.CAREERS_OPTIMIZED_PREFIX}*",
                 f"{self.CAREERS_PUBLISHED_PREFIX}*",
-                f"{self.CAREERS_SIMPLE_PREFIX}*"
+                f"{self.CAREERS_SIMPLE_PREFIX}*",
+                f"{self.CAREERS_DROPDOWN_PREFIX}*",
+                f"{self.CAREERS_BY_AREA_PREFIX}*",
+                f"{self.CAREERS_BY_TYPE_PREFIX}*",
             ]
 
             deleted_count = 0
