@@ -36,7 +36,7 @@ class Testimony(TestimonyBase, table=True):
 
 # Modelo para crear un testimonio (POST)
 class TestimonyCreate(TestimonyBase):
-    creator: int
+    creator: Optional[int] = None  # se asigna desde el usuario autenticado en el endpoint
 
     @model_validator(mode="after")
     def validar_texto_o_video(self):
