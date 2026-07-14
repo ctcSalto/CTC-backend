@@ -1,4 +1,4 @@
-from sqlmodel import Session, select, func
+from sqlmodel import Session, select
 from ..models.testimony import Testimony, TestimonyCreate, TestimonyRead, TestimonyUpdate, TestimonyInList, TestimonyPublic
 from ..models.career import Career
 from typing import List
@@ -44,44 +44,31 @@ class TestimonyService(BaseServiceWithFilters[Testimony]):
                 return []
             return [TestimonyRead.model_validate(testimony) for testimony in testimonies]
         
-    def get_random_testimonies(self, session: Session, count: int = 6) -> List[TestimonyPublic]:
-        """Obtener testimonios aleatorios de forma eficiente con información de carrera"""
+    def get_random_testimonies(self, session: Session, count: int = 4) -> List[TestimonyPublic]:
+        """Obtener hasta 4 testimonios de texto y 4 de video, elegidos aleatoriamente."""
         import random
-        
+
         with session:
-            # Primero obtener el conteo total
-            count_stmt = select(func.count(Testimony.testimonyId))
-            total_count = session.exec(count_stmt).one()
-            
-            if total_count <= count:
-                # Si hay menos testimonios que los solicitados, devolver todos
-                stmt = select(Testimony, Career.name.label('career_name')).join(
-                    Career, Testimony.career == Career.careerId
-                )
-                results = session.exec(stmt).all()
-            else:
-                # Generar IDs aleatorios y buscarlos
-                # Obtener todos los IDs disponibles
-                ids_stmt = select(Testimony.testimonyId)
-                all_ids = list(session.exec(ids_stmt).all())
-                
-                # Seleccionar IDs aleatorios
-                random_ids = random.sample(all_ids, count)
-                
-                # Buscar los testimonios por esos IDs con JOIN
-                stmt = select(Testimony, Career.name.label('career_name')).join(
-                    Career, Testimony.career == Career.careerId
-                ).where(Testimony.testimonyId.in_(random_ids))
-                results = session.exec(stmt).all()
-            
-            # Convertir los resultados al modelo público
+            stmt = select(Testimony, Career.name.label('career_name')).join(
+                Career, Testimony.career == Career.careerId
+            )
+            all_results = session.exec(stmt).all()
+
+            textos = [(t, cn) for t, cn in all_results if t.videoUrl is None]
+            videos = [(t, cn) for t, cn in all_results if t.videoUrl is not None]
+
+            seleccionados = (
+                random.sample(textos, min(len(textos), count)) +
+                random.sample(videos, min(len(videos), count))
+            )
+            random.shuffle(seleccionados)
+
             testimonies_public = []
-            for testimony, career_name in results:
+            for testimony, career_name in seleccionados:
                 testimony_dict = testimony.model_dump()
                 testimony_dict['career_name'] = career_name
-                testimony_dict['videos'] = [video.model_dump() for video in testimony.videos]
                 testimonies_public.append(TestimonyPublic.model_validate(testimony_dict))
-            
+
             return testimonies_public
 
     def get_testimonies_in_list(self, session: Session, offset: int = 0, limit: int = 10) -> List[TestimonyInList]:

@@ -225,7 +225,8 @@ class CarrerDropdown(SQLModel):
 class TestimonyForCareer(SQLModel):
     """Testimonio simplificado para mostrar en career sin referencia circular"""
     testimonyId: int
-    text: str
+    text: Optional[str] = None
+    videoUrl: Optional[str] = None
     name: str
     lastname: str
     creationDate: date

@@ -19,6 +19,20 @@ URUGUAY_TZ = timezone('America/Montevideo')
 scheduler = BackgroundScheduler(timezone=URUGUAY_TZ)
 
 
+def supabase_keepalive():
+    """
+    Consulta mínima diaria a Supabase para evitar que el proyecto free tier sea pausado.
+    Supabase pausa proyectos gratuitos tras 1 semana sin actividad.
+    """
+    try:
+        from database.database import get_services
+        services = get_services()
+        services.supabaseService.client.storage.list_buckets()
+        show("CRON", "Supabase keepalive OK", "info")
+    except Exception as e:
+        show("CRON", f"Supabase keepalive error: {e}", "warning")
+
+
 def actualizar_fotos_perfil_moodle():
     """
     Tarea programada para actualizar fotos de perfil en Moodle.
@@ -108,6 +122,19 @@ def start_scheduler():
             ),
             id='recordatorio_cierre_inscripcion',
             name='Recordatorio de cierre de inscripcion',
+            replace_existing=True
+        )
+
+        # Configurar tarea: Supabase keepalive diario (00:30 AM) para evitar pausa del proyecto free
+        scheduler.add_job(
+            supabase_keepalive,
+            trigger=CronTrigger(
+                hour=0,
+                minute=30,
+                timezone=URUGUAY_TZ
+            ),
+            id='supabase_keepalive',
+            name='Supabase keepalive diario',
             replace_existing=True
         )
 
