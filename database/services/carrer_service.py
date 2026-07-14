@@ -32,7 +32,7 @@ class CareerService(BaseServiceWithFilters[Career]):
     def get_careers(self, session: Session, offset: int = 0, limit: int = 10) -> List[CareerRead]:
         """Obtener lista de carreras con paginación"""
         with session:
-            statement = select(Career).offset(offset).limit(limit)
+            statement = select(Career).order_by(Career.careerId).offset(offset).limit(limit)
             careers = session.exec(statement).all()
             if not careers:
                 return []
@@ -41,7 +41,7 @@ class CareerService(BaseServiceWithFilters[Career]):
     def get_careers_in_list(self, session: Session, offset: int = 0, limit: int = 10) -> List[CareerInList]:
         """Obtener lista simplificada de carreras para listados"""
         with session:
-            statement = select(Career).where(Career.published).offset(offset).limit(limit)
+            statement = select(Career).where(Career.published).order_by(Career.careerId).offset(offset).limit(limit)
             careers = session.exec(statement).all()
             if not careers:
                 return []
@@ -50,7 +50,7 @@ class CareerService(BaseServiceWithFilters[Career]):
     def get_careers_in_list_admin(self, session: Session, offset: int = 0, limit: int = 10) -> List[CareerInList]:
         """Obtener lista simplificada de carreras para listados"""
         with session:
-            statement = select(Career).offset(offset).limit(limit)
+            statement = select(Career).order_by(Career.careerId).offset(offset).limit(limit)
             careers = session.exec(statement).all()
             if not careers:
                 return []
@@ -67,10 +67,11 @@ class CareerService(BaseServiceWithFilters[Career]):
                     selectinload(Career.modifier_user),
                     selectinload(Career.testimonies)
                 )
+                .order_by(Career.careerId)
                 .offset(offset)
                 .limit(limit)
             )
-            
+
             careers = session.exec(statement).all()
             
             if not careers:
@@ -258,7 +259,7 @@ class CareerService(BaseServiceWithFilters[Career]):
     def get_published_careers(self, session: Session, offset: int = 0, limit: int = 10) -> List[CareerRead]:
         """Obtener solo las carreras publicadas"""
         with session:
-            statement = select(Career).where(Career.published).offset(offset).limit(limit)
+            statement = select(Career).where(Career.published).order_by(Career.careerId).offset(offset).limit(limit)
             careers = session.exec(statement).all()
             if not careers:
                 return []

@@ -106,17 +106,19 @@ async def create_testimony(
     try:
         # Asignar el usuario actual como creador
         testimony_data.creator = current_user.userId
-        
+
         new_testimony = services.testimonyService.create_testimony(testimony_data, session)
-        
+
         show(f"Testimonio creado: {new_testimony}")
-        
+
         if not new_testimony:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error al crear el testimonio"
             )
-        
+
+        services.cacheService.invalidate_all_careers()
+
         return new_testimony
         
     except ValueError as e:
@@ -210,9 +212,11 @@ async def update_testimony(
         testimony_update.modifier = current_user.userId
         
         updated_testimony = services.testimonyService.update_testimony(testimony_id, testimony_update, session)
-        
+
         show(f"Testimonio actualizado: {updated_testimony}")
-        
+
+        services.cacheService.invalidate_all_careers()
+
         return updated_testimony
         
     except NoResultFound:
@@ -238,14 +242,16 @@ async def delete_testimony(
     """Eliminar un testimonio (solo administradores)"""
     try:
         success = services.testimonyService.delete_testimony(testimony_id, session)
-        
+
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Testimonio no encontrado"
             )
-        
+
         show(f"Testimonio {testimony_id} eliminado")
+
+        services.cacheService.invalidate_all_careers()
         
     except NoResultFound:
         raise HTTPException(
