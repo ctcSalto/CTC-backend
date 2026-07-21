@@ -11,6 +11,8 @@ from v2.auth.dependencies import require_docente_or_admin
 from v2.models.usuario import UsuarioRead
 from v2.models.calificacion import CalificacionRead, CalificacionBatchItem
 from v2.models.docente_materia import DocenteMateria
+from v2.models.profesor import Profesor
+from v2.models.alumno import Alumno
 from v2.models.inscripcion_materia import InscripcionMateria, InscripcionMateriaRead
 from v2.models.instancia_cursado import InstanciaCursado
 from v2.models.equipo import EquipoCreate
@@ -26,24 +28,31 @@ router = APIRouter(
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _validar_docente_instancia_cursado(docente_id: int, instancia_cursado_id: int, session: Session):
-    """Valida que el docente esté asignado a la instancia de cursado."""
+def _validar_docente_instancia_cursado(usuario_id: int, instancia_cursado_id: int, session: Session):
+    """
+    Valida que el docente esté asignado a la instancia de cursado.
+    Recibe el id de usuario (viene del JWT) y navega al perfil de profesor,
+    que es a quien referencia la asignación.
+    """
     asignacion = session.exec(
-        select(DocenteMateria).where(
-            DocenteMateria.docente_id == docente_id,
+        select(DocenteMateria)
+        .join(Profesor, DocenteMateria.profesor_id == Profesor.id)
+        .where(
+            Profesor.usuario_id == usuario_id,
             DocenteMateria.instancia_cursado_id == instancia_cursado_id,
         )
     ).first()
     return asignacion is not None
 
 
-def _validar_docente_materia(docente_id: int, materia_id: int, session: Session):
+def _validar_docente_materia(usuario_id: int, materia_id: int, session: Session):
     """Valida que el docente esté asignado a alguna instancia de la materia."""
     asignacion = session.exec(
         select(DocenteMateria)
+        .join(Profesor, DocenteMateria.profesor_id == Profesor.id)
         .join(InstanciaCursado, DocenteMateria.instancia_cursado_id == InstanciaCursado.id)
         .where(
-            DocenteMateria.docente_id == docente_id,
+            Profesor.usuario_id == usuario_id,
             InstanciaCursado.materia_id == materia_id,
         )
     ).first()
@@ -140,9 +149,10 @@ async def mis_materias(
 
     asignaciones = session.exec(
         select(DocenteMateria)
+        .join(Profesor, DocenteMateria.profesor_id == Profesor.id)
         .join(InstanciaCursado, DocenteMateria.instancia_cursado_id == InstanciaCursado.id)
         .where(
-            DocenteMateria.docente_id == current_usuario.id,
+            Profesor.usuario_id == current_usuario.id,
             InstanciaCursado.anio_lectivo == anio_lectivo,
         )
     ).all()
@@ -194,11 +204,13 @@ async def alumnos_instancia(
     resultado = []
     for insc in inscripciones:
         usuario = session.exec(
-            select(Usuario).where(Usuario.id == insc.usuario_id)
+            select(Usuario)
+            .join(Alumno, Alumno.usuario_id == Usuario.id)
+            .where(Alumno.id == insc.alumno_id)
         ).first()
         resultado.append({
             "inscripcion_id": insc.id,
-            "usuario_id": insc.usuario_id,
+            "alumno_id": insc.alumno_id,
             "nombre": usuario.nombre if usuario else "",
             "apellido": usuario.apellido if usuario else "",
             "estado": insc.estado.value,
@@ -301,7 +313,7 @@ async def cargar_calificacion(
 
     try:
         return v2_services.calificacionService.guardar_calificacion(
-            docente_id=current_usuario.id,
+            cargado_por_id=current_usuario.id,
             inscripcion_id=data.inscripcion_id,
             instancia_evaluacion_id=data.instancia_evaluacion_id,
             nota=data.nota,
@@ -328,7 +340,7 @@ async def cargar_calificaciones_batch(
             raise HTTPException(status_code=403, detail="No esta asignado a esta instancia de cursado")
 
     return v2_services.calificacionService.guardar_batch(
-        docente_id=current_usuario.id,
+        cargado_por_id=current_usuario.id,
         instancia_evaluacion_id=data.instancia_evaluacion_id,
         calificaciones=data.calificaciones,
         session=session,
@@ -351,7 +363,7 @@ async def cargar_nota_final_directa(
 
     try:
         return v2_services.calificacionService.cargar_nota_final_directa(
-            docente_id=current_usuario.id,
+            cargado_por_id=current_usuario.id,
             inscripcion_id=data.inscripcion_id,
             nota=data.nota,
             session=session,

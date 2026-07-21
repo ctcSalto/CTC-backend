@@ -262,30 +262,30 @@ class TestMallaCurricular:
 class TestValidarPreviaturasInscripcion:
     """Validacion de previaturas al inscribir a una materia."""
 
-    def test_materia_sin_previaturas_cumple(self, session, usuario_estudiante, materias_con_previaturas):
+    def test_materia_sin_previaturas_cumple(self, session, alumno, materias_con_previaturas):
         """Materia sin previaturas siempre cumple."""
         service = InscripcionMateriaService()
         m1 = materias_con_previaturas["prog1"]
 
         cumple, faltantes = service.validar_previaturas(
-            usuario_estudiante.id, m1.id, session,
+            alumno.id, m1.id, session,
         )
         assert cumple is True
         assert faltantes == []
 
-    def test_previatura_no_cursada_falla(self, session, usuario_estudiante, materias_con_previaturas):
+    def test_previatura_no_cursada_falla(self, session, alumno, materias_con_previaturas):
         """Sin inscripcion en la previa, falla."""
         service = InscripcionMateriaService()
         m2 = materias_con_previaturas["prog2"]
 
         cumple, faltantes = service.validar_previaturas(
-            usuario_estudiante.id, m2.id, session,
+            alumno.id, m2.id, session,
         )
         assert cumple is False
         assert len(faltantes) == 1
         assert "Programacion 1" in faltantes[0]
 
-    def test_previatura_aprobada_cumple(self, session, usuario_estudiante, materias_con_previaturas):
+    def test_previatura_aprobada_cumple(self, session, alumno, materias_con_previaturas):
         """Inscripcion APROBADO en la previa cumple para tipo APROBADA."""
         service = InscripcionMateriaService()
         m1 = materias_con_previaturas["prog1"]
@@ -301,7 +301,7 @@ class TestValidarPreviaturasInscripcion:
         session.refresh(ic)
 
         insc = InscripcionMateria(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic.id,
             estado=EstadoInscripcionMateria.APROBADO,
         )
@@ -309,13 +309,13 @@ class TestValidarPreviaturasInscripcion:
         session.commit()
 
         cumple, faltantes = service.validar_previaturas(
-            usuario_estudiante.id, m2.id, session,
+            alumno.id, m2.id, session,
         )
         assert cumple is True
         assert faltantes == []
 
     def test_previatura_exonerada_cumple_para_tipo_aprobada(
-        self, session, usuario_estudiante, materias_con_previaturas
+        self, session, alumno, materias_con_previaturas
     ):
         """Inscripcion EXONERADO cumple para tipo APROBADA (exonerado es mejor que aprobado)."""
         service = InscripcionMateriaService()
@@ -331,7 +331,7 @@ class TestValidarPreviaturasInscripcion:
         session.refresh(ic)
 
         insc = InscripcionMateria(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic.id,
             estado=EstadoInscripcionMateria.EXONERADO,
         )
@@ -339,12 +339,12 @@ class TestValidarPreviaturasInscripcion:
         session.commit()
 
         cumple, faltantes = service.validar_previaturas(
-            usuario_estudiante.id, m2.id, session,
+            alumno.id, m2.id, session,
         )
         assert cumple is True
 
     def test_previatura_tipo_exonerada_requiere_exoneracion(
-        self, session, usuario_estudiante, materias_con_previaturas
+        self, session, alumno, materias_con_previaturas
     ):
         """Tipo EXONERADA no acepta APROBADO (solo EXONERADO)."""
         service = InscripcionMateriaService()
@@ -367,7 +367,7 @@ class TestValidarPreviaturasInscripcion:
         session.refresh(ic)
 
         insc = InscripcionMateria(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic.id,
             estado=EstadoInscripcionMateria.APROBADO,
         )
@@ -375,13 +375,13 @@ class TestValidarPreviaturasInscripcion:
         session.commit()
 
         cumple, faltantes = service.validar_previaturas(
-            usuario_estudiante.id, m2.id, session,
+            alumno.id, m2.id, session,
         )
         assert cumple is False
         assert "exonerar" in faltantes[0].lower()
 
     def test_previatura_cursando_no_cumple(
-        self, session, usuario_estudiante, materias_con_previaturas
+        self, session, alumno, materias_con_previaturas
     ):
         """Estado CURSANDO no cumple previaturas."""
         service = InscripcionMateriaService()
@@ -397,7 +397,7 @@ class TestValidarPreviaturasInscripcion:
         session.refresh(ic)
 
         insc = InscripcionMateria(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic.id,
             estado=EstadoInscripcionMateria.CURSANDO,
         )
@@ -405,12 +405,12 @@ class TestValidarPreviaturasInscripcion:
         session.commit()
 
         cumple, faltantes = service.validar_previaturas(
-            usuario_estudiante.id, m2.id, session,
+            alumno.id, m2.id, session,
         )
         assert cumple is False
 
     def test_previatura_reprobada_no_cumple(
-        self, session, usuario_estudiante, materias_con_previaturas
+        self, session, alumno, materias_con_previaturas
     ):
         """Estado REPROBADO no cumple previaturas."""
         service = InscripcionMateriaService()
@@ -426,7 +426,7 @@ class TestValidarPreviaturasInscripcion:
         session.refresh(ic)
 
         insc = InscripcionMateria(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic.id,
             estado=EstadoInscripcionMateria.REPROBADO,
         )
@@ -434,12 +434,12 @@ class TestValidarPreviaturasInscripcion:
         session.commit()
 
         cumple, faltantes = service.validar_previaturas(
-            usuario_estudiante.id, m2.id, session,
+            alumno.id, m2.id, session,
         )
         assert cumple is False
 
     def test_cadena_de_previaturas(
-        self, session, usuario_estudiante, materias_con_previaturas
+        self, session, alumno, materias_con_previaturas
     ):
         """Para P3 necesita P2 aprobado (que a su vez necesita P1)."""
         service = InscripcionMateriaService()
@@ -457,7 +457,7 @@ class TestValidarPreviaturasInscripcion:
         session.refresh(ic1)
 
         insc1 = InscripcionMateria(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic1.id,
             estado=EstadoInscripcionMateria.APROBADO,
         )
@@ -466,7 +466,7 @@ class TestValidarPreviaturasInscripcion:
 
         # Sin aprobar P2, P3 no cumple
         cumple, faltantes = service.validar_previaturas(
-            usuario_estudiante.id, m3.id, session,
+            alumno.id, m3.id, session,
         )
         assert cumple is False
         assert "Programacion 2" in faltantes[0]
@@ -481,7 +481,7 @@ class TestValidarPreviaturasInscripcion:
         session.refresh(ic2)
 
         insc2 = InscripcionMateria(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic2.id,
             estado=EstadoInscripcionMateria.APROBADO,
         )
@@ -490,7 +490,7 @@ class TestValidarPreviaturasInscripcion:
 
         # Ahora P3 cumple
         cumple, faltantes = service.validar_previaturas(
-            usuario_estudiante.id, m3.id, session,
+            alumno.id, m3.id, session,
         )
         assert cumple is True
 
@@ -503,19 +503,19 @@ class TestMapaPreviaturas:
     """Mapa de previaturas con estado del alumno."""
 
     def test_mapa_sin_inscripciones(
-        self, session, usuario_estudiante, programa, materias_con_previaturas
+        self, session, alumno, programa, materias_con_previaturas
     ):
         """Alumno sin inscripciones ve todo como 'pendiente'."""
         service = InscripcionMateriaService()
         mapa = service.get_mapa_previaturas(
-            usuario_estudiante.id, programa.id, session,
+            alumno.id, programa.id, session,
         )
         assert len(mapa) == 3
         for item in mapa:
             assert item["estado_alumno"] == "pendiente"
 
     def test_mapa_con_materia_aprobada(
-        self, session, usuario_estudiante, programa, materias_con_previaturas
+        self, session, alumno, programa, materias_con_previaturas
     ):
         """Alumno con P1 aprobada ve estado correcto."""
         m1 = materias_con_previaturas["prog1"]
@@ -528,7 +528,7 @@ class TestMapaPreviaturas:
         session.refresh(ic)
 
         insc = InscripcionMateria(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic.id,
             estado=EstadoInscripcionMateria.APROBADO,
         )
@@ -537,7 +537,7 @@ class TestMapaPreviaturas:
 
         service = InscripcionMateriaService()
         mapa = service.get_mapa_previaturas(
-            usuario_estudiante.id, programa.id, session,
+            alumno.id, programa.id, session,
         )
 
         estados = {item["nombre"]: item["estado_alumno"] for item in mapa}
@@ -546,12 +546,12 @@ class TestMapaPreviaturas:
         assert estados["Programacion 3"] == "pendiente"
 
     def test_mapa_incluye_previaturas(
-        self, session, usuario_estudiante, programa, materias_con_previaturas
+        self, session, alumno, programa, materias_con_previaturas
     ):
         """El mapa incluye las previaturas de cada materia."""
         service = InscripcionMateriaService()
         mapa = service.get_mapa_previaturas(
-            usuario_estudiante.id, programa.id, session,
+            alumno.id, programa.id, session,
         )
 
         mapa_dict = {item["nombre"]: item for item in mapa}

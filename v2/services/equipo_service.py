@@ -42,7 +42,7 @@ class EquipoService(BaseServiceWithFilters[Equipo]):
 
         # Agregar miembros
         for uid in miembros_ids:
-            miembro = EquipoMiembro(equipo_id=equipo.id, usuario_id=uid)
+            miembro = EquipoMiembro(equipo_id=equipo.id, alumno_id=uid)
             session.add(miembro)
         session.commit()
         session.refresh(equipo)
@@ -54,6 +54,7 @@ class EquipoService(BaseServiceWithFilters[Equipo]):
     ) -> list:
         """Retorna equipos con miembros para una instancia"""
         from v2.models.usuario import Usuario
+        from v2.models.alumno import Alumno
 
         equipos = session.exec(
             select(Equipo).where(Equipo.instancia_evaluacion_id == instancia_id)
@@ -67,13 +68,16 @@ class EquipoService(BaseServiceWithFilters[Equipo]):
 
             miembros = []
             for m in miembros_db:
+                # El nombre vive en Usuario (la persona), no en el perfil de alumno
                 usuario = session.exec(
-                    select(Usuario).where(Usuario.id == m.usuario_id)
+                    select(Usuario)
+                    .join(Alumno, Alumno.usuario_id == Usuario.id)
+                    .where(Alumno.id == m.alumno_id)
                 ).first()
                 miembros.append({
                     "id": m.id,
                     "equipo_id": m.equipo_id,
-                    "usuario_id": m.usuario_id,
+                    "alumno_id": m.alumno_id,
                     "nombre": usuario.nombre if usuario else "",
                     "apellido": usuario.apellido if usuario else "",
                 })
@@ -88,7 +92,7 @@ class EquipoService(BaseServiceWithFilters[Equipo]):
         return resultado
 
     def add_miembro(
-        self, equipo_id: int, usuario_id: int, session: Session
+        self, equipo_id: int, alumno_id: int, session: Session
     ) -> EquipoMiembro:
         """Agrega un miembro al equipo"""
         equipo = session.exec(
@@ -101,30 +105,30 @@ class EquipoService(BaseServiceWithFilters[Equipo]):
         existente = session.exec(
             select(EquipoMiembro).where(
                 EquipoMiembro.equipo_id == equipo_id,
-                EquipoMiembro.usuario_id == usuario_id,
+                EquipoMiembro.alumno_id == alumno_id,
             )
         ).first()
         if existente:
-            raise ValueError("El usuario ya es miembro de este equipo")
+            raise ValueError("El alumno ya es miembro de este equipo")
 
-        miembro = EquipoMiembro(equipo_id=equipo_id, usuario_id=usuario_id)
+        miembro = EquipoMiembro(equipo_id=equipo_id, alumno_id=alumno_id)
         session.add(miembro)
         session.commit()
         session.refresh(miembro)
         return miembro
 
     def remove_miembro(
-        self, equipo_id: int, usuario_id: int, session: Session
+        self, equipo_id: int, alumno_id: int, session: Session
     ):
         """Remueve un miembro del equipo"""
         miembro = session.exec(
             select(EquipoMiembro).where(
                 EquipoMiembro.equipo_id == equipo_id,
-                EquipoMiembro.usuario_id == usuario_id,
+                EquipoMiembro.alumno_id == alumno_id,
             )
         ).first()
         if not miembro:
-            raise ValueError("El usuario no es miembro de este equipo")
+            raise ValueError("El alumno no es miembro de este equipo")
 
         session.delete(miembro)
         session.commit()

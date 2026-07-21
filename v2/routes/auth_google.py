@@ -139,6 +139,8 @@ async def google_callback(
             rol=rol,
             moodle_id=moodle_id,
             session=session,
+            google_id=google_data["google_id"],
+            email=google_data["email"],
         )
         print(f"[OK] Usuario v2 actualizado: {usuario.email} (rol: {rol.value})")
 

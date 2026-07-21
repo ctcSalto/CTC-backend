@@ -38,6 +38,19 @@ def _format_hora(hora: Optional[str]) -> str:
     return hora or "A confirmar"
 
 
+def _usuario_de_alumno(alumno_id: int, session):
+    """
+    Resuelve el Usuario (la persona) detras de un perfil de alumno.
+    Las notificaciones necesitan email y nombre, que viven en Usuario. Un alumno
+    registrado sin cuenta (oyente) no tiene a quien notificar: devuelve None y
+    quien llama simplemente lo saltea.
+    """
+    from v2.models.usuario import Usuario
+    from v2.models.alumno import Alumno
+    alumno = session.get(Alumno, alumno_id)
+    return session.get(Usuario, alumno.usuario_id) if alumno else None
+
+
 # Mapeo de estado a texto legible
 _ESTADO_LABELS = {
     EstadoInscripcionMateria.CURSANDO: "Cursando",
@@ -59,8 +72,12 @@ class NotificationService:
 
     # ── Helpers internos ─────────────────────────────────────────────────────
 
-    def _get_email_destinatario(self, usuario) -> str:
-        """Retorna email_personal si existe, sino email institucional."""
+    def _get_email_destinatario(self, usuario) -> Optional[str]:
+        """
+        Retorna email_personal si existe, sino el institucional.
+        Puede ser None: un oyente registrado por administracion no tiene cuenta
+        ni email. En ese caso no hay a quien notificar.
+        """
         return usuario.email_personal or usuario.email
 
     def _renderizar(self, template_key: str, variables: dict) -> str:
@@ -126,7 +143,7 @@ class NotificationService:
         self,
         tipo: TipoNotificacion,
         usuario_id: int,
-        email: str,
+        email: Optional[str],
         asunto: str,
         html: str,
         session: Session,
@@ -135,6 +152,13 @@ class NotificationService:
         enviado_por_id: Optional[int] = None,
     ) -> dict:
         """Envía email y registra en log. Retorna resultado (incluye id_rastreo del log)."""
+        # Punto unico de salida de emails: si la persona no tiene direccion
+        # (oyente sin cuenta), se omite en silencio en vez de romper el flujo
+        # academico que disparo la notificacion. No se registra en el log porque
+        # no hubo intento de envio.
+        if not email:
+            return {"ok": False, "omitido": True, "error": "El usuario no tiene email", "id_rastreo": None}
+
         resultado = self.email_service.send_single(email, asunto, html)
 
         estado = EstadoNotificacion.ENVIADA if resultado["ok"] else EstadoNotificacion.ERROR
@@ -248,7 +272,7 @@ class NotificationService:
                 insc_materia = session.get(InscripcionMateria, insc_examen.inscripcion_materia_id)
                 if not insc_materia:
                     continue
-                usuario = session.get(Usuario, insc_materia.usuario_id)
+                usuario = _usuario_de_alumno(insc_materia.alumno_id, session)
                 if not usuario:
                     continue
 
@@ -347,7 +371,7 @@ class NotificationService:
         inscripciones = session.exec(stmt).all()
 
         for insc in inscripciones:
-            usuario = session.get(Usuario, insc.usuario_id)
+            usuario = _usuario_de_alumno(insc.alumno_id, session)
             if not usuario or not usuario.activo:
                 continue
 
@@ -506,7 +530,7 @@ class NotificationService:
         if not inscripcion:
             raise ValueError(f"Inscripción {inscripcion_id} no encontrada")
 
-        usuario = session.get(Usuario, inscripcion.usuario_id)
+        usuario = _usuario_de_alumno(inscripcion.alumno_id, session)
         instancia = session.get(InstanciaCursado, inscripcion.instancia_cursado_id)
         materia = session.get(Materia, instancia.materia_id) if instancia else None
 
@@ -612,7 +636,7 @@ class NotificationService:
                 .where(InscripcionMateria.estado == EstadoInscripcionMateria.CURSANDO)
             )
             for insc in session.exec(stmt).all():
-                usuario = session.get(Usuario, insc.usuario_id)
+                usuario = _usuario_de_alumno(insc.alumno_id, session)
                 if usuario and usuario.activo:
                     usuarios.add(usuario)
 
@@ -685,13 +709,13 @@ class NotificationService:
 
         resultado = []
         for insc in inscripciones:
-            usuario = session.get(Usuario, insc.usuario_id)
+            usuario = _usuario_de_alumno(insc.alumno_id, session)
             instancia = session.get(InstanciaCursado, insc.instancia_cursado_id)
             materia = session.get(Materia, instancia.materia_id) if instancia else None
 
             resultado.append({
                 "inscripcion_id": insc.id,
-                "usuario_id": insc.usuario_id,
+                "alumno_id": insc.alumno_id,
                 "nombre_estudiante": f"{usuario.nombre} {usuario.apellido}" if usuario else "N/A",
                 "email": self._get_email_destinatario(usuario) if usuario else "N/A",
                 "materia": materia.nombre if materia else "N/A",

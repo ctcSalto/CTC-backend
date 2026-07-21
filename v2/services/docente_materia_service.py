@@ -7,8 +7,7 @@ from v2.models.docente_materia import (
     DocenteMateriaCreate,
     DocenteMateriaUpdate,
 )
-from v2.models.usuario import Usuario
-from v2.models.enums import RolUsuario
+from v2.models.profesor import Profesor
 
 
 class DocenteMateriaService(BaseServiceWithFilters[DocenteMateria]):
@@ -32,16 +31,12 @@ class DocenteMateriaService(BaseServiceWithFilters[DocenteMateria]):
         ).all())
 
     def assign(self, data: DocenteMateriaCreate, session: Session) -> DocenteMateria:
-        # Validar que el docente exista y tenga rol DOCENTE
-        docente = session.exec(
-            select(Usuario).where(Usuario.id == data.docente_id)
-        ).first()
-        if not docente:
-            raise ValueError(f"Usuario {data.docente_id} no encontrado")
-        if docente.rol != RolUsuario.DOCENTE:
-            raise ValueError(
-                f"El usuario {data.docente_id} no tiene rol DOCENTE"
-            )
+        # Validar que el perfil de profesor exista. Ya no hace falta chequear el rol
+        # del usuario por separado: tener fila en `profesor` ES la afirmacion de que
+        # esa persona es docente, y la FK lo garantiza a nivel de base de datos.
+        profesor = session.get(Profesor, data.profesor_id)
+        if not profesor:
+            raise ValueError(f"Profesor {data.profesor_id} no encontrado")
 
         # Validar que la instancia de cursado exista
         from v2.models.instancia_cursado import InstanciaCursado
@@ -52,7 +47,7 @@ class DocenteMateriaService(BaseServiceWithFilters[DocenteMateria]):
         # Validar que no exista la misma asignacion
         existente = session.exec(
             select(DocenteMateria).where(
-                DocenteMateria.docente_id == data.docente_id,
+                DocenteMateria.profesor_id == data.profesor_id,
                 DocenteMateria.instancia_cursado_id == data.instancia_cursado_id,
             )
         ).first()

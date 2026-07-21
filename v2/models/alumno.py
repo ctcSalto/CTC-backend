@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 if TYPE_CHECKING:
     from v2.models.usuario import Usuario
     from v2.models.inscripcion_programa import InscripcionPrograma
+    from v2.models.inscripcion_materia import InscripcionMateria
+    from v2.models.equipo import EquipoMiembro
 
 
 def get_uruguay_tz():
@@ -36,6 +38,8 @@ class Alumno(SQLModel, table=True):
     # Relaciones
     usuario: Optional["Usuario"] = Relationship(back_populates="perfil_alumno")
     inscripciones_programa: List["InscripcionPrograma"] = Relationship(back_populates="alumno")
+    inscripciones: List["InscripcionMateria"] = Relationship(back_populates="alumno")
+    equipos: List["EquipoMiembro"] = Relationship(back_populates="alumno")
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────

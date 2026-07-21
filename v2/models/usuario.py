@@ -10,10 +10,7 @@ from zoneinfo import ZoneInfo
 from v2.models.enums import RolUsuario
 
 if TYPE_CHECKING:
-    from v2.models.inscripcion_materia import InscripcionMateria
-    from v2.models.docente_materia import DocenteMateria
     from v2.models.calificacion import Calificacion
-    from v2.models.equipo import EquipoMiembro
     from v2.models.alumno import Alumno
     from v2.models.profesor import Profesor
     from v2.models.administrativo import Administrativo
@@ -33,7 +30,10 @@ class Usuario(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     google_id: Optional[str] = Field(default=None, unique=True, index=True, description="Google sub (ID permanente)")
     moodle_id: Optional[int] = Field(default=None, unique=True, description="ID de usuario en Moodle")
-    email: str = Field(unique=True, index=True, max_length=255, description="Email institucional @ctcsalto.edu.uy")
+    # Nullable: un oyente registrado por administración puede no tener email. Postgres
+    # admite múltiples NULL bajo un constraint unique, así que la unicidad se mantiene
+    # para los que sí lo tienen.
+    email: Optional[str] = Field(default=None, unique=True, index=True, max_length=255, description="Email institucional @ctcsalto.edu.uy (nulo si no tiene cuenta)")
     nombre: str = Field(max_length=100, description="Nombre")
     apellido: str = Field(max_length=100, description="Apellido")
     documento: Optional[str] = Field(default=None, max_length=20, description="CI o pasaporte")
@@ -61,10 +61,10 @@ class Usuario(SQLModel, table=True):
     )
 
     # Relaciones
-    inscripciones: List["InscripcionMateria"] = Relationship(back_populates="usuario")
-    asignaciones_docente: List["DocenteMateria"] = Relationship(back_populates="docente")
-    calificaciones_cargadas: List["Calificacion"] = Relationship(back_populates="docente")
-    equipos: List["EquipoMiembro"] = Relationship(back_populates="usuario")
+    # Las relaciones académicas (inscripciones, equipos, asignaciones docentes) NO cuelgan
+    # de Usuario: viven en los perfiles Alumno/Profesor. Acá solo queda lo que pertenece
+    # a la persona: sus perfiles, sus documentos y la auditoría de notas que cargó.
+    calificaciones_cargadas: List["Calificacion"] = Relationship(back_populates="cargado_por")
     perfil_alumno: Optional["Alumno"] = Relationship(back_populates="usuario")
     perfil_profesor: Optional["Profesor"] = Relationship(back_populates="usuario")
     perfil_administrativo: Optional["Administrativo"] = Relationship(back_populates="usuario")
@@ -80,7 +80,7 @@ class UsuarioRead(SQLModel):
     id: int
     google_id: Optional[str] = None
     moodle_id: Optional[int] = None
-    email: str
+    email: Optional[str] = None
     email_personal: Optional[str] = None
     nombre: str
     apellido: str
@@ -114,7 +114,7 @@ class UsuarioUpdate(SQLModel):
 class UsuarioPublic(SQLModel):
     """Datos públicos del usuario (sin IDs externos)"""
     id: int
-    email: str
+    email: Optional[str] = None
     nombre: str
     apellido: str
     foto_url: Optional[str] = None
@@ -126,4 +126,4 @@ class UsuarioSimple(SQLModel):
     id: int
     nombre: str
     apellido: str
-    email: str
+    email: Optional[str] = None

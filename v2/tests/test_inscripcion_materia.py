@@ -33,7 +33,7 @@ class TestInscripcionExitosa:
     """Flujo de inscripcion a materia exitoso."""
 
     def test_inscribir_materia_sin_previaturas(
-        self, session, usuario_estudiante, materias_con_previaturas,
+        self, session, alumno, materias_con_previaturas,
         instancia_cursado_completa, periodo_activo,
     ):
         """Inscripcion a Prog1 (sin previaturas) con periodo activo."""
@@ -41,19 +41,19 @@ class TestInscripcionExitosa:
         ic = instancia_cursado_completa["instancia"]
 
         insc = service.inscribir_materia(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic.id,
             session=session,
         )
         assert insc.id is not None
-        assert insc.usuario_id == usuario_estudiante.id
+        assert insc.alumno_id == alumno.id
         assert insc.instancia_cursado_id == ic.id
         assert insc.estado == EstadoInscripcionMateria.CURSANDO
         assert insc.faltas == 0
         assert insc.creditos_obtenidos == 0
 
     def test_inscripcion_crea_snapshot_politica(
-        self, session, usuario_estudiante, materias_con_previaturas,
+        self, session, alumno, materias_con_previaturas,
         instancia_cursado_completa, periodo_activo,
     ):
         """La inscripcion crea un snapshot de la politica de calificacion."""
@@ -61,7 +61,7 @@ class TestInscripcionExitosa:
         ic = instancia_cursado_completa["instancia"]
 
         insc = service.inscribir_materia(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic.id,
             session=session,
         )
@@ -72,7 +72,7 @@ class TestInscripcionExitosa:
         assert insc.snapshot_politica["nota_maxima"] == 100.0
 
     def test_inscripcion_crea_snapshot_instancias(
-        self, session, usuario_estudiante, materias_con_previaturas,
+        self, session, alumno, materias_con_previaturas,
         instancia_cursado_completa, periodo_activo,
     ):
         """La inscripcion crea un snapshot de las instancias de evaluacion."""
@@ -80,7 +80,7 @@ class TestInscripcionExitosa:
         ic = instancia_cursado_completa["instancia"]
 
         insc = service.inscribir_materia(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic.id,
             session=session,
         )
@@ -91,7 +91,7 @@ class TestInscripcionExitosa:
         assert "Parcial 2" in nombres
 
     def test_skip_periodo_para_admin(
-        self, session, usuario_estudiante, materias_con_previaturas,
+        self, session, alumno, materias_con_previaturas,
         instancia_cursado_completa,
     ):
         """Con skip_periodo=True no requiere periodo activo (inscripcion manual admin)."""
@@ -100,7 +100,7 @@ class TestInscripcionExitosa:
 
         # Sin periodo creado, pero con skip_periodo=True
         insc = service.inscribir_materia(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic.id,
             session=session,
             skip_periodo=True,
@@ -117,7 +117,7 @@ class TestInscripcionPeriodo:
     """Validacion del periodo de inscripcion."""
 
     def test_sin_periodo_activo_falla(
-        self, session, usuario_estudiante, materias_con_previaturas,
+        self, session, alumno, materias_con_previaturas,
         instancia_cursado_completa,
     ):
         """Sin periodo activo, la inscripcion falla."""
@@ -126,13 +126,13 @@ class TestInscripcionPeriodo:
 
         with pytest.raises(ValueError, match="periodo de inscripcion activo"):
             service.inscribir_materia(
-                usuario_id=usuario_estudiante.id,
+                alumno_id=alumno.id,
                 instancia_cursado_id=ic.id,
                 session=session,
             )
 
     def test_periodo_cerrado_falla(
-        self, session, usuario_estudiante, materias_con_previaturas,
+        self, session, alumno, materias_con_previaturas,
         instancia_cursado_completa, periodo_cerrado,
     ):
         """Periodo cerrado (fecha_fin pasada) falla."""
@@ -141,7 +141,7 @@ class TestInscripcionPeriodo:
 
         with pytest.raises(ValueError, match="periodo de inscripcion activo"):
             service.inscribir_materia(
-                usuario_id=usuario_estudiante.id,
+                alumno_id=alumno.id,
                 instancia_cursado_id=ic.id,
                 session=session,
             )
@@ -154,20 +154,20 @@ class TestInscripcionPeriodo:
 class TestInscripcionValidaciones:
     """Validaciones al inscribir a una materia."""
 
-    def test_instancia_cursado_inexistente(self, session, usuario_estudiante):
+    def test_instancia_cursado_inexistente(self, session, alumno):
         """Instancia de cursado que no existe lanza error."""
         service = InscripcionMateriaService()
 
         with pytest.raises(ValueError, match="no encontrada"):
             service.inscribir_materia(
-                usuario_id=usuario_estudiante.id,
+                alumno_id=alumno.id,
                 instancia_cursado_id=9999,
                 session=session,
                 skip_periodo=True,
             )
 
     def test_materia_inactiva(
-        self, session, usuario_estudiante, materias_con_previaturas,
+        self, session, alumno, materias_con_previaturas,
         politica_base100, programa,
     ):
         """Materia inactiva rechaza inscripcion."""
@@ -193,14 +193,14 @@ class TestInscripcionValidaciones:
 
         with pytest.raises(ValueError, match="no esta activa"):
             service.inscribir_materia(
-                usuario_id=usuario_estudiante.id,
+                alumno_id=alumno.id,
                 instancia_cursado_id=ic.id,
                 session=session,
                 skip_periodo=True,
             )
 
     def test_duplicado_cursando_rechazado(
-        self, session, usuario_estudiante, materias_con_previaturas,
+        self, session, alumno, materias_con_previaturas,
         instancia_cursado_completa, periodo_activo,
     ):
         """No se puede inscribir dos veces en la misma instancia."""
@@ -209,7 +209,7 @@ class TestInscripcionValidaciones:
 
         # Primera inscripcion OK
         service.inscribir_materia(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic.id,
             session=session,
         )
@@ -217,13 +217,13 @@ class TestInscripcionValidaciones:
         # Segunda inscripcion falla
         with pytest.raises(ValueError, match="Ya estas inscripto"):
             service.inscribir_materia(
-                usuario_id=usuario_estudiante.id,
+                alumno_id=alumno.id,
                 instancia_cursado_id=ic.id,
                 session=session,
             )
 
     def test_previaturas_no_cumplidas_rechazado(
-        self, session, usuario_estudiante, materias_con_previaturas,
+        self, session, alumno, materias_con_previaturas,
         politica_base100, programa, periodo_activo,
     ):
         """Inscripcion a Prog2 sin aprobar Prog1 falla."""
@@ -241,13 +241,13 @@ class TestInscripcionValidaciones:
 
         with pytest.raises(ValueError, match="previaturas"):
             service.inscribir_materia(
-                usuario_id=usuario_estudiante.id,
+                alumno_id=alumno.id,
                 instancia_cursado_id=ic2.id,
                 session=session,
             )
 
     def test_inscripcion_con_previaturas_cumplidas(
-        self, session, usuario_estudiante, materias_con_previaturas,
+        self, session, alumno, materias_con_previaturas,
         politica_base100, programa, periodo_activo,
     ):
         """Inscripcion a Prog2 con Prog1 aprobada funciona."""
@@ -264,7 +264,7 @@ class TestInscripcionValidaciones:
         session.refresh(ic1)
 
         insc1 = InscripcionMateria(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic1.id,
             estado=EstadoInscripcionMateria.APROBADO,
         )
@@ -282,7 +282,7 @@ class TestInscripcionValidaciones:
 
         service = InscripcionMateriaService()
         insc2 = service.inscribir_materia(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic2.id,
             session=session,
         )
@@ -298,7 +298,7 @@ class TestDesinscripcion:
     """Desinscripcion de materia por el alumno."""
 
     def test_desinscribir_exitoso(
-        self, session, usuario_estudiante, materias_con_previaturas,
+        self, session, alumno, materias_con_previaturas,
         instancia_cursado_completa, periodo_activo,
     ):
         """Desinscribirse con estado CURSANDO y periodo activo."""
@@ -306,19 +306,25 @@ class TestDesinscripcion:
         ic = instancia_cursado_completa["instancia"]
 
         insc = service.inscribir_materia(
-            usuario_id=usuario_estudiante.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=ic.id,
             session=session,
         )
         inscripcion_id = insc.id
 
-        service.desinscribir_materia(inscripcion_id, usuario_estudiante.id, session)
+        service.desinscribir_materia(inscripcion_id, alumno.id, session)
 
-        # Verificar que se elimino
-        assert service.get_by_id(inscripcion_id, session) is None
+        # Desde la Fase 2 la desinscripcion es soft-delete: el registro se
+        # conserva con estado ABANDONO, fecha_baja y motivo, para que quede
+        # historial de la baja.
+        baja = service.get_by_id(inscripcion_id, session)
+        assert baja is not None
+        assert baja.estado == EstadoInscripcionMateria.ABANDONO
+        assert baja.fecha_baja is not None
+        assert baja.motivo_cierre == "Desinscripcion voluntaria"
 
     def test_desinscribir_no_cursando_falla(
-        self, session, usuario_estudiante, inscripcion_cursando,
+        self, session, alumno, inscripcion_cursando,
     ):
         """No se puede desinscribir si no esta CURSANDO."""
         service = InscripcionMateriaService()
@@ -329,29 +335,29 @@ class TestDesinscripcion:
 
         with pytest.raises(ValueError, match="CURSANDO"):
             service.desinscribir_materia(
-                inscripcion_cursando.id, usuario_estudiante.id, session,
+                inscripcion_cursando.id, alumno.id, session,
             )
 
     def test_desinscribir_otro_usuario_falla(
-        self, session, usuario_docente, inscripcion_cursando, periodo_activo,
+        self, session, otro_alumno, inscripcion_cursando, periodo_activo,
     ):
-        """No se puede desinscribir la inscripcion de otro usuario."""
+        """No se puede desinscribir la inscripcion de otro alumno."""
         service = InscripcionMateriaService()
 
         with pytest.raises(ValueError, match="No es tu inscripcion"):
             service.desinscribir_materia(
-                inscripcion_cursando.id, usuario_docente.id, session,
+                inscripcion_cursando.id, otro_alumno.id, session,
             )
 
-    def test_desinscribir_inscripcion_inexistente(self, session, usuario_estudiante):
+    def test_desinscribir_inscripcion_inexistente(self, session, alumno):
         """Desinscribir inscripcion que no existe lanza error."""
         service = InscripcionMateriaService()
 
         with pytest.raises(ValueError, match="no encontrada"):
-            service.desinscribir_materia(9999, usuario_estudiante.id, session)
+            service.desinscribir_materia(9999, alumno.id, session)
 
     def test_desinscribir_sin_periodo_falla(
-        self, session, usuario_estudiante, inscripcion_cursando,
+        self, session, alumno, inscripcion_cursando,
     ):
         """No se puede desinscribir fuera de periodo de inscripcion."""
         service = InscripcionMateriaService()
@@ -359,5 +365,5 @@ class TestDesinscripcion:
         # Sin periodo activo creado
         with pytest.raises(ValueError, match="periodo"):
             service.desinscribir_materia(
-                inscripcion_cursando.id, usuario_estudiante.id, session,
+                inscripcion_cursando.id, alumno.id, session,
             )

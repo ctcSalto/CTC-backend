@@ -194,7 +194,7 @@ class TestGuardarCalificacion:
         ev1 = instancia_cursado_completa["eval1"]
 
         cal = service.guardar_calificacion(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             inscripcion_id=inscripcion_cursando.id,
             instancia_evaluacion_id=ev1.id,
             nota=Decimal("25"),
@@ -202,7 +202,7 @@ class TestGuardarCalificacion:
         )
         assert cal.id is not None
         assert cal.nota == Decimal("25")
-        assert cal.docente_id == usuario_docente.id
+        assert cal.cargado_por_id == usuario_docente.id
 
     def test_upsert_calificacion_existente(
         self, session, usuario_docente, inscripcion_cursando, instancia_cursado_completa
@@ -212,14 +212,14 @@ class TestGuardarCalificacion:
         ev1 = instancia_cursado_completa["eval1"]
 
         cal1 = service.guardar_calificacion(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             inscripcion_id=inscripcion_cursando.id,
             instancia_evaluacion_id=ev1.id,
             nota=Decimal("20"),
             session=session,
         )
         cal2 = service.guardar_calificacion(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             inscripcion_id=inscripcion_cursando.id,
             instancia_evaluacion_id=ev1.id,
             nota=Decimal("28"),
@@ -237,7 +237,7 @@ class TestGuardarCalificacion:
 
         with pytest.raises(ValueError, match="entre 0 y"):
             service.guardar_calificacion(
-                docente_id=usuario_docente.id,
+                cargado_por_id=usuario_docente.id,
                 inscripcion_id=inscripcion_cursando.id,
                 instancia_evaluacion_id=ev1.id,
                 nota=Decimal("31"),
@@ -253,7 +253,7 @@ class TestGuardarCalificacion:
 
         with pytest.raises(ValueError, match="entre 0 y"):
             service.guardar_calificacion(
-                docente_id=usuario_docente.id,
+                cargado_por_id=usuario_docente.id,
                 inscripcion_id=inscripcion_cursando.id,
                 instancia_evaluacion_id=ev1.id,
                 nota=Decimal("-1"),
@@ -267,7 +267,7 @@ class TestGuardarCalificacion:
 
         with pytest.raises(ValueError, match="no encontrada"):
             service.guardar_calificacion(
-                docente_id=usuario_docente.id,
+                cargado_por_id=usuario_docente.id,
                 inscripcion_id=9999,
                 instancia_evaluacion_id=ev1.id,
                 nota=Decimal("10"),
@@ -282,7 +282,7 @@ class TestGuardarCalificacion:
 
         with pytest.raises(ValueError, match="no encontrada"):
             service.guardar_calificacion(
-                docente_id=usuario_docente.id,
+                cargado_por_id=usuario_docente.id,
                 inscripcion_id=inscripcion_cursando.id,
                 instancia_evaluacion_id=9999,
                 nota=Decimal("10"),
@@ -305,7 +305,7 @@ class TestRecalculoEstado:
         ev1 = instancia_cursado_completa["eval1"]
 
         service.guardar_calificacion(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             inscripcion_id=inscripcion_cursando.id,
             instancia_evaluacion_id=ev1.id,
             nota=Decimal("30"),
@@ -325,7 +325,7 @@ class TestRecalculoEstado:
 
         # Parcial 1: 28/30
         service.guardar_calificacion(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             inscripcion_id=inscripcion_cursando.id,
             instancia_evaluacion_id=ev1.id,
             nota=Decimal("28"),
@@ -333,7 +333,7 @@ class TestRecalculoEstado:
         )
         # Parcial 2: 60/70 → total 88
         service.guardar_calificacion(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             inscripcion_id=inscripcion_cursando.id,
             instancia_evaluacion_id=ev2.id,
             nota=Decimal("60"),
@@ -355,7 +355,7 @@ class TestRecalculoEstado:
 
         # Parcial 1: 15/30
         service.guardar_calificacion(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             inscripcion_id=inscripcion_cursando.id,
             instancia_evaluacion_id=ev1.id,
             nota=Decimal("15"),
@@ -363,7 +363,7 @@ class TestRecalculoEstado:
         )
         # Parcial 2: 35/70 → total 50
         service.guardar_calificacion(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             inscripcion_id=inscripcion_cursando.id,
             instancia_evaluacion_id=ev2.id,
             nota=Decimal("35"),
@@ -383,7 +383,7 @@ class TestRecalculoEstado:
 
         # Parcial 1: 5/30
         service.guardar_calificacion(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             inscripcion_id=inscripcion_cursando.id,
             instancia_evaluacion_id=ev1.id,
             nota=Decimal("5"),
@@ -391,7 +391,7 @@ class TestRecalculoEstado:
         )
         # Parcial 2: 15/70 → total 20
         service.guardar_calificacion(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             inscripcion_id=inscripcion_cursando.id,
             instancia_evaluacion_id=ev2.id,
             nota=Decimal("15"),
@@ -426,7 +426,7 @@ class TestCalificacionBatch:
             ),
         ]
         resultado = service.guardar_batch(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             instancia_evaluacion_id=ev1.id,
             calificaciones=items,
             session=session,
@@ -448,7 +448,7 @@ class TestCalificacionBatch:
             CalificacionBatchItem(inscripcion_id=9999, nota=Decimal("10")),  # no existe
         ]
         resultado = service.guardar_batch(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             instancia_evaluacion_id=ev1.id,
             calificaciones=items,
             session=session,
@@ -472,7 +472,7 @@ class TestNotaFinalDirecta:
         service = CalificacionService()
 
         insc = service.cargar_nota_final_directa(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             inscripcion_id=inscripcion_cursando.id,
             nota=Decimal("90"),
             session=session,
@@ -488,7 +488,7 @@ class TestNotaFinalDirecta:
         service = CalificacionService()
 
         insc = service.cargar_nota_final_directa(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             inscripcion_id=inscripcion_cursando.id,
             nota=Decimal("50"),
             session=session,
@@ -502,7 +502,7 @@ class TestNotaFinalDirecta:
         service = CalificacionService()
 
         insc = service.cargar_nota_final_directa(
-            docente_id=usuario_docente.id,
+            cargado_por_id=usuario_docente.id,
             inscripcion_id=inscripcion_cursando.id,
             nota=Decimal("10"),
             session=session,
@@ -517,7 +517,7 @@ class TestNotaFinalDirecta:
 
         with pytest.raises(ValueError, match="entre 0 y"):
             service.cargar_nota_final_directa(
-                docente_id=usuario_docente.id,
+                cargado_por_id=usuario_docente.id,
                 inscripcion_id=inscripcion_cursando.id,
                 nota=Decimal("150"),
                 session=session,
@@ -534,7 +534,7 @@ class TestNotaFinalDirecta:
 
         with pytest.raises(ValueError, match="CURSANDO"):
             service.cargar_nota_final_directa(
-                docente_id=usuario_docente.id,
+                cargado_por_id=usuario_docente.id,
                 inscripcion_id=inscripcion_cursando.id,
                 nota=Decimal("50"),
                 session=session,
@@ -674,26 +674,26 @@ class TestValidarDocenteAsignacion:
         assert resultado is True
 
     def test_docente_no_asignado(
-        self, session, usuario_docente, instancia_cursado_completa
+        self, session, profesor, instancia_cursado_completa
     ):
-        """Docente no asignado falla la validacion."""
+        """Profesor sin asignacion falla la validacion."""
         service = CalificacionService()
         ic = instancia_cursado_completa["instancia"]
 
         resultado = service.validar_docente_instancia_cursado(
-            usuario_docente.id, ic.id, session,
+            profesor.id, ic.id, session,
         )
         assert resultado is False
 
     def test_otro_docente_no_asignado(
-        self, session, usuario_admin, asignacion_docente, instancia_cursado_completa
+        self, session, otro_profesor, asignacion_docente, instancia_cursado_completa
     ):
-        """Otro usuario que no es el docente asignado falla."""
+        """Un profesor distinto al asignado falla la validacion."""
         service = CalificacionService()
         ic = instancia_cursado_completa["instancia"]
 
         resultado = service.validar_docente_instancia_cursado(
-            usuario_admin.id, ic.id, session,
+            otro_profesor.id, ic.id, session,
         )
         assert resultado is False
 

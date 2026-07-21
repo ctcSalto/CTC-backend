@@ -94,6 +94,31 @@ alembic upgrade head
     - Los endpoints `POST/PUT/DELETE /testimonies/{id}/videos` fueron eliminados
     - `TestimonyRead` y `TestimonyPublic` incluyen `videoUrl: Optional[str]` en lugar de `videos: List`
 
+13. `9a3f7c1e5b28_refactor_alumno_profesor` — **Sujeto academico: alumno/profesor en vez de usuario:**
+    - Cambia 4 claves foraneas para que las entidades academicas apunten al perfil y no a la persona:
+      - `inscripcion_materia.usuario_id` → `alumno_id` (FK `alumno.id`)
+      - `equipo_miembro.usuario_id` → `alumno_id` (FK `alumno.id`)
+      - `docente_materia.docente_id` → `profesor_id` (FK `profesor.id`)
+      - `docente_instancia_examen.docente_id` → `profesor_id` (FK `profesor.id`)
+    - Renombra `calificacion.docente_id` → `cargado_por_id` (sigue apuntando a `usuario.id`: es
+      auditoria, y bedelia tambien carga notas sin tener fila en `profesor`)
+    - `usuario.email` pasa a ser **nullable** (oyentes registrados sin cuenta institucional).
+      El constraint unique se mantiene: Postgres admite multiples NULL
+    - **Backfill con creacion de perfiles faltantes:** antes de resolver las FKs, la migracion
+      crea las filas de `alumno`/`profesor` que falten para cualquier usuario referenciado. Si
+      aun asi queda alguna fila sin resolver, **aborta con RuntimeError** indicando la cantidad,
+      en vez de dejar la tabla inconsistente
+    - **Downgrade funcional**, salvo que existan usuarios sin email creados despues del upgrade:
+      en ese caso corta con un mensaje explicito (hay que asignarles email o eliminarlos primero)
+    - **Cambios de comportamiento (no requieren migracion):**
+      - `POST /v2/admin/usuarios/manual` acepta `email` opcional y un bloque `perfil` opcional
+        (fecha_ingreso / cargo / dedicacion / especialidad / carga_horaria_semanal / departamento)
+      - Los usuarios manuales se crean con `activo=false`. Al iniciar sesion con Google por
+        primera vez se vinculan (se guarda el `google_id`, se completa el email si faltaba) y se
+        activan. Un usuario que YA tenia `google_id` y esta inactivo fue desactivado a proposito
+        por un admin: **no** se reactiva
+      - `update_on_login` ahora crea el perfil correspondiente si el rol cambio de OU
+
 **Riesgo:** Las migraciones 1-3 crean/modifican tablas. La migracion 4 inserta datos (previaturas). La migracion 5 agrega columnas a usuario. Las migraciones 7 y 8 agregan columnas nullable/con defaults (sin impacto en datos existentes). La migracion 9 crea una tabla nueva y una columna con default (sin impacto). La migracion 10 es no-op (solo ordena el historial). Las migraciones 11 y 12 se aplican en cadena: crean y eliminan `testimony_video`, y agregan `testimony.videoUrl` (nullable, sin impacto en datos existentes).
 
 **Nota sobre `alembic/env.py`:** se detecto que el archivo no importaba `Career`, `Testimony` ni `News` en su `target_metadata`, lo cual hacia que `alembic revision --autogenerate` marcara esas tablas como "removidas" (¡riesgo real de DROP TABLE accidental si se aceptaba un autogenerate sin revisar el diff!). Se corrigio agregando esos imports. **Cualquier autogenerate futuro debe revisarse a mano antes de aplicarse** — el diff todavia puede traer ruido de tablas legacy (`author`, `profile`, `post`, `example`) que existen en algunas BDs pero no en los modelos actuales.
@@ -121,6 +146,22 @@ alembic upgrade head
 - [ ] Verificar columna `videoUrl` en tabla `testimony`: `SELECT "videoUrl" FROM testimony LIMIT 1`
 - [ ] Verificar que la tabla `testimony_video` NO existe (`\d testimony_video` debe dar error)
 - [ ] Decidir proveedor de hosting de video (YouTube vs Supabase Storage) — el campo `videoUrl` acepta cualquier URL
+
+### Refactor alumno/profesor (migracion 13)
+
+- [ ] **ANTES de migrar:** contar usuarios referenciados sin perfil, para saber cuantas filas va a crear el backfill:
+  ```sql
+  SELECT count(DISTINCT im.usuario_id) FROM inscripcion_materia im
+    LEFT JOIN alumno a ON a.usuario_id = im.usuario_id WHERE a.id IS NULL;
+  SELECT count(DISTINCT dm.docente_id) FROM docente_materia dm
+    LEFT JOIN profesor p ON p.usuario_id = dm.docente_id WHERE p.id IS NULL;
+  ```
+- [ ] Verificar que la migracion no aborto: `SELECT count(*) FROM inscripcion_materia WHERE alumno_id IS NULL` debe dar 0
+- [ ] Verificar columnas nuevas: `\d inscripcion_materia` (debe tener `alumno_id`, no `usuario_id`)
+- [ ] Verificar `\d docente_materia` (debe tener `profesor_id`, no `docente_id`)
+- [ ] Verificar `\d calificacion` (debe tener `cargado_por_id`, no `docente_id`)
+- [ ] Verificar que `usuario.email` acepta NULL: `\d usuario`
+- [ ] **Avisar al frontend antes de deployar:** cambia el contrato de `POST /v2/admin/inscripciones/inscribir`, `GET /escolaridad/{id}`, `GET /verificar-egreso/{id}`, `POST /v2/admin/docentes-materia` y `POST /v2/admin/instancias-examen/{id}/profesores` (ver `v2/REFACTOR_ALUMNO_PROFESOR.md`)
 
 ## Variables de entorno nuevas
 

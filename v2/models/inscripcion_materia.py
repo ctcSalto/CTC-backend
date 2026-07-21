@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from v2.models.enums import EstadoInscripcionMateria
 
 if TYPE_CHECKING:
-    from v2.models.usuario import Usuario
+    from v2.models.alumno import Alumno
     from v2.models.instancia_cursado import InstanciaCursado
     from v2.models.calificacion import Calificacion
     from v2.models.inscripcion_examen import InscripcionExamen
@@ -26,7 +26,7 @@ class InscripcionMateria(SQLModel, table=True):
     __tablename__ = "inscripcion_materia"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    usuario_id: int = Field(foreign_key="usuario.id", index=True, description="Estudiante inscripto")
+    alumno_id: int = Field(foreign_key="alumno.id", index=True, description="Alumno inscripto")
     instancia_cursado_id: int = Field(foreign_key="instancia_cursado.id", index=True, description="Instancia de cursado")
     estado: EstadoInscripcionMateria = Field(
         default=EstadoInscripcionMateria.CURSANDO,
@@ -58,7 +58,7 @@ class InscripcionMateria(SQLModel, table=True):
     )
 
     # Relaciones
-    usuario: Optional["Usuario"] = Relationship(back_populates="inscripciones")
+    alumno: Optional["Alumno"] = Relationship(back_populates="inscripciones")
     instancia_cursado: Optional["InstanciaCursado"] = Relationship(back_populates="inscripciones")
     calificaciones: List["Calificacion"] = Relationship(back_populates="inscripcion")
     inscripciones_examen: List["InscripcionExamen"] = Relationship(back_populates="inscripcion_materia")
@@ -67,13 +67,13 @@ class InscripcionMateria(SQLModel, table=True):
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 class InscripcionMateriaCreate(SQLModel):
-    usuario_id: int
+    alumno_id: int
     instancia_cursado_id: int
 
 
 class InscripcionMateriaRead(SQLModel):
     id: int
-    usuario_id: int
+    alumno_id: int
     instancia_cursado_id: int
     estado: EstadoInscripcionMateria
     nota_curso: Optional[Decimal] = None

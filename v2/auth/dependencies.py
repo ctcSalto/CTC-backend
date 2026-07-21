@@ -4,12 +4,14 @@ Sigue el patron de database/services/auth/dependencies.py
 """
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from database.database import get_session, get_services
 from v2.services import V2Services, get_v2_services
 from v2.auth.security import verify_v2_token
 from v2.models.usuario import UsuarioRead
+from v2.models.alumno import Alumno
+from v2.models.profesor import Profesor
 from v2.models.enums import RolUsuario
 
 
@@ -109,3 +111,41 @@ async def require_docente_or_admin(current: UsuarioRead = Depends(get_current_us
     if current.rol not in (RolUsuario.DOCENTE, RolUsuario.ADMINISTRATIVO):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rol de docente o administrativo requerido")
     return current
+
+
+# ── Perfiles academicos ──────────────────────────────────────────────────────
+# Las entidades academicas (inscripciones, calificaciones, equipos, asignaciones
+# docentes) referencian alumno.id / profesor.id, no usuario.id. El JWT identifica
+# a la persona, asi que estas dependencies traducen persona -> sujeto academico
+# una sola vez, en lugar de repetir el lookup en cada endpoint.
+
+async def get_current_alumno(
+    current: UsuarioRead = Depends(require_estudiante),
+    session: Session = Depends(get_session),
+) -> Alumno:
+    """Perfil de alumno del usuario autenticado."""
+    alumno = session.exec(
+        select(Alumno).where(Alumno.usuario_id == current.id)
+    ).first()
+    if not alumno:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No tenes perfil de alumno. Contacta a administracion.",
+        )
+    return alumno
+
+
+async def get_current_profesor(
+    current: UsuarioRead = Depends(require_docente),
+    session: Session = Depends(get_session),
+) -> Profesor:
+    """Perfil de profesor del usuario autenticado."""
+    profesor = session.exec(
+        select(Profesor).where(Profesor.usuario_id == current.id)
+    ).first()
+    if not profesor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No tenes perfil de profesor. Contacta a administracion.",
+        )
+    return profesor

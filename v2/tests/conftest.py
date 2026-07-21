@@ -16,6 +16,9 @@ from sqlalchemy.pool import StaticPool
 
 # Importar todos los modelos para que SQLModel los registre
 from v2.models.usuario import Usuario
+from v2.models.alumno import Alumno
+from v2.models.profesor import Profesor
+from v2.models.administrativo import Administrativo
 from v2.models.programa import Programa
 from v2.models.materia import Materia
 from v2.models.politica_calificacion import PoliticaCalificacion
@@ -201,6 +204,80 @@ def fixture_usuario_admin(session):
     return user
 
 
+# ── Perfiles academicos ───────────────────────────────────────────────────────
+# Las entidades academicas referencian alumno.id / profesor.id, no usuario.id.
+# En produccion estos perfiles los crea _auto_crear_perfil() al dar de alta al
+# usuario; en los tests los montamos explicitamente.
+
+@pytest.fixture(name="alumno")
+def fixture_alumno(session, usuario_estudiante):
+    """Perfil de alumno del usuario estudiante."""
+    alumno = Alumno(usuario_id=usuario_estudiante.id)
+    session.add(alumno)
+    session.commit()
+    session.refresh(alumno)
+    return alumno
+
+
+@pytest.fixture(name="otro_alumno")
+def fixture_otro_alumno(session):
+    """
+    Segundo alumno, para los tests que verifican que no se puede acceder a la
+    inscripcion de otro. Tiene su propio usuario: usar el id de un usuario
+    cualquiera no sirve, porque los ids de usuario y de alumno son secuencias
+    distintas y pueden coincidir por casualidad.
+    """
+    user = Usuario(
+        google_id="google_est_002",
+        email="otro.estudiante@ctcsalto.edu.uy",
+        nombre="Ana",
+        apellido="Silva",
+        rol=RolUsuario.ESTUDIANTE,
+        activo=True,
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    alumno = Alumno(usuario_id=user.id)
+    session.add(alumno)
+    session.commit()
+    session.refresh(alumno)
+    return alumno
+
+
+@pytest.fixture(name="profesor")
+def fixture_profesor(session, usuario_docente):
+    """Perfil de profesor del usuario docente."""
+    profesor = Profesor(usuario_id=usuario_docente.id)
+    session.add(profesor)
+    session.commit()
+    session.refresh(profesor)
+    return profesor
+
+
+@pytest.fixture(name="otro_profesor")
+def fixture_otro_profesor(session):
+    """Segundo profesor, para los tests de asignaciones ajenas."""
+    user = Usuario(
+        google_id="google_doc_002",
+        email="otro.docente@ctcsalto.edu.uy",
+        nombre="Luis",
+        apellido="Gomez",
+        rol=RolUsuario.DOCENTE,
+        activo=True,
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    profesor = Profesor(usuario_id=user.id)
+    session.add(profesor)
+    session.commit()
+    session.refresh(profesor)
+    return profesor
+
+
 @pytest.fixture(name="usuario_inactivo")
 def fixture_usuario_inactivo(session):
     """Usuario desactivado."""
@@ -254,7 +331,7 @@ def fixture_instancia_cursado_completa(session, materias_con_previaturas, politi
 
 
 @pytest.fixture(name="inscripcion_cursando")
-def fixture_inscripcion_cursando(session, usuario_estudiante, instancia_cursado_completa):
+def fixture_inscripcion_cursando(session, alumno, instancia_cursado_completa):
     """Inscripcion en estado CURSANDO con snapshots."""
     ic = instancia_cursado_completa["instancia"]
     ev1 = instancia_cursado_completa["eval1"]
@@ -273,7 +350,7 @@ def fixture_inscripcion_cursando(session, usuario_estudiante, instancia_cursado_
     ]
 
     insc = InscripcionMateria(
-        usuario_id=usuario_estudiante.id,
+        alumno_id=alumno.id,
         instancia_cursado_id=ic.id,
         estado=EstadoInscripcionMateria.CURSANDO,
         snapshot_politica=snapshot_politica,
@@ -286,10 +363,10 @@ def fixture_inscripcion_cursando(session, usuario_estudiante, instancia_cursado_
 
 
 @pytest.fixture(name="asignacion_docente")
-def fixture_asignacion_docente(session, usuario_docente, instancia_cursado_completa):
+def fixture_asignacion_docente(session, profesor, instancia_cursado_completa):
     """Asigna el docente a la instancia de cursado."""
     dm = DocenteMateria(
-        docente_id=usuario_docente.id,
+        profesor_id=profesor.id,
         instancia_cursado_id=instancia_cursado_completa["instancia"].id,
         rol_docente=RolDocente.TITULAR,
     )

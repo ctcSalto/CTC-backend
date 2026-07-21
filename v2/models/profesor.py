@@ -7,6 +7,7 @@ from v2.models.enums import CargoDocente, DedicacionDocente
 if TYPE_CHECKING:
     from v2.models.usuario import Usuario
     from v2.models.programa import Programa
+    from v2.models.docente_materia import DocenteMateria
 
 
 # ── Modelo de tabla ──────────────────────────────────────────────────────────
@@ -29,6 +30,7 @@ class Profesor(SQLModel, table=True):
     # Relaciones
     usuario: Optional["Usuario"] = Relationship(back_populates="perfil_profesor")
     programas_coordinados: List["Programa"] = Relationship(back_populates="coordinador")
+    asignaciones_materia: List["DocenteMateria"] = Relationship(back_populates="profesor")
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────

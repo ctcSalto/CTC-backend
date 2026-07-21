@@ -27,7 +27,9 @@ class Calificacion(SQLModel, table=True):
     instancia_evaluacion_id: int = Field(foreign_key="materia_instancia_evaluacion.id", description="Instancia evaluada")
     nota: Decimal = Field(max_digits=5, decimal_places=2, description="Nota obtenida (dentro del peso_maximo)")
     equipo_id: Optional[int] = Field(default=None, foreign_key="equipo.id", description="Equipo si es evaluación grupal")
-    docente_id: int = Field(foreign_key="usuario.id", description="Docente que cargó la nota")
+    # Auditoría: apunta a usuario (no a profesor) porque bedelía —rol ADMINISTRATIVO,
+    # sin fila en `profesor`— también carga notas.
+    cargado_por_id: int = Field(foreign_key="usuario.id", description="Usuario que cargó la nota (docente o administrativo)")
     fecha: datetime = Field(default_factory=lambda: datetime.now(get_uruguay_tz()), description="Fecha de carga")
     observaciones: Optional[str] = Field(default=None, description="Comentarios del docente")
     id_rastreo: Optional[str] = Field(
@@ -40,7 +42,7 @@ class Calificacion(SQLModel, table=True):
     inscripcion: Optional["InscripcionMateria"] = Relationship(back_populates="calificaciones")
     instancia_evaluacion: Optional["MateriaInstanciaEvaluacion"] = Relationship(back_populates="calificaciones")
     equipo: Optional["Equipo"] = Relationship(back_populates="calificaciones")
-    docente: Optional["Usuario"] = Relationship(back_populates="calificaciones_cargadas")
+    cargado_por: Optional["Usuario"] = Relationship(back_populates="calificaciones_cargadas")
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -64,7 +66,7 @@ class CalificacionRead(SQLModel):
     instancia_evaluacion_id: int
     nota: Decimal
     equipo_id: Optional[int] = None
-    docente_id: int
+    cargado_por_id: int
     fecha: datetime
     observaciones: Optional[str] = None
     id_rastreo: Optional[str] = None

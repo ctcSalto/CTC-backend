@@ -42,14 +42,14 @@ class InstanciaExamenService(BaseServiceWithFilters[InstanciaExamen]):
         ).all())
 
     def asignar_profesor(
-        self, instancia_examen_id: int, docente_id: int, session: Session
+        self, instancia_examen_id: int, profesor_id: int, session: Session
     ) -> DocenteInstanciaExamen:
         """Asigna un profesor a una instancia de examen."""
         # Verificar que no exista
         existente = session.exec(
             select(DocenteInstanciaExamen).where(
                 DocenteInstanciaExamen.instancia_examen_id == instancia_examen_id,
-                DocenteInstanciaExamen.docente_id == docente_id,
+                DocenteInstanciaExamen.profesor_id == profesor_id,
             )
         ).first()
         if existente:
@@ -57,7 +57,7 @@ class InstanciaExamenService(BaseServiceWithFilters[InstanciaExamen]):
 
         asignacion = DocenteInstanciaExamen(
             instancia_examen_id=instancia_examen_id,
-            docente_id=docente_id,
+            profesor_id=profesor_id,
         )
         session.add(asignacion)
         session.flush()

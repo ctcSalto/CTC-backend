@@ -13,7 +13,7 @@ class EgresoService:
 
     def verificar_egreso(
         self,
-        usuario_id: int,
+        alumno_id: int,
         programa_id: int,
         session: Session,
     ) -> dict:
@@ -44,7 +44,7 @@ class EgresoService:
             select(InscripcionMateria, InstanciaCursado)
             .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
             .where(
-                InscripcionMateria.usuario_id == usuario_id,
+                InscripcionMateria.alumno_id == alumno_id,
                 InstanciaCursado.materia_id.in_(materia_ids),
                 InscripcionMateria.estado == EstadoInscripcionMateria.APROBADO,
             )

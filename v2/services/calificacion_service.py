@@ -28,7 +28,7 @@ class CalificacionService(BaseServiceWithFilters[Calificacion]):
 
     def guardar_calificacion(
         self,
-        docente_id: int,
+        cargado_por_id: int,
         inscripcion_id: int,
         instancia_evaluacion_id: int,
         nota: Decimal,
@@ -84,7 +84,7 @@ class CalificacionService(BaseServiceWithFilters[Calificacion]):
 
         if existente:
             existente.nota = nota_decimal
-            existente.docente_id = docente_id
+            existente.cargado_por_id = cargado_por_id
             existente.equipo_id = equipo_id
             existente.observaciones = observaciones
             existente.fecha = datetime.now(get_uruguay_tz())
@@ -98,7 +98,7 @@ class CalificacionService(BaseServiceWithFilters[Calificacion]):
                 instancia_evaluacion_id=instancia_evaluacion_id,
                 nota=nota_decimal,
                 equipo_id=equipo_id,
-                docente_id=docente_id,
+                cargado_por_id=cargado_por_id,
                 observaciones=observaciones,
             )
             session.add(calificacion)
@@ -114,7 +114,7 @@ class CalificacionService(BaseServiceWithFilters[Calificacion]):
 
     def guardar_batch(
         self,
-        docente_id: int,
+        cargado_por_id: int,
         instancia_evaluacion_id: int,
         calificaciones: list,
         session: Session,
@@ -129,7 +129,7 @@ class CalificacionService(BaseServiceWithFilters[Calificacion]):
         for item in calificaciones:
             try:
                 self.guardar_calificacion(
-                    docente_id=docente_id,
+                    cargado_por_id=cargado_por_id,
                     inscripcion_id=item.inscripcion_id,
                     instancia_evaluacion_id=instancia_evaluacion_id,
                     nota=item.nota,
@@ -169,6 +169,7 @@ class CalificacionService(BaseServiceWithFilters[Calificacion]):
         Para vista docente: "lista de alumnos de Primer Parcial"
         """
         from v2.models.usuario import Usuario
+        from v2.models.alumno import Alumno
 
         # Obtener inscripciones de la instancia de cursado
         inscripciones = session.exec(
@@ -180,7 +181,9 @@ class CalificacionService(BaseServiceWithFilters[Calificacion]):
         resultado = []
         for insc in inscripciones:
             usuario = session.exec(
-                select(Usuario).where(Usuario.id == insc.usuario_id)
+                select(Usuario)
+                .join(Alumno, Alumno.usuario_id == Usuario.id)
+                .where(Alumno.id == insc.alumno_id)
             ).first()
 
             calificacion = session.exec(
@@ -192,7 +195,7 @@ class CalificacionService(BaseServiceWithFilters[Calificacion]):
 
             resultado.append({
                 "inscripcion_id": insc.id,
-                "usuario_id": insc.usuario_id,
+                "alumno_id": insc.alumno_id,
                 "nombre": usuario.nombre if usuario else "",
                 "apellido": usuario.apellido if usuario else "",
                 "nota": float(calificacion.nota) if calificacion else None,
@@ -206,7 +209,7 @@ class CalificacionService(BaseServiceWithFilters[Calificacion]):
 
     def cargar_nota_final_directa(
         self,
-        docente_id: int,
+        cargado_por_id: int,
         inscripcion_id: int,
         nota: Decimal,
         session: Session,
@@ -344,12 +347,12 @@ class CalificacionService(BaseServiceWithFilters[Calificacion]):
     # ── Validar asignación docente ──────────────────────────────────────────
 
     def validar_docente_instancia_cursado(
-        self, docente_id: int, instancia_cursado_id: int, session: Session
+        self, profesor_id: int, instancia_cursado_id: int, session: Session
     ) -> bool:
-        """Verifica que el docente esté asignado a la instancia de cursado."""
+        """Verifica que el profesor esté asignado a la instancia de cursado."""
         asignacion = session.exec(
             select(DocenteMateria).where(
-                DocenteMateria.docente_id == docente_id,
+                DocenteMateria.profesor_id == profesor_id,
                 DocenteMateria.instancia_cursado_id == instancia_cursado_id,
             )
         ).first()

@@ -9,6 +9,8 @@ from v2.models.instancia_examen import InstanciaExamen
 from v2.models.instancia_cursado import InstanciaCursado
 from v2.models.materia import Materia
 from v2.models.politica_examen import PoliticaExamen
+from v2.models.usuario import Usuario
+from v2.models.alumno import Alumno
 from v2.models.enums import EstadoInscripcionMateria, EstadoInscripcionExamen
 
 import os
@@ -19,6 +21,16 @@ from zoneinfo import ZoneInfo
 def get_uruguay_tz():
     tz_name = os.getenv('TIME_ZONE', 'America/Montevideo')
     return ZoneInfo(tz_name)
+
+
+def _usuario_de_alumno(alumno_id: int, session: Session) -> Optional[Usuario]:
+    """
+    Resuelve el Usuario (la persona) detras de un perfil de alumno.
+    Necesario para nombres y notificaciones: esos datos viven en Usuario,
+    no en el perfil academico.
+    """
+    alumno = session.get(Alumno, alumno_id)
+    return session.get(Usuario, alumno.usuario_id) if alumno else None
 
 
 class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
@@ -119,8 +131,7 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         object.__setattr__(inscripcion_examen, "id_rastreo_notificacion", None)
         try:
             from v2.services import get_v2_services
-            from v2.models.usuario import Usuario
-            usuario = session.get(Usuario, inscripcion.usuario_id)
+            usuario = _usuario_de_alumno(inscripcion.alumno_id, session)
             instancia = session.get(InstanciaExamen, instancia_examen_id)
             ic_obj = session.get(InstanciaCursado, inscripcion.instancia_cursado_id)
             mat_notif = session.get(Materia, ic_obj.materia_id) if ic_obj else None
@@ -233,18 +244,15 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
             .where(InscripcionExamen.instancia_examen_id == instancia_examen_id)
         ).all()
 
-        from v2.models.usuario import Usuario
         items = []
         for ie, im in resultados:
-            usuario = session.exec(
-                select(Usuario).where(Usuario.id == im.usuario_id)
-            ).first()
+            usuario = _usuario_de_alumno(im.alumno_id, session)
             ic = session.get(InstanciaCursado, im.instancia_cursado_id)
             materia = session.get(Materia, ic.materia_id) if ic else None
             items.append({
                 "inscripcion_examen_id": ie.id,
                 "inscripcion_materia_id": im.id,
-                "usuario_id": im.usuario_id,
+                "alumno_id": im.alumno_id,
                 "nombre": usuario.nombre if usuario else "",
                 "apellido": usuario.apellido if usuario else "",
                 "materia_nombre": materia.nombre if materia else "",
@@ -376,8 +384,7 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         # Notificación (best-effort)
         try:
             from v2.services import get_v2_services
-            from v2.models.usuario import Usuario
-            usuario = session.get(Usuario, inscripcion.usuario_id)
+            usuario = _usuario_de_alumno(inscripcion.alumno_id, session)
             ic_obj = session.get(InstanciaCursado, inscripcion.instancia_cursado_id)
             mat_notif = session.get(Materia, ic_obj.materia_id) if ic_obj else None
             rendiciones = self._contar_rendiciones_previas(inscripcion_materia_id, session)

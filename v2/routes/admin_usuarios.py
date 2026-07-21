@@ -12,12 +12,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
 from database.database import get_session
 from v2.services import V2Services, get_v2_services
 from v2.auth.dependencies import require_administrativo
 from v2.models.usuario import UsuarioRead
-from v2.models.enums import RolUsuario
+from v2.models.enums import RolUsuario, CargoDocente, DedicacionDocente
 
 
 router = APIRouter(
@@ -28,26 +29,50 @@ router = APIRouter(
 
 # ── Schemas de request ──────────────────────────────────────────────────────
 
+class PerfilManualCreate(BaseModel):
+    """
+    Campos propios del perfil. Solo se leen los que aplican al `rol` enviado:
+    ESTUDIANTE usa fecha_ingreso; DOCENTE usa cargo, dedicacion, especialidad y
+    carga_horaria_semanal; ADMINISTRATIVO usa departamento.
+    """
+    # Alumno
+    fecha_ingreso: Optional[datetime] = None
+    # Profesor
+    cargo: Optional[CargoDocente] = None
+    dedicacion: Optional[DedicacionDocente] = None
+    especialidad: Optional[str] = None
+    carga_horaria_semanal: Optional[int] = None
+    # Administrativo
+    departamento: Optional[str] = None
+
+
 class UsuarioManualCreate(BaseModel):
-    email: str
     nombre: str
     apellido: str
     rol: RolUsuario
+    email: Optional[str] = None
     documento: Optional[str] = None
     telefono: Optional[str] = None
     email_personal: Optional[str] = None
+    perfil: Optional[PerfilManualCreate] = None
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 @router.post(
     "/manual",
-    summary="Crear usuario manualmente (sin cuenta de Google)",
-    description="Crea un usuario y su perfil (alumno/docente/administrativo) sin "
-                "requerir login de Google. Util para ponentes que dan una charla "
-                "sin necesitar usuario, o asistentes a charlas que deben quedar "
-                "registrados. Si la persona luego inicia sesion con Google usando "
-                "el mismo email, el sistema vincula la cuenta automaticamente.",
+    summary="Crear persona manualmente (sin cuenta de Google)",
+    description="Crea un usuario y su perfil academico (alumno/profesor/administrativo) "
+                "en una sola operacion, sin requerir login de Google. Util para ponentes "
+                "que dan una charla puntual, o para oyentes que deben quedar registrados "
+                "como alumnos sin acceso al portal.\n\n"
+                "El `email` es opcional: un oyente puede no tener cuenta institucional. "
+                "Si se provee y esa persona luego inicia sesion con Google con ese mismo "
+                "email, el sistema vincula la cuenta y la activa automaticamente.\n\n"
+                "Se crea con `activo=false` (sin acceso al portal). El bloque `perfil` es "
+                "opcional y sus campos se leen segun el `rol` enviado.\n\n"
+                "No existe un endpoint separado para crear alumnos o profesores: el perfil "
+                "no puede existir sin su usuario, asi que el alta siempre es por aca.",
 )
 async def crear_usuario_manual(
     body: UsuarioManualCreate,
@@ -65,6 +90,7 @@ async def crear_usuario_manual(
             documento=body.documento,
             telefono=body.telefono,
             email_personal=body.email_personal,
+            perfil=body.perfil.model_dump(exclude_unset=True) if body.perfil else None,
         )
         return UsuarioRead.model_validate(usuario)
     except ValueError as e:

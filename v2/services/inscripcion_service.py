@@ -11,6 +11,7 @@ from v2.models.previatura import Previatura
 from v2.models.materia_instancia_evaluacion import MateriaInstanciaEvaluacion
 from v2.models.politica_calificacion import PoliticaCalificacion
 from v2.models.usuario import Usuario
+from v2.models.alumno import Alumno
 from v2.models.enums import EstadoInscripcionMateria, TipoPreviatura
 
 import os
@@ -31,13 +32,13 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
             select(InscripcionMateria).where(InscripcionMateria.id == inscripcion_id)
         ).first()
 
-    def get_by_usuario_instancia(
-        self, usuario_id: int, instancia_cursado_id: int, session: Session
+    def get_by_alumno_instancia(
+        self, alumno_id: int, instancia_cursado_id: int, session: Session
     ) -> Optional[InscripcionMateria]:
-        """Busca inscripción de un usuario en una instancia de cursado."""
+        """Busca inscripción de un alumno en una instancia de cursado."""
         return session.exec(
             select(InscripcionMateria).where(
-                InscripcionMateria.usuario_id == usuario_id,
+                InscripcionMateria.alumno_id == alumno_id,
                 InscripcionMateria.instancia_cursado_id == instancia_cursado_id,
             )
         ).first()
@@ -46,7 +47,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
 
     def inscribir_materia(
         self,
-        usuario_id: int,
+        alumno_id: int,
         instancia_cursado_id: int,
         session: Session,
         skip_periodo: bool = False,
@@ -91,7 +92,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
         # 3. Verificar que no esté ya inscripto en esta instancia con estado activo
         existente = session.exec(
             select(InscripcionMateria).where(
-                InscripcionMateria.usuario_id == usuario_id,
+                InscripcionMateria.alumno_id == alumno_id,
                 InscripcionMateria.instancia_cursado_id == instancia_cursado_id,
                 InscripcionMateria.estado == EstadoInscripcionMateria.CURSANDO,
             )
@@ -100,7 +101,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
             raise ValueError("Ya estas inscripto en esta instancia de cursado")
 
         # 4. Validar previaturas
-        cumple, faltantes = self.validar_previaturas(usuario_id, materia.id, session)
+        cumple, faltantes = self.validar_previaturas(alumno_id, materia.id, session)
         if not cumple:
             raise ValueError(
                 "No cumple las previaturas requeridas: " + "; ".join(faltantes)
@@ -112,7 +113,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
 
         # 6. Crear inscripción
         inscripcion = InscripcionMateria(
-            usuario_id=usuario_id,
+            alumno_id=alumno_id,
             instancia_cursado_id=instancia_cursado_id,
             estado=EstadoInscripcionMateria.CURSANDO,
             snapshot_politica=snapshot_politica,
@@ -123,7 +124,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
         session.refresh(inscripcion)
 
         # 7. Sync Moodle (best-effort)
-        self._sync_moodle_enrol(usuario_id, materia, session)
+        self._sync_moodle_enrol(alumno_id, materia, session)
 
         # 8. Notificación (best-effort, no crítica)
         # El id_rastreo de la notificación se adjunta a la respuesta para que
@@ -132,9 +133,10 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
         object.__setattr__(inscripcion, "id_rastreo_notificacion", None)
         try:
             from v2.services import get_v2_services
-            from v2.models.usuario import Usuario
             from v2.models.programa import Programa
-            usuario = session.get(Usuario, usuario_id)
+            # La notificación necesita el Usuario (email/contacto), que cuelga del
+            # perfil de alumno. Un oyente sin cuenta simplemente no recibe nada.
+            usuario = self._usuario_de_alumno(alumno_id, session)
             programa = session.get(Programa, materia.programa_id)
             if usuario and programa:
                 resultado = get_v2_services().notificationService.notificar_inscripcion_materia(
@@ -150,7 +152,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
     # ── Validación de previaturas ─────────────────────────────────────────────
 
     def validar_previaturas(
-        self, usuario_id: int, materia_id: int, session: Session
+        self, alumno_id: int, materia_id: int, session: Session
     ) -> Tuple[bool, List[str]]:
         """
         Verifica que el estudiante cumpla todas las previaturas de la materia.
@@ -171,7 +173,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
                 select(InscripcionMateria)
                 .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
                 .where(
-                    InscripcionMateria.usuario_id == usuario_id,
+                    InscripcionMateria.alumno_id == alumno_id,
                     InstanciaCursado.materia_id == prev.materia_previa_id,
                     InscripcionMateria.estado.in_([
                         EstadoInscripcionMateria.APROBADO,
@@ -243,14 +245,20 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
 
     # ── Sync Moodle ──────────────────────────────────────────────────────────
 
-    def _sync_moodle_enrol(self, usuario_id: int, materia: Materia, session: Session):
+    def _usuario_de_alumno(self, alumno_id: int, session: Session) -> Optional[Usuario]:
+        """
+        Resuelve el Usuario (la persona) detrás de un perfil de alumno.
+        Necesario para todo lo que sale del dominio académico: Moodle, emails.
+        """
+        alumno = session.get(Alumno, alumno_id)
+        return session.get(Usuario, alumno.usuario_id) if alumno else None
+
+    def _sync_moodle_enrol(self, alumno_id: int, materia: Materia, session: Session):
         """Sincroniza la inscripción con Moodle (best-effort, no falla si Moodle no responde)"""
         if not materia.moodle_course_id:
             return
 
-        usuario = session.exec(
-            select(Usuario).where(Usuario.id == usuario_id)
-        ).first()
+        usuario = self._usuario_de_alumno(alumno_id, session)
         if not usuario or not usuario.moodle_id:
             return
 
@@ -274,7 +282,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
     # ── Escolaridad ──────────────────────────────────────────────────────────
 
     def get_escolaridad(
-        self, usuario_id: int, programa_id: int, session: Session
+        self, alumno_id: int, programa_id: int, session: Session
     ) -> dict:
         """Escolaridad completa del estudiante en un programa"""
         # Obtener todas las materias del programa
@@ -292,7 +300,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
             select(InscripcionMateria)
             .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
             .where(
-                InscripcionMateria.usuario_id == usuario_id,
+                InscripcionMateria.alumno_id == alumno_id,
                 InstanciaCursado.materia_id.in_(materia_ids),
             )
         ).all()
@@ -349,7 +357,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
                 })
 
         return {
-            "usuario_id": usuario_id,
+            "alumno_id": alumno_id,
             "programa_id": programa_id,
             "semestres": semestres,
             "total_creditos": total_creditos,
@@ -359,7 +367,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
     # ── Materias disponibles ─────────────────────────────────────────────────
 
     def get_materias_disponibles(
-        self, usuario_id: int, programa_id: int, anio_lectivo: int, session: Session
+        self, alumno_id: int, programa_id: int, anio_lectivo: int, session: Session
     ) -> list:
         """Materias a las que el estudiante puede inscribirse (con instancias activas)"""
         materias = session.exec(
@@ -376,7 +384,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
                 select(InscripcionMateria)
                 .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
                 .where(
-                    InscripcionMateria.usuario_id == usuario_id,
+                    InscripcionMateria.alumno_id == alumno_id,
                     InstanciaCursado.materia_id == materia.id,
                     InscripcionMateria.estado.in_([
                         EstadoInscripcionMateria.CURSANDO,
@@ -390,7 +398,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
                 continue  # Ya la tiene aprobada o la está cursando
 
             # Verificar previaturas
-            cumple, faltantes = self.validar_previaturas(usuario_id, materia.id, session)
+            cumple, faltantes = self.validar_previaturas(alumno_id, materia.id, session)
 
             # Buscar instancia de cursado activa para este año
             instancia = session.exec(
@@ -503,14 +511,14 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
     # ── Mis materias (alumno) ─────────────────────────────────────────────────
 
     def get_mis_materias(
-        self, usuario_id: int, anio_lectivo: int, session: Session
+        self, alumno_id: int, anio_lectivo: int, session: Session
     ) -> list:
         """Materias donde el alumno tiene inscripción activa en un año lectivo."""
         inscripciones = session.exec(
             select(InscripcionMateria, InstanciaCursado)
             .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
             .where(
-                InscripcionMateria.usuario_id == usuario_id,
+                InscripcionMateria.alumno_id == alumno_id,
                 InstanciaCursado.anio_lectivo == anio_lectivo,
             )
             .order_by(InscripcionMateria.fecha_inscripcion.desc())
@@ -537,13 +545,13 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
     # ── Detalle materia (alumno) ──────────────────────────────────────────────
 
     def get_detalle_materia(
-        self, inscripcion_id: int, usuario_id: int, session: Session
+        self, inscripcion_id: int, alumno_id: int, session: Session
     ) -> dict:
         """Vista completa de una inscripción para el alumno."""
         inscripcion = self.get_by_id(inscripcion_id, session)
         if not inscripcion:
             raise ValueError(f"Inscripcion {inscripcion_id} no encontrada")
-        if inscripcion.usuario_id != usuario_id:
+        if inscripcion.alumno_id != alumno_id:
             raise ValueError("No es tu inscripcion")
 
         ic = session.get(InstanciaCursado, inscripcion.instancia_cursado_id)
@@ -590,13 +598,13 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
     # ── Desinscripción de materia ─────────────────────────────────────────────
 
     def desinscribir_materia(
-        self, inscripcion_id: int, usuario_id: int, session: Session
+        self, inscripcion_id: int, alumno_id: int, session: Session
     ) -> None:
         """Permite al alumno desinscribirse de una materia (solo si está CURSANDO)."""
         inscripcion = self.get_by_id(inscripcion_id, session)
         if not inscripcion:
             raise ValueError(f"Inscripcion {inscripcion_id} no encontrada")
-        if inscripcion.usuario_id != usuario_id:
+        if inscripcion.alumno_id != alumno_id:
             raise ValueError("No es tu inscripcion")
         if inscripcion.estado != EstadoInscripcionMateria.CURSANDO:
             raise ValueError(
@@ -660,7 +668,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
     # ── Mapa de previaturas (alumno) ──────────────────────────────────────────
 
     def get_mapa_previaturas(
-        self, usuario_id: int, programa_id: int, session: Session
+        self, alumno_id: int, programa_id: int, session: Session
     ) -> list:
         """Grafo de previaturas con el estado del alumno en cada materia."""
         materias = session.exec(
@@ -695,7 +703,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
             select(InscripcionMateria, InstanciaCursado)
             .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
             .where(
-                InscripcionMateria.usuario_id == usuario_id,
+                InscripcionMateria.alumno_id == alumno_id,
                 InstanciaCursado.materia_id.in_(materia_ids),
             )
         ).all()

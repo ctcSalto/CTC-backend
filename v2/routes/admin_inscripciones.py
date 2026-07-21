@@ -20,7 +20,7 @@ router = APIRouter(
 
 
 class InscripcionManualRequest(BaseModel):
-    usuario_id: int
+    alumno_id: int
     instancia_cursado_id: int
 
 
@@ -56,9 +56,9 @@ async def marcar_abandono(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/escolaridad/{usuario_id}")
+@router.get("/escolaridad/{alumno_id}")
 async def escolaridad_alumno(
-    usuario_id: int,
+    alumno_id: int,
     programa_id: int = Query(..., description="ID del programa"),
     current_usuario: UsuarioRead = Depends(require_docente_or_admin),
     v2_services: V2Services = Depends(get_v2_services),
@@ -66,7 +66,7 @@ async def escolaridad_alumno(
 ):
     """Consultar escolaridad de cualquier alumno (admin/docente)"""
     return v2_services.inscripcionService.get_escolaridad(
-        usuario_id, programa_id, session
+        alumno_id, programa_id, session
     )
 
 
@@ -80,7 +80,7 @@ async def inscripcion_manual(
     """Inscripcion manual por admin (salta validacion de periodo)"""
     try:
         return v2_services.inscripcionService.inscribir_materia(
-            usuario_id=data.usuario_id,
+            alumno_id=data.alumno_id,
             instancia_cursado_id=data.instancia_cursado_id,
             session=session,
             skip_periodo=True,
@@ -91,9 +91,9 @@ async def inscripcion_manual(
 
 # -- Verificacion de egreso --------------------------------------------------
 
-@router.get("/verificar-egreso/{usuario_id}")
+@router.get("/verificar-egreso/{alumno_id}")
 async def verificar_egreso(
-    usuario_id: int,
+    alumno_id: int,
     programa_id: int = Query(..., description="ID del programa"),
     current_usuario: UsuarioRead = Depends(require_administrativo),
     v2_services: V2Services = Depends(get_v2_services),
@@ -102,7 +102,7 @@ async def verificar_egreso(
     """Verificar si un alumno cumple requisitos de egreso en un programa"""
     try:
         return v2_services.egresoService.verificar_egreso(
-            usuario_id, programa_id, session
+            alumno_id, programa_id, session
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

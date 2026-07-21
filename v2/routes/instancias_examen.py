@@ -113,7 +113,7 @@ async def asignar_profesor(
     """Asignar un profesor a una instancia de examen."""
     try:
         return v2_services.instanciaExamenService.asignar_profesor(
-            instancia_id, data.docente_id, session
+            instancia_id, data.profesor_id, session
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
