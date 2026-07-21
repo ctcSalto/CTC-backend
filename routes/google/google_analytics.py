@@ -923,9 +923,15 @@ async def refresh_analytics_cache(
 # ========== Debug and Health Endpoints ==========
 
 @router.get("/debug-env")
-async def debug_environment_variables():
+async def debug_environment_variables(
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    DEBUG: Muestra qué variables de entorno ve el servidor
+    DEBUG: Muestra qué variables de entorno ve el servidor.
+
+    Requiere rol admin: expone un preview del JSON de credenciales de la service
+    account (project_id, private_key_id), el GA4_PROPERTY_ID y el listado de
+    variables de entorno de Google. Estuvo publicado sin autenticacion.
     """
     import os
 
@@ -943,9 +949,12 @@ async def debug_environment_variables():
 
 
 @router.get("/debug-modules")
-async def debug_modules():
+async def debug_modules(
+    current_user: UserRead = Depends(require_admin_role)
+):
     """
-    DEBUG: Verifica qué módulos de Google están instalados
+    DEBUG: Verifica qué módulos de Google están instalados.
+    Requiere rol admin: revela detalles internos del entorno de ejecucion.
     """
     import sys
     from external_services.google.analytics import _initialization_error

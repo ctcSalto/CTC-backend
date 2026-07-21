@@ -1,11 +1,20 @@
 from fastapi import APIRouter, HTTPException, Depends
+from database.services.auth.dependencies import require_admin_role
 from external_services.moodle_api.models.course import MoodleCourseCreate, MoodleCourseRead, MoodleCourseUpdate, MoodleCourseUpdateResponse, DeleteResponseCourse
 from external_services.moodle_api.controllers.moodle_api_controller import MoodleController
 from external_services.moodle_api.moodle_config import MoodleConfig
 from typing import List
 from utils.logger import show
 
-router = APIRouter(prefix="/moodle", tags=["Moodle Courses"])
+# Toda la API de Moodle es administracion: crea, modifica y elimina usuarios,
+# cursos e inscripciones de la institucion. La proteccion va a nivel de router y
+# no endpoint por endpoint, para que cualquier ruta que se agregue despues quede
+# cubierta sin que haya que acordarse.
+router = APIRouter(
+    prefix="/moodle",
+    tags=["Moodle Courses"],
+    dependencies=[Depends(require_admin_role)],
+)
 
 config = MoodleConfig.from_env()
 moodle_controller = MoodleController(config)

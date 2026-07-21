@@ -3,17 +3,23 @@ from sqlmodel import Session
 from database.models.test.author import AuthorResponse
 from database.services.filter.filters import Filter, extract_filter_fields, EnhancedFieldFilter, filter_model_response
 from database.database import Services, get_services, get_session
+from database.services.auth.dependencies import require_admin_role
 
 from utils.logger import show
 
-router = APIRouter(prefix="/test", tags=["Test"])
+# Endpoint de prueba del sistema de filtros sobre tablas legacy. Requiere admin:
+# estuvo publicado sin autenticacion con la dependencia comentada.
+router = APIRouter(
+    prefix="/test",
+    tags=["Test"],
+    dependencies=[Depends(require_admin_role)],
+)
 
 @router.post("/users", status_code=status.HTTP_200_OK)  # Quité response_model porque ahora filtramos campos
 async def get_users(
     filters: Filter = Depends(),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session),
-    #current_user: User = Depends(get_current_active_user)
 ):
     try:
         show(filters)
