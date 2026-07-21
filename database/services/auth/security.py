@@ -30,10 +30,17 @@ def get_password_hash(password: str) -> str:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Crea un token JWT con JTI único. Si expires_delta es None, el token no tiene expiración."""
     to_encode = data.copy()
-    
+
     # Agregar JTI único para identificar el token
     jti = str(uuid.uuid4())
     to_encode.update({"jti": jti})
+
+    # Marcar el sistema emisor. v1 (CMS) y v2 (portal academico) comparten
+    # SECRET_KEY, asi que sin esta marca un token de un sistema es criptografica-
+    # mente valido en el otro. v2 ya marcaba sus tokens con system="v2" y los
+    # validaba; v1 no marcaba ni validaba, de modo que un token v2 servia en v1
+    # para cualquier email que existiera en la tabla `user`.
+    to_encode.setdefault("system", "v1")
 
     if expires_delta is not None:
         expire = datetime.utcnow() + expires_delta
@@ -55,9 +62,15 @@ def verify_token(token: str, cache_service=None, session: Session = None) -> Tok
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
         jti: str = payload.get("jti")
-        
-        print(f"DEBUG verify_token: Token decodificado - email: {email}, jti: {jti}")
-        
+
+        # Rechazar tokens emitidos por otro sistema (ver create_access_token).
+        # Se acepta la ausencia del claim para no invalidar los tokens v1 que ya
+        # estaban circulando cuando se agrego la marca; una vez que expiren todos
+        # (ACCESS_TOKEN_EXPIRE_MINUTES) esto se puede endurecer a exigir "v1".
+        sistema = payload.get("system")
+        if sistema is not None and sistema != "v1":
+            raise credentials_exception
+
         if email is None:
             raise credentials_exception
             
