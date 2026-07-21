@@ -39,7 +39,7 @@ if V2_ENABLED:
     )
 
 from pages.welcome import html
-from database.database import reset_database, create_db_and_tables
+from database.database import create_db_and_tables
 
 from zoneinfo import ZoneInfo
 from datetime import datetime
@@ -179,15 +179,6 @@ async def scalar_docs():
 @app.get("/" , response_class=HTMLResponse)
 def root():
     return html
-
-@app.get("/generate-permanent-token")
-def generate_permanent_token():
-    return ""
-
-@app.get("/reset-database")
-def reset_db():
-    reset_database()
-    return {"message": "Database reset successfully"}
 
 @app.get("/health")
 async def health():

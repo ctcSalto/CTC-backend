@@ -127,6 +127,70 @@ class TestJWTVerificacion:
             verify_v2_token(token)
         assert exc_info.value.status_code == 401
 
+
+class _FakeRedis:
+    """
+    Doble de RedisService. Imita su contrato real, incluido el detalle que
+    importa: exists() se traga los errores y devuelve False, asi que "Redis
+    caido" y "la clave no existe" se ven identicos desde afuera.
+    """
+    def __init__(self, disponible=True, revocados=()):
+        self.disponible = disponible
+        self.revocados = set(revocados)
+
+    def test_connection(self):
+        return self.disponible
+
+    def exists(self, key, session=None):
+        if not self.disponible:
+            return False  # tal cual el real: falla silenciosa
+        return key in self.revocados
+
+
+class TestBlacklistFallaCerrado:
+    """
+    La blacklist debe fallar CERRADO. El logout es la unica forma de cortar
+    acceso antes de que venza el token, asi que no puede quedar deshabilitado
+    silenciosamente cuando Redis no responde.
+    """
+
+    def test_token_revocado_es_rechazado(self):
+        from fastapi import HTTPException
+        token = create_v2_token("juan@ctcsalto.edu.uy", 1, "estudiante")
+        jti = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])["jti"]
+        redis = _FakeRedis(revocados=[f"blacklist_{jti}"])
+
+        with pytest.raises(HTTPException) as exc_info:
+            verify_v2_token(token, redis)
+        assert exc_info.value.status_code == 401
+
+    def test_token_no_revocado_pasa(self):
+        token = create_v2_token("juan@ctcsalto.edu.uy", 1, "estudiante")
+        payload = verify_v2_token(token, _FakeRedis())
+        assert payload["sub"] == "juan@ctcsalto.edu.uy"
+
+    def test_redis_caido_rechaza_en_vez_de_dejar_pasar(self):
+        """
+        Con Redis caido no podemos saber si el token fue revocado. Antes esto
+        dejaba pasar cualquier token revocado hasta su expiracion.
+        """
+        from fastapi import HTTPException
+        token = create_v2_token("juan@ctcsalto.edu.uy", 1, "estudiante")
+
+        with pytest.raises(HTTPException) as exc_info:
+            verify_v2_token(token, _FakeRedis(disponible=False))
+        assert exc_info.value.status_code == 503
+
+    def test_redis_caido_no_deja_entrar_token_revocado(self):
+        """El caso concreto que motivo el fix: token revocado + Redis caido."""
+        from fastapi import HTTPException
+        token = create_v2_token("juan@ctcsalto.edu.uy", 1, "estudiante")
+        jti = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])["jti"]
+        redis = _FakeRedis(disponible=False, revocados=[f"blacklist_{jti}"])
+
+        with pytest.raises(HTTPException):
+            verify_v2_token(token, redis)
+
     def test_rechazar_token_sin_email(self):
         """Token sin claim sub (email) es rechazado."""
         from fastapi import HTTPException
@@ -179,14 +243,26 @@ class TestJWTBlacklist:
         payload = verify_v2_token(token, redis_service=mock_redis)
         assert payload["sub"] == "test@ctcsalto.edu.uy"
 
-    def test_redis_caido_no_bloquea(self):
-        """Si Redis falla, el token pasa igual (Redis es no critico)."""
+    def test_redis_caido_bloquea(self):
+        """
+        Si Redis no responde, el token se rechaza con 503.
+
+        Este test antes se llamaba `test_redis_caido_no_bloquea` y afirmaba lo
+        contrario ("Redis es no critico, el token pasa igual"). Eso convertia un
+        agujero de seguridad en comportamiento esperado: con Redis caido, todo
+        token revocado volvia a ser valido hasta expirar. Redis SI es critico
+        para la blacklist, porque el logout es la unica forma de cortar acceso
+        antes del vencimiento.
+        """
+        from fastapi import HTTPException
         token = create_v2_token("test@ctcsalto.edu.uy", 1, "estudiante")
         mock_redis = MagicMock()
+        mock_redis.test_connection.return_value = False
         mock_redis.exists.side_effect = ConnectionError("Redis down")
 
-        payload = verify_v2_token(token, redis_service=mock_redis)
-        assert payload["sub"] == "test@ctcsalto.edu.uy"
+        with pytest.raises(HTTPException) as exc_info:
+            verify_v2_token(token, redis_service=mock_redis)
+        assert exc_info.value.status_code == 503
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -40,6 +40,20 @@ def create_v2_token(
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def _redis_disponible(redis_service) -> bool:
+    """
+    Chequea conectividad real con Redis antes de confiar en su respuesta.
+
+    Necesario porque RedisService.exists() atrapa sus propias excepciones y
+    devuelve False, o sea que "Redis caido" y "la clave no existe" se ven igual
+    desde afuera. Para la blacklist esa ambiguedad es justamente la peligrosa.
+    """
+    try:
+        return bool(redis_service.test_connection())
+    except Exception:
+        return False
+
+
 def verify_v2_token(token: str, redis_service=None) -> dict:
     """
     Decodifica y valida un JWT v2.
@@ -62,20 +76,31 @@ def verify_v2_token(token: str, redis_service=None) -> dict:
         if email is None:
             raise credentials_exception
 
-        # Verificar blacklist si Redis esta disponible
+        # Verificar blacklist. Falla CERRADO: si no podemos consultar Redis, no
+        # podemos saber si el token fue revocado, asi que lo rechazamos.
+        #
+        # Antes esto fallaba abierto (`except Exception: pass`), lo que significaba
+        # que con Redis caido todos los tokens revocados volvian a ser validos hasta
+        # expirar: un logout dejaba de tener efecto y un token robado que habias
+        # revocado servia de nuevo. El logout es la unica forma de cortar acceso
+        # antes del vencimiento, asi que no puede depender de que Redis este vivo.
+        #
+        # Ojo: RedisService.exists() se traga sus propias excepciones y devuelve
+        # False, asi que no alcanza con envolver la llamada en un try. Hay que
+        # verificar la conectividad por separado.
         jti = payload.get("jti")
         if redis_service and jti:
-            try:
-                if redis_service.exists(f"blacklist_{jti}"):
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Token revocado",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-            except HTTPException:
-                raise
-            except Exception:
-                pass  # Redis no disponible, continuar sin blacklist
+            if not _redis_disponible(redis_service):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="No se puede validar la sesion en este momento. Reintenta en unos minutos.",
+                )
+            if redis_service.exists(f"blacklist_{jti}"):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token revocado",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
 
         return payload
 

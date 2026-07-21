@@ -82,6 +82,11 @@ def reset_database():
     """
     Elimina todas las tablas de la base de datos y las vuelve a crear.
     Útil para testing cuando necesitas un estado limpio.
+
+    NUNCA exponer esta función detrás de un endpoint HTTP. Estuvo publicada como
+    `GET /reset-database` sin autenticación: cualquier crawler, prefetch del
+    navegador o bot de link-preview que siguiera esa URL vaciaba la base entera.
+    Se usa solo desde scripts locales, con DATABASE_URL apuntando a desarrollo.
     """
     # Eliminar todas las tablas
     SQLModel.metadata.drop_all(engine)
