@@ -1,10 +1,19 @@
 # Pendientes de producción
 
-> **Estado (Julio 2026):** las migraciones 1–12 (portal académico bedelía: tablas
-> v2, faltas, previaturas, columnas de usuario, documentos, Fase 2, notificaciones,
-> videoUrl en testimonios) ya se aplicaron. Quedan **dos migraciones pendientes** de
-> aplicar en producción: la 13 (refactor alumno/profesor) y la 14 (índices de fecha).
-> El histórico de las aplicadas está al final, como referencia de rollback.
+> **Estado (Julio 2026):** las migraciones 1–12 ya se aplicaron. Las **13 y 14 se
+> aplicaron y verificaron en DEVELOP** (ver abajo), pero **siguen pendientes en
+> PRODUCCIÓN**. El histórico de las aplicadas está al final, como referencia de rollback.
+>
+> **Corrida en develop (13 + 14):** partió de `e578594a9f4b` y llegó a `b7e2c9f14a30`
+> sin abortar. Verificado: las 5 columnas renombradas, 0 huérfanos, **0 filas perdidas**
+> (6 inscripciones / 2 miembros de equipo / 1 asignación docente / 8 calificaciones /
+> 12 usuarios intactos), backfill creó 2 alumnos y 1 profesor, `usuario.email` acepta
+> NULL, los 8 índices presentes, y el ORM + el endpoint `/v2/portal/proximos-eventos`
+> responden bien contra el esquema migrado para los tres roles.
+>
+> Esto era el dry-run contra un Postgres real que faltaba: la migración 13 ya no es
+> código sin probar. Para producción vale el mismo checklist, con sus propios counts
+> previos (prod tiene más datos que develop).
 
 ---
 
@@ -18,10 +27,11 @@
 
 ### 13. `9a3f7c1e5b28_refactor_alumno_profesor` — Sujeto académico: alumno/profesor
 
-> ⚠️ **Esta migración todavía NO corrió contra un Postgres real.** Antes de aplicarla
-> en producción, correrla sobre una copia de la base de prod y verificar el checklist.
-> Usa `gen_random_uuid()` (requiere PG13+). Alembic la envuelve en una transacción,
-> así que si aborta no deja la base a medias.
+> ✅ **Ya corrió y se verificó en develop** (Postgres real, sin pérdida de datos).
+> Sigue pendiente en producción, donde hay más datos: correr los counts previos del
+> checklist antes de aplicarla. Usa `gen_random_uuid()` (requiere PG13+, confirmado
+> OK en develop). Alembic la envuelve en una transacción: si aborta, no deja la base
+> a medias.
 
 Cambia 4 claves foráneas para que las entidades académicas apunten al perfil y no a
 la persona:
