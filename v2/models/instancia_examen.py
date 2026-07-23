@@ -19,9 +19,9 @@ class InstanciaExamen(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     materia_id: int = Field(foreign_key="materia.id", index=True, description="Materia del examen")
     nombre: str = Field(max_length=100, description="Ej: 'Febrero 2026 - Programación 1'")
-    fecha_inicio_inscripcion: datetime = Field(description="Inicio inscripción al examen")
-    fecha_fin_inscripcion: datetime = Field(description="Fin inscripción al examen")
-    fecha_examen: datetime = Field(description="Fecha del examen")
+    fecha_inicio_inscripcion: datetime = Field(index=True, description="Inicio inscripción al examen")
+    fecha_fin_inscripcion: datetime = Field(index=True, description="Fin inscripción al examen")
+    fecha_examen: datetime = Field(index=True, description="Fecha del examen")
     hora: Optional[str] = Field(default=None, max_length=10, description="Hora del examen")
     salon: Optional[str] = Field(default=None, max_length=100, description="Salón del examen")
     modalidad: ModalidadExamen = Field(

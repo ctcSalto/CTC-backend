@@ -168,9 +168,46 @@ class TestProximosEventos:
     def test_admin_ve_todo_global(self, session, escenario):
         eventos = ProximosEventosService().get_eventos(escenario["admin_user"], session)
         tipos = {e.tipo for e in eventos}
+        # El admin ve las 6 fuentes con fecha futura del escenario:
+        # apertura/cierre de inscripcion a materia, apertura/cierre de inscripcion
+        # a examen, fecha de examen, inicio y fin de dictado.
         assert TipoEventoProximo.APERTURA_INSCRIPCION_MATERIA in tipos
+        assert TipoEventoProximo.CIERRE_INSCRIPCION_MATERIA in tipos
+        assert TipoEventoProximo.APERTURA_INSCRIPCION_EXAMEN in tipos
+        assert TipoEventoProximo.CIERRE_INSCRIPCION_EXAMEN in tipos
         assert TipoEventoProximo.FECHA_EXAMEN in tipos
         assert TipoEventoProximo.INICIO_DICTADO in tipos
+        assert TipoEventoProximo.FIN_DICTADO in tipos
+
+    def test_admin_no_filtra_por_asignacion(self, session, escenario):
+        # Un segundo programa sin alumnos ni docentes asignados igual aparece
+        # para el admin, porque su vista es institucional.
+        from decimal import Decimal
+        prog2 = Programa(nombre="Tecnico en Redes", tipo=TipoPrograma.CARRERA,
+                         area=AreaPrograma.INFORMATICA, duracion_semestres=4, activo=True)
+        session.add(prog2); session.commit(); session.refresh(prog2)
+        session.add(PeriodoInscripcionMateria(programa_id=prog2.id, anio_lectivo=2026,
+                    fecha_inicio=dias(7), fecha_fin=dias(21), habilitado=True))
+        session.commit()
+
+        eventos = ProximosEventosService().get_eventos(escenario["admin_user"], session, limit=100)
+        programas = {e.programa_nombre for e in eventos if e.programa_nombre}
+        assert "Tecnico en Redes" in programas
+        assert "Analista Programador" in programas
+
+    def test_alumno_no_ve_periodos_de_otro_programa(self, session, escenario):
+        # Un periodo de un programa en el que el alumno NO esta inscripto no debe
+        # aparecer en su listado.
+        prog2 = Programa(nombre="Tecnico en Redes", tipo=TipoPrograma.CARRERA,
+                         area=AreaPrograma.INFORMATICA, duracion_semestres=4, activo=True)
+        session.add(prog2); session.commit(); session.refresh(prog2)
+        session.add(PeriodoInscripcionMateria(programa_id=prog2.id, anio_lectivo=2026,
+                    fecha_inicio=dias(7), fecha_fin=dias(21), habilitado=True))
+        session.commit()
+
+        eventos = ProximosEventosService().get_eventos(escenario["alumno_user"], session, limit=100)
+        programas = {e.programa_nombre for e in eventos if e.programa_nombre}
+        assert "Tecnico en Redes" not in programas
 
     def test_alumno_inscripto_a_examen_ve_fecha(self, session, escenario):
         # Inscribir al alumno al examen -> debe aparecer la FECHA_EXAMEN
