@@ -1,253 +1,209 @@
-# Pendientes antes de mergear bedelia -> main
+# Pendientes de producción
 
-## Migraciones de base de datos
+> **Estado (Julio 2026):** las migraciones 1–12 (portal académico bedelía: tablas
+> v2, faltas, previaturas, columnas de usuario, documentos, Fase 2, notificaciones,
+> videoUrl en testimonios) ya se aplicaron. Quedan **dos migraciones pendientes** de
+> aplicar en producción: la 13 (refactor alumno/profesor) y la 14 (índices de fecha).
+> El histórico de las aplicadas está al final, como referencia de rollback.
 
-**IMPORTANTE:** Las migraciones deben aplicarse en la BD de produccion (puerto 5432) ANTES de mergear el PR a main. Si el codigo se despliega sin las tablas, la app crashea al intentar importar los modelos v2.
+---
 
-### Migracion requerida
+## PENDIENTE de aplicar en producción
 
 ```bash
-# 1. Asegurarse de que DATABASE_URL apunta a produccion (puerto 5432)
-# 2. Ejecutar la migracion
-alembic upgrade head
+# 1. DATABASE_URL apuntando a produccion (puerto 5432)
+# 2. Correr alembic current para confirmar en que revision esta
+# 3. alembic upgrade head
 ```
 
-**Migraciones (en orden):**
+### 13. `9a3f7c1e5b28_refactor_alumno_profesor` — Sujeto académico: alumno/profesor
 
-1. `c80c0cfd30d6_v2_tablas_academicas` — Crea 15 tablas nuevas del portal academico:
-   - `usuario`, `programa`, `materia`, `politica_calificacion`, `politica_examen`
-   - `materia_instancia_evaluacion`, `previatura`, `docente_materia`
-   - `inscripcion_materia`, `calificacion`, `equipo`, `equipo_miembro`
-   - `periodo_inscripcion_materia`, `periodo_examen`, `inscripcion_examen`
+> ⚠️ **Esta migración todavía NO corrió contra un Postgres real.** Antes de aplicarla
+> en producción, correrla sobre una copia de la base de prod y verificar el checklist.
+> Usa `gen_random_uuid()` (requiere PG13+). Alembic la envuelve en una transacción,
+> así que si aborta no deja la base a medias.
 
-2. `d1a2b3c4d5e6_v2_refactor_portal_academico` — Refactor completo:
-   - Tablas nuevas: `alumno`, `profesor`, `administrativo_perfil`, `inscripcion_programa`, `instancia_cursado`, `instancia_examen`, `docente_instancia_examen`
-   - Columnas nuevas en tablas existentes (id_rastreo, campos de usuario, etc.)
-   - Data migration: crea instancias_cursado desde materia_id+anio_lectivo existentes
-   - DROP TABLE `periodo_examen`
+Cambia 4 claves foráneas para que las entidades académicas apunten al perfil y no a
+la persona:
+- `inscripcion_materia.usuario_id` → `alumno_id` (FK `alumno.id`)
+- `equipo_miembro.usuario_id` → `alumno_id` (FK `alumno.id`)
+- `docente_materia.docente_id` → `profesor_id` (FK `profesor.id`)
+- `docente_instancia_examen.docente_id` → `profesor_id` (FK `profesor.id`)
 
-3. `e2f3g4h5i6j7_agregar_faltas` — Sistema de faltas:
-   - `instancia_cursado.faltas_maximas` (int nullable)
-   - `inscripcion_materia.faltas` (int default 0)
+Además:
+- Renombra `calificacion.docente_id` → `cargado_por_id` (sigue apuntando a `usuario.id`:
+  es auditoría, y bedelía también carga notas sin tener fila en `profesor`).
+- `usuario.email` pasa a ser **nullable** (oyentes registrados sin cuenta institucional).
+  El constraint unique se mantiene: Postgres admite múltiples NULL.
+- **Backfill con creación de perfiles faltantes:** antes de resolver las FKs, crea las
+  filas de `alumno`/`profesor` que falten para cualquier usuario referenciado. Si aún
+  así queda alguna fila sin resolver, **aborta con RuntimeError** con la cantidad, en
+  vez de dejar la tabla inconsistente.
+- **Downgrade funcional**, salvo que existan usuarios sin email creados después del
+  upgrade: en ese caso corta con un mensaje explícito.
 
-4. `f3g4h5i6j7k8_seed_previaturas` — **Carga inicial de previaturas:**
-   - Previaturas de **Analista Programador** (9 materias con previas + Integrador requiere TODAS las demas)
-   - Previaturas de **Tecnico en Gestion y Direccion de Empresas** (18 materias con previas)
-   - Resuelve por nombre de materia dentro de cada programa
-   - **REQUISITO:** Los programas y materias deben existir en la BD antes de correr esta migracion
+**Cambios de comportamiento (no requieren migración):**
+- `POST /v2/admin/usuarios/manual` acepta `email` opcional y un bloque `perfil` opcional.
+- Los usuarios manuales se crean con `activo=false`. Al iniciar sesión con Google por
+  primera vez se vinculan (se guarda `google_id`, se completa el email) y se activan.
+  Un usuario que YA tenía `google_id` y está inactivo fue desactivado a propósito: **no**
+  se reactiva.
+- `update_on_login` ahora crea el perfil correspondiente si el rol cambió de OU.
 
-5. `a1b2c3d4e5f6_agregar_columnas_usuario_v2` — **Columnas faltantes en usuario:**
-   - Columnas nuevas (todas nullable, sin romper datos existentes):
-     - `usuario`: `email_personal` (varchar), `fecha_nacimiento` (date), `domicilio` (varchar 200), `eliminado` (bool default false), `fecha_eliminacion` (datetime), `id_rastreo` (varchar)
-   - Usa `_column_exists()` — si una columna ya existe en la BD, la ignora sin error
-
-7. `4d769166125d_agregar_campos_planilla_admin_y_tabla_` — **Fase 1: Campos planilla admin + documentos:**
-   - Tabla nueva: `documento_usuario` (almacenamiento de archivos de alumnos/profesores)
-   - Enum nuevo: `TipoDocumento` (formula_69a, escolaridad, constancia_convenio, cedula, titulo, otro)
-   - Columnas nuevas (todas nullable, sin romper datos existentes):
-     - `usuario`: `fecha_nacimiento` (date), `domicilio` (varchar 200)
-     - `programa`: `certificacion` (varchar 100), `horas_totales` (int)
-     - `materia`: `horas_semanales` (int), `horas_totales` (int)
-     - `profesor`: `carga_horaria_semanal` (int)
-     - `inscripcion_programa`: `fecha_baja` (datetime), `motivo_baja` (varchar 255)
-     - `inscripcion_examen`: `fecha_baja` (datetime)
-     - `inscripcion_materia`: `fecha_baja` (datetime)
-   - Usa `_safe_add_column()` — si una columna ya existe en la BD, la ignora sin error
-
-8. `087c21eff7fd_fase2_rendiciones_bajas_revalida` — **Fase 2: Rendiciones, bajas soft-delete, revalida:**
-   - Columnas nuevas (todas con server_default, sin romper datos existentes):
-     - `politica_examen`: `max_oportunidades` (int, default 5) — maximo de veces que se puede rendir un examen
-     - `inscripcion_examen`: `numero_rendicion` (int, default 1) — numero de rendicion (1ra, 2da, etc.)
-     - `inscripcion_materia`: `motivo_revalida` (varchar 255, nullable) — motivo de revalida
-   - Usa `_safe_add_column()` — si una columna ya existe en la BD, la ignora sin error
-   - **Cambios de comportamiento (no requieren migracion):**
-     - Desinscripcion de materia ahora usa soft-delete (estado ABANDONO + fecha_baja) en vez de borrar
-     - Desinscripcion de examen ahora usa soft-delete (estado BAJA + fecha_baja) con plazo de 72hs
-     - Inscripcion a examen valida max_oportunidades y asigna numero_rendicion automaticamente
-     - Calificacion de examen reprobado verifica si se agotaron las rendiciones (cambia materia a REPROBADO)
-     - Nuevo endpoint de revalida: `POST /v2/admin/inscripciones/{id}/revalidar`
-
-9. `b2c3d4e5f6g7_fase5_notificaciones` — **Fase 5: sistema de notificaciones por email:**
-   - Tabla nueva: `notificacion_log` (registro de todos los emails enviados, con `id_rastreo` para trazabilidad)
-   - Columna nueva: `inscripcion_materia.notificacion_calificacion_enviada` (bool, default false)
-   - Esta migracion estaba aplicada en desarrollo pero no se habia documentado aqui; se detecto al
-     encontrar dos heads simultaneos en el historial de Alembic (ver migracion 10)
-
-10. `4fd4c9f395dd_merge_heads_usuario_v2_y_notificaciones` — **Merge de heads:**
-    - Migracion no-op (no toca esquema). Las migraciones 5 (`a1b2c3d4e5f6`) y 9 (`b2c3d4e5f6g7`)
-      se crearon ambas con el mismo padre (`087c21eff7fd`), generando dos heads divergentes en vez
-      de una cadena lineal. Esto rompia `alembic revision --autogenerate` (autogenerate no detecta
-      el estado real combinado) y podia generar ambigüedad en `alembic upgrade head`.
-    - **Importante:** si la BD de produccion ya tiene aplicada la migracion 5 (`a1b2c3d4e5f6`) pero
-      NO la 9 (`b2c3d4e5f6g7`), hay que correr `alembic upgrade head` normalmente (aplica 9 y luego
-      el merge). Si por algun motivo ya estuvieran ambas aplicadas via SQL manual, verificar con
-      `alembic current` y usar `alembic stamp` si hace falta alinear el historial.
-
-11. `bad9dad1cc40_agregar_tabla_testimony_video` — **Videos en testimonios (INTERMEDIA, ver migración 12):**
-    - Crea la tabla `testimony_video`. Fue reemplazada por la migración 12 antes de llegar a producción.
-    - **En producción:** aplicar igualmente (`alembic upgrade head` la aplica en cadena); la migración 12 la elimina de inmediato.
-
-12. `e578594a9f4b_reemplazar_testimony_video_por_videoUrl_en_testimony` — **Simplificación de videos en testimonios:**
-    - Elimina la tabla `testimony_video` (relación 1-N descartada antes del primer despliegue)
-    - Agrega columna `testimony.videoUrl` (varchar 500, nullable)
-    - Un testimonio es texto (`text`) o video (`videoUrl`), no ambos ni múltiples videos
-    - Los endpoints `POST/PUT/DELETE /testimonies/{id}/videos` fueron eliminados
-    - `TestimonyRead` y `TestimonyPublic` incluyen `videoUrl: Optional[str]` en lugar de `videos: List`
-
-13. `9a3f7c1e5b28_refactor_alumno_profesor` — **Sujeto academico: alumno/profesor en vez de usuario:**
-    - Cambia 4 claves foraneas para que las entidades academicas apunten al perfil y no a la persona:
-      - `inscripcion_materia.usuario_id` → `alumno_id` (FK `alumno.id`)
-      - `equipo_miembro.usuario_id` → `alumno_id` (FK `alumno.id`)
-      - `docente_materia.docente_id` → `profesor_id` (FK `profesor.id`)
-      - `docente_instancia_examen.docente_id` → `profesor_id` (FK `profesor.id`)
-    - Renombra `calificacion.docente_id` → `cargado_por_id` (sigue apuntando a `usuario.id`: es
-      auditoria, y bedelia tambien carga notas sin tener fila en `profesor`)
-    - `usuario.email` pasa a ser **nullable** (oyentes registrados sin cuenta institucional).
-      El constraint unique se mantiene: Postgres admite multiples NULL
-    - **Backfill con creacion de perfiles faltantes:** antes de resolver las FKs, la migracion
-      crea las filas de `alumno`/`profesor` que falten para cualquier usuario referenciado. Si
-      aun asi queda alguna fila sin resolver, **aborta con RuntimeError** indicando la cantidad,
-      en vez de dejar la tabla inconsistente
-    - **Downgrade funcional**, salvo que existan usuarios sin email creados despues del upgrade:
-      en ese caso corta con un mensaje explicito (hay que asignarles email o eliminarlos primero)
-    - **Cambios de comportamiento (no requieren migracion):**
-      - `POST /v2/admin/usuarios/manual` acepta `email` opcional y un bloque `perfil` opcional
-        (fecha_ingreso / cargo / dedicacion / especialidad / carga_horaria_semanal / departamento)
-      - Los usuarios manuales se crean con `activo=false`. Al iniciar sesion con Google por
-        primera vez se vinculan (se guarda el `google_id`, se completa el email si faltaba) y se
-        activan. Un usuario que YA tenia `google_id` y esta inactivo fue desactivado a proposito
-        por un admin: **no** se reactiva
-      - `update_on_login` ahora crea el perfil correspondiente si el rol cambio de OU
-
-**Riesgo:** Las migraciones 1-3 crean/modifican tablas. La migracion 4 inserta datos (previaturas). La migracion 5 agrega columnas a usuario. Las migraciones 7 y 8 agregan columnas nullable/con defaults (sin impacto en datos existentes). La migracion 9 crea una tabla nueva y una columna con default (sin impacto). La migracion 10 es no-op (solo ordena el historial). Las migraciones 11 y 12 se aplican en cadena: crean y eliminan `testimony_video`, y agregan `testimony.videoUrl` (nullable, sin impacto en datos existentes).
-
-**Nota sobre `alembic/env.py`:** se detecto que el archivo no importaba `Career`, `Testimony` ni `News` en su `target_metadata`, lo cual hacia que `alembic revision --autogenerate` marcara esas tablas como "removidas" (¡riesgo real de DROP TABLE accidental si se aceptaba un autogenerate sin revisar el diff!). Se corrigio agregando esos imports. **Cualquier autogenerate futuro debe revisarse a mano antes de aplicarse** — el diff todavia puede traer ruido de tablas legacy (`author`, `profile`, `post`, `example`) que existen en algunas BDs pero no en los modelos actuales.
-
-### Checklist de deploy
-
-- [ ] Verificar que los programas "Analista Programador" y "Tecnico en Gestion y Direccion de Empresas" existen en tabla `programa`
-- [ ] Verificar que las materias de ambos programas existen en tabla `materia` con los nombres correctos
-- [ ] Aplicar migraciones en BD produccion (`alembic upgrade head` con DATABASE_URL de prod)
-- [ ] Verificar que las tablas se crearon (`\dt` en psql)
-- [ ] Verificar que las previaturas se insertaron (`SELECT count(*) FROM previatura`)
-- [ ] Verificar que la tabla `documento_usuario` se creo (`\d documento_usuario`)
-- [ ] Verificar columnas nuevas: `SELECT fecha_nacimiento, domicilio FROM usuario LIMIT 1`
-- [ ] Crear directorio de documentos: `sudo mkdir -p /var/ctc/documentos && sudo chown <app_user> /var/ctc/documentos`
-- [ ] Agregar variables de entorno: `DOCUMENTOS_BASE_PATH`, `DOCUMENTOS_MAX_SIZE_MB`
-- [ ] Mergear PR bedelia -> main
-- [ ] Verificar que la app levanta sin errores (`/health`)
-- [ ] Verificar endpoints de documentos en Swagger (`/docs` -> seccion "Admin Documentos")
-- [ ] Verificar columna `max_oportunidades` en `politica_examen`: `SELECT max_oportunidades FROM politica_examen LIMIT 1`
-- [ ] Verificar columna `numero_rendicion` en `inscripcion_examen`: `SELECT numero_rendicion FROM inscripcion_examen LIMIT 1`
-- [ ] Verificar endpoint de revalida en Swagger (`/docs` -> seccion "Admin Inscripciones")
-- [ ] Agregar variable de entorno: `PLAZO_BAJA_EXAMEN_HORAS` (opcional, default 72)
-- [ ] Verificar tabla `notificacion_log` y columna `inscripcion_materia.notificacion_calificacion_enviada` (migracion 9, antes no documentada)
-- [ ] Correr `alembic current` ANTES de `alembic upgrade head` en produccion para confirmar en que revision esta (por el merge de heads de la migracion 10)
-- [ ] Verificar columna `videoUrl` en tabla `testimony`: `SELECT "videoUrl" FROM testimony LIMIT 1`
-- [ ] Verificar que la tabla `testimony_video` NO existe (`\d testimony_video` debe dar error)
-- [ ] Decidir proveedor de hosting de video (YouTube vs Supabase Storage) — el campo `videoUrl` acepta cualquier URL
-
-### Refactor alumno/profesor (migracion 13)
-
-- [ ] **ANTES de migrar:** contar usuarios referenciados sin perfil, para saber cuantas filas va a crear el backfill:
+**Checklist:**
+- [ ] **ANTES de migrar:** contar usuarios referenciados sin perfil (cuántas filas creará el backfill):
   ```sql
   SELECT count(DISTINCT im.usuario_id) FROM inscripcion_materia im
     LEFT JOIN alumno a ON a.usuario_id = im.usuario_id WHERE a.id IS NULL;
   SELECT count(DISTINCT dm.docente_id) FROM docente_materia dm
     LEFT JOIN profesor p ON p.usuario_id = dm.docente_id WHERE p.id IS NULL;
   ```
-- [ ] Verificar que la migracion no aborto: `SELECT count(*) FROM inscripcion_materia WHERE alumno_id IS NULL` debe dar 0
-- [ ] Verificar columnas nuevas: `\d inscripcion_materia` (debe tener `alumno_id`, no `usuario_id`)
-- [ ] Verificar `\d docente_materia` (debe tener `profesor_id`, no `docente_id`)
-- [ ] Verificar `\d calificacion` (debe tener `cargado_por_id`, no `docente_id`)
-- [ ] Verificar que `usuario.email` acepta NULL: `\d usuario`
-- [ ] **Avisar al frontend antes de deployar:** cambia el contrato de `POST /v2/admin/inscripciones/inscribir`, `GET /escolaridad/{id}`, `GET /verificar-egreso/{id}`, `POST /v2/admin/docentes-materia` y `POST /v2/admin/instancias-examen/{id}/profesores` (ver `v2/REFACTOR_ALUMNO_PROFESOR.md`)
+- [ ] Verificar que no abortó: `SELECT count(*) FROM inscripcion_materia WHERE alumno_id IS NULL` debe dar 0
+- [ ] `\d inscripcion_materia` tiene `alumno_id` (no `usuario_id`)
+- [ ] `\d docente_materia` tiene `profesor_id` (no `docente_id`)
+- [ ] `\d calificacion` tiene `cargado_por_id` (no `docente_id`)
+- [ ] `\d usuario` — `email` acepta NULL
+- [ ] **Avisar al frontend:** cambia el contrato de `POST /v2/admin/inscripciones/inscribir`,
+  `GET /escolaridad/{id}`, `GET /verificar-egreso/{id}`, `POST /v2/admin/docentes-materia` y
+  `POST /v2/admin/instancias-examen/{id}/profesores` (ver `v2/REFACTOR_ALUMNO_PROFESOR.md`)
 
-## Variables de entorno nuevas
+### 14. `b7e2c9f14a30_indices_fechas_proximos_eventos` — Índices de fecha
 
-### Requeridas para el sistema de documentos (Migracion 5)
+Índices para el endpoint `GET /v2/portal/proximos-eventos`, que corre en cada carga de
+la pantalla de inicio y filtra por fecha sobre tres tablas:
+- `periodo_inscripcion_materia`: `fecha_inicio`, `fecha_fin`, `programa_id` (FK del join, sin índice antes)
+- `instancia_examen`: `fecha_inicio_inscripcion`, `fecha_fin_inscripcion`, `fecha_examen`
+- `instancia_cursado`: `fecha_inicio`, `fecha_fin`
 
+Solo crea índices, no toca datos ni esquema de columnas. **Idempotente:** chequea si el
+índice ya existe antes de crearlo (en dev `create_all` los crea con los mismos nombres).
+SQL estándar, sin nada específico de Postgres. Impacto en datos existentes: **cero**.
+
+**Checklist:**
+- [ ] `\di ix_instancia_examen_fecha_examen` (y demás) existen tras `alembic upgrade head`
+- [ ] `SELECT count(*) FROM pg_indexes WHERE indexname LIKE 'ix_%fecha%'` devuelve 8
+
+---
+
+## Verificación general post-deploy
+
+- [ ] `alembic current` ANTES de `upgrade head` (confirmar revisión de partida)
+- [ ] `alembic upgrade head` con DATABASE_URL de producción
+- [ ] `/health` responde OK (la app levanta sin errores)
+- [ ] Endpoint `GET /v2/portal/proximos-eventos` en Swagger (`/docs`)
+
+---
+
+## Variables de entorno
+
+### Documentos (ya requerida en prod)
 ```bash
-# Ruta base donde se almacenan los documentos de alumnos/profesores
-# En produccion: directorio en la VPS con espacio suficiente
 DOCUMENTOS_BASE_PATH=/var/ctc/documentos
-
-# Limite de tamano por archivo en MB (default: 10)
 DOCUMENTOS_MAX_SIZE_MB=10
 ```
 
-**IMPORTANTE:** Crear el directorio en produccion antes de deployar:
+### Notificaciones por email
 ```bash
-sudo mkdir -p /var/ctc/documentos
-sudo chown -R <usuario_app>:<grupo_app> /var/ctc/documentos
-```
-
-La estructura de carpetas se crea automaticamente al subir el primer documento de cada usuario:
-```
-/var/ctc/documentos/
-├── alumnos/{id}_{apellido}_{nombre}/
-│   ├── formula_69a/
-│   ├── escolaridad/
-│   └── otros/
-├── profesores/{id}_{apellido}_{nombre}/
-│   ├── cedula/
-│   ├── titulo/
-│   └── otros/
-└── administrativos/...
-```
-
-### Notificaciones por email (Fase 5)
-
-```bash
-# Webhook de n8n para envio de emails de notificaciones
 N8N_EMAIL_WEBHOOK_URL=https://automatizaciones-n8n.vtu0xl.easypanel.host/webhook/webhook/ctc-email-send
 ```
 
-### Opcional para control de rendiciones (Migracion 6)
-
+### Control de rendiciones (opcional)
 ```bash
-# Plazo minimo en horas antes del examen para permitir baja (default: 72)
-PLAZO_BAJA_EXAMEN_HORAS=72
+PLAZO_BAJA_EXAMEN_HORAS=72   # default 72
+```
+
+### Auth / tokens (nuevas, opcionales)
+```bash
+# Duracion de los tokens del portal v2, separada de la del CMS v1.
+# Si no se setea, cae a ACCESS_TOKEN_EXPIRE_MINUTES (compartida) o al default 480.
+V2_ACCESS_TOKEN_EXPIRE_MINUTES=480
+```
+
+### Bootstrap del primer admin (nuevas)
+```bash
+# Reemplazan las credenciales que antes estaban hardcodeadas (admin@gmail.com/Admin@123).
+# create-first-user responde 503 si no estan seteadas.
+FIRST_ADMIN_EMAIL=
+FIRST_ADMIN_PASSWORD=
+FIRST_ADMIN_DOCUMENT=    # opcional
+FIRST_ADMIN_PHONE=       # opcional
 ```
 
 ### Google OAuth 2.0
-
 ```bash
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=
 GOOGLE_ALLOWED_DOMAIN=ctcsalto.edu.uy
-
-# Origenes permitidos para redirect_to en el login OAuth (whitelist anti open-redirect)
-# Lista separada por comas con los origenes del frontend (Next.js)
-# Ejemplo: https://portal.ctcsalto.edu.uy,https://frontend-develop.vtu0xl.easypanel.host
-OAUTH_ALLOWED_REDIRECT_ORIGINS=
+# Whitelist anti open-redirect: origenes del frontend Next.js (NO la URL del backend)
+OAUTH_ALLOWED_REDIRECT_ORIGINS=https://portal.ctcsalto.edu.uy,https://frontend-develop.vtu0xl.easypanel.host
 ```
 
-## Google OAuth - Consola de Google Cloud
+---
 
-- [ ] Agregar origenes de JS autorizados de develop y produccion (cuando frontend empiece desarrollo)
-- [ ] Las URIs de redireccion del backend ya estan configuradas
-- [ ] Configurar variables `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` en el entorno de deploy
-- [ ] Configurar `OAUTH_ALLOWED_REDIRECT_ORIGINS` con los origenes del frontend Next.js (NO es la URL del backend, sino la del frontend que recibe el token tras el login)
-- [ ] Agregar la URI de callback de develop en Google Console: `https://backend-backend-ctc-develop.vtu0xl.easypanel.host/v2/auth/google/callback`
-- [ ] Pagina de prueba OAuth disponible en `/test-login` (SvelteKit) para que frontend valide la integracion
+## Seguridad — acción operativa pendiente
+
+Ver `AUDITORIA_SEGURIDAD.md` para el detalle completo. La única que no se arregla con
+código y hay que hacer en producción:
+
+- [ ] **Rotar / eliminar el usuario `admin@gmail.com`** si se usó alguna vez para
+  bootstrapear producción. La contraseña `Admin@123` estuvo hardcodeada en el repo y
+  sigue siendo válida hasta que se rote. El código ya no la usa, pero eso no cambia la
+  fila que pueda existir en la base.
+
+---
+
+## Google OAuth — Consola de Google Cloud
+
+- [ ] Orígenes de JS autorizados de develop y producción
+- [ ] URI de callback de develop: `https://backend-backend-ctc-develop.vtu0xl.easypanel.host/v2/auth/google/callback`
+- [ ] `OAUTH_ALLOWED_REDIRECT_ORIGINS` con los orígenes del frontend Next.js
 
 ## Proxy inverso (Easypanel / Traefik)
 
-El backend corre detras de un proxy inverso que termina SSL. Sin la configuracion de `--proxy-headers`, FastAPI recibe las requests como `http://` en lugar de `https://`, lo que causa error **"Redirect URI Mismatch"** con Google OAuth.
+El backend corre detrás de un proxy que termina SSL. Ya aplicado: `--proxy-headers` y
+`--forwarded-allow-ips='*'` en `Procfile` + `ProxyHeadersMiddleware` en `main.py` (evita
+el "Redirect URI Mismatch" de OAuth). Pendiente:
+- [ ] Verificar que Google OAuth funciona en develop y en producción (redirección HTTPS)
 
-**Solucion aplicada:** Se agrego `--proxy-headers` y `--forwarded-allow-ips='*'` en uvicorn (`Procfile`), y se agrego el middleware `ProxyHeadersMiddleware` en `main.py`. Esto hace que FastAPI confie en los encabezados `X-Forwarded-Proto` y `X-Forwarded-For` del proxy.
+---
 
-- [ ] Verificar que Google OAuth funciona correctamente en develop (redireccion HTTPS)
-- [ ] Verificar que Google OAuth funciona correctamente en produccion
+## Rollback
+
+- Refactor alumno/profesor (13): `alembic downgrade 9a3f7c1e5b28` → estado previo. Ojo:
+  el downgrade corta si hay usuarios sin email creados después del upgrade.
+- Índices (14): `alembic downgrade 9a3f7c1e5b28` los quita (no afecta datos).
+- Fase 2 (rendiciones): `alembic downgrade 4d769166125d`
+- Fases 1+2 completas: `alembic downgrade f3g4h5i6j7k8`
+- videoUrl en testimony: `alembic downgrade bad9dad1cc40`
+- Todo v2: `alembic downgrade 055950855a1a` (elimina todas las tablas v2)
+
+---
 
 ## Notas
 
-- Las tablas v2 coexisten con las v1 (user, career, testimony, news)
-- No hay FK entre tablas v1 y v2
-- El codigo v2 esta en el directorio `v2/` y no afecta el funcionamiento actual
-- Si se necesita rollback completo: `alembic downgrade 055950855a1a` (elimina todas las tablas v2)
-- Si se necesita rollback solo de Fase 2 (rendiciones): `alembic downgrade 4d769166125d` (quita max_oportunidades, numero_rendicion, motivo_revalida)
-- Si se necesita rollback de Fases 1+2: `alembic downgrade f3g4h5i6j7k8` (quita todo de Fase 1 y 2)
-- Si se necesita rollback de videoUrl en testimony: `alembic downgrade bad9dad1cc40` (quita videoUrl, restaura testimony_video)
+- Las tablas v2 coexisten con las v1 (`user`, `career`, `testimony`, `news`). No hay FK entre v1 y v2.
+- **`alembic/env.py`:** faltaban imports de `Career`, `Testimony`, `News` en `target_metadata`,
+  lo que hacía que `--autogenerate` las marcara como "removidas" (riesgo de DROP TABLE si se
+  aceptaba sin revisar). Corregido. **Todo autogenerate futuro debe revisarse a mano** — el diff
+  todavía puede traer ruido de tablas legacy (`author`, `profile`, `post`, `example`).
+
+---
+
+## Apéndice — Migraciones 1–12 (ya aplicadas, referencia histórica)
+
+| # | Revisión | Qué hizo |
+|---|---|---|
+| 1 | `c80c0cfd30d6` | Crea las 15 tablas iniciales del portal académico |
+| 2 | `d1a2b3c4d5e6` | Refactor: `alumno`, `profesor`, `administrativo_perfil`, `inscripcion_programa`, `instancia_cursado`, `instancia_examen`, `docente_instancia_examen`. DROP `periodo_examen` |
+| 3 | `e2f3g4h5i6j7` | Faltas: `instancia_cursado.faltas_maximas`, `inscripcion_materia.faltas` |
+| 4 | `f3g4h5i6j7k8` | Seed de previaturas (Analista Programador + Técnico en Gestión) |
+| 5 | `a1b2c3d4e5f6` | Columnas en `usuario`: `email_personal`, `fecha_nacimiento`, `domicilio`, `eliminado`, `fecha_eliminacion`, `id_rastreo` |
+| 7 | `4d769166125d` | Fase 1: tabla `documento_usuario` + enum `TipoDocumento` + columnas de planilla admin |
+| 8 | `087c21eff7fd` | Fase 2: `max_oportunidades`, `numero_rendicion`, `motivo_revalida` |
+| 9 | `b2c3d4e5f6g7` | Fase 5: tabla `notificacion_log` + `inscripcion_materia.notificacion_calificacion_enviada` |
+| 10 | `4fd4c9f395dd` | Merge de heads (no-op, ordena el historial de Alembic) |
+| 11 | `bad9dad1cc40` | Tabla `testimony_video` (intermedia, la 12 la elimina) |
+| 12 | `e578594a9f4b` | Reemplaza `testimony_video` por `testimony.videoUrl` |
+
+> (No hay migración 6 en la numeración original; el salto 5→7 viene del documento previo.)
