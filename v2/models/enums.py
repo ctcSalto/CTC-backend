@@ -136,6 +136,18 @@ class CanalNotificacion(str, Enum):
     WHATSAPP = "whatsapp"  # futuro
 
 
+# ── Proximos eventos (pantalla de inicio) ──────────────────────────────────────
+
+class TipoEventoProximo(str, Enum):
+    APERTURA_INSCRIPCION_MATERIA = "apertura_inscripcion_materia"
+    CIERRE_INSCRIPCION_MATERIA = "cierre_inscripcion_materia"
+    APERTURA_INSCRIPCION_EXAMEN = "apertura_inscripcion_examen"
+    CIERRE_INSCRIPCION_EXAMEN = "cierre_inscripcion_examen"
+    FECHA_EXAMEN = "fecha_examen"
+    INICIO_DICTADO = "inicio_dictado"
+    FIN_DICTADO = "fin_dictado"
+
+
 class EstadoNotificacion(str, Enum):
     ENVIADA = "enviada"
     ERROR = "error"

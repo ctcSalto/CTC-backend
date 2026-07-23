@@ -18,6 +18,7 @@ from v2.services.egreso_service import EgresoService
 from v2.services.local_file_service import LocalFileService
 from v2.services.email_service import EmailService
 from v2.services.notification_service import NotificationService
+from v2.services.proximos_eventos_service import ProximosEventosService
 
 
 class V2Services:
@@ -42,6 +43,7 @@ class V2Services:
         self.localFileService = LocalFileService()
         self.emailService = EmailService()
         self.notificationService = NotificationService()
+        self.proximosEventosService = ProximosEventosService()
 
 
 _v2_services: V2Services | None = None
