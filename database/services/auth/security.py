@@ -6,10 +6,14 @@ from fastapi import HTTPException, status
 from sqlmodel import Session
 import os
 import uuid
+import logging
 from datetime import datetime, timezone
 from database.models.user import TokenData
 
 from sqlmodel import Session, text
+
+
+logger = logging.getLogger(__name__)
 
 
 # Configuración desde variables de entorno
@@ -18,6 +22,22 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def _redis_disponible(cache_service) -> bool:
+    """
+    Chequea conectividad real con Redis antes de confiar en su respuesta.
+
+    Necesario porque RedisService.exists() atrapa sus propias excepciones y
+    devuelve False: sin esto, "Redis caido" y "la clave no existe" se ven igual
+    desde afuera, que es justo la ambiguedad peligrosa para la blacklist.
+    """
+    try:
+        if hasattr(cache_service, "test_connection"):
+            return bool(cache_service.test_connection())
+        return True
+    except Exception:
+        return False
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica si la contraseña coincide con el hash"""
@@ -73,56 +93,50 @@ def verify_token(token: str, cache_service=None, session: Session = None) -> Tok
 
         if email is None:
             raise credentials_exception
-            
-        # Verificar blacklist si se proporcionan los servicios
+
+        # Verificar blacklist. Falla CERRADO, igual que v2: si no podemos consultar
+        # Redis no sabemos si el token fue revocado, asi que lo rechazamos.
+        #
+        # Antes fallaba abierto — RedisService.exists() se traga sus excepciones y
+        # devuelve False, asi que "Redis caido" y "token no revocado" eran
+        # indistinguibles. Con Redis caido, todo token revocado volvia a valer
+        # hasta expirar y el logout dejaba de tener efecto. Por eso hay que
+        # verificar conectividad por separado antes de confiar en exists().
         if cache_service and session and jti:
-            print(f"DEBUG verify_token: Session ID: {id(session)}")
-            blacklist_key = f"blacklist_{jti}"
-            
-            print(f"DEBUG verify_token: Verificando blacklist con key: {blacklist_key}")
-
-            if cache_service.exists(blacklist_key, session):
-                print(f"DEBUG verify_token: Token ESTÁ en blacklist - RECHAZADO")
-
+            if not _redis_disponible(cache_service):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="No se puede validar la sesion en este momento. Reintenta en unos minutos.",
+                )
+            if cache_service.exists(f"blacklist_{jti}", session):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Token has been revoked",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
-            else:
-                print(f"DEBUG verify_token: Token NO está en blacklist")
-        else:
-            print(f"DEBUG verify_token: No se verificó blacklist - cache_service: {cache_service is not None}, session: {session is not None}, jti: {jti}")
-        
-        print(f"DEBUG verify_token: Creando TokenData")
-        token_data = TokenData(email=email, jti=jti)
-        return token_data
-        
-    except JWTError as e:
-        print(f"DEBUG verify_token: Error JWT: {type(e).__name__}: {e}")
+
+        return TokenData(email=email, jti=jti)
+
+    except JWTError:
         raise credentials_exception
     except HTTPException:
-        print(f"DEBUG verify_token: Re-lanzando HTTPException")
         raise
     except Exception as e:
-        print(f"DEBUG verify_token: Error inesperado: {type(e).__name__}: {e}")
+        logger.error(f"Error inesperado en verify_token: {type(e).__name__}: {e}")
         raise credentials_exception
 
 
 def blacklist_token(token: str, cache_service, session: Session) -> bool:
     """Agrega un token al blacklist"""
     try:
-        print(f"DEBUG blacklist_token: Iniciando blacklist del token")
         
         # Verificar que cache_service esté disponible
         if not cache_service:
-            print("DEBUG blacklist_token: cache_service es None")
             return False
         
         # Test de conexión Redis
         if hasattr(cache_service, 'test_connection'):
             if not cache_service.test_connection():
-                print("DEBUG blacklist_token: Error de conexión a Redis")
                 return False
         
         # Decodificar token
@@ -130,73 +144,58 @@ def blacklist_token(token: str, cache_service, session: Session) -> bool:
         ALGORITHM = "HS256"  # Ajusta según tu configuración
         
         if not SECRET_KEY:
-            print("DEBUG blacklist_token: SECRET_KEY no configurada")
             return False
             
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         jti = payload.get("jti")
         exp = payload.get("exp")
         
-        print(f"DEBUG blacklist_token: jti: {jti}, exp: {exp}")
 
         if not jti:
-            print("DEBUG blacklist_token: Token sin JTI válido")
             return False
         
         # Calcular expires_at
         expires_at = None
         if exp:
             expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
-            print(f"DEBUG blacklist_token: Token expira en: {expires_at}")
             
             # Verificar que el token no haya expirado ya
             now = datetime.now(tz=timezone.utc)
             if expires_at <= now:
-                print(f"DEBUG blacklist_token: Token ya expiró ({expires_at} <= {now})")
                 return False
         else:
             # Si no hay exp, el token no expira - darle una expiración por defecto
             # Opcional: puedes darle 30 días o dejarlo None para permanente
-            print("DEBUG blacklist_token: Token sin expiración - usando None")
             expires_at = None
         
         # Usar el método específico para blacklist
         success = cache_service.set_blacklist_token(jti, expires_at, session)
         
-        print(f"DEBUG blacklist_token: set_blacklist_token result: {success}")
         
         if success:
             # Verificación inmediata
             is_blacklisted = cache_service.is_token_blacklisted(jti, session)
-            print(f"DEBUG blacklist_token: Verificación inmediata - Token en blacklist: {is_blacklisted}")
             
             if not is_blacklisted:
-                print("DEBUG blacklist_token: WARNING - Token no se encuentra en blacklist después de agregarlo")
                 return False
         
         # NO hacer commit aquí - Redis no necesita transacciones SQL
         # session.commit()  # ❌ Esto puede causar problemas
         
-        print(f"DEBUG blacklist_token: Token {'agregado' if success else 'NO agregado'} a blacklist")
         return success
         
     except JWTError as e:
-        print(f"DEBUG blacklist_token: Error JWT: {e}")
         return False
     except Exception as e:
-        print(f"DEBUG blacklist_token: Error inesperado: {e}")
         import traceback
-        print(f"DEBUG blacklist_token: Traceback: {traceback.format_exc()}")
         return False
 
 
 def is_token_blacklisted(token: str, cache_service) -> bool:
     """Verifica si un token está en la blacklist"""
     try:
-        print(f"DEBUG is_token_blacklisted: Verificando token")
         
         if not cache_service:
-            print("DEBUG is_token_blacklisted: cache_service es None")
             return False
         
         # Decodificar token para obtener JTI
@@ -207,18 +206,14 @@ def is_token_blacklisted(token: str, cache_service) -> bool:
         jti = payload.get("jti")
         
         if not jti:
-            print("DEBUG is_token_blacklisted: Token sin JTI")
             return False
         
         # Verificar blacklist
         is_blacklisted = cache_service.is_token_blacklisted(jti)
-        print(f"DEBUG is_token_blacklisted: jti={jti}, blacklisted={is_blacklisted}")
         
         return is_blacklisted
         
     except JWTError as e:
-        print(f"DEBUG is_token_blacklisted: Error JWT: {e}")
         return False
     except Exception as e:
-        print(f"DEBUG is_token_blacklisted: Error inesperado: {e}")
         return False

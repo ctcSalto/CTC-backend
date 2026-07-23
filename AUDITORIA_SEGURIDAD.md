@@ -17,9 +17,14 @@ estado que nadie testeaba. Ese patron guio donde buscar.
 | Severidad | Arreglado | Pendiente |
 |---|---|---|
 | Critico | 4 | 0 |
-| Alto | 3 | 3 |
-| Medio | 1 | 6 |
+| Alto | 4 | 2 |
+| Medio | 4 | 3 |
 | Bajo | 0 | 6 |
+
+**Segunda tanda (commit de fixes de auditoria):** A1 (blacklist v1 fail-closed),
+M2 (templates de email), M3 (expiry v2 separado), M5 (prints DEBUG en el modulo
+de auth), y M6 (filtro que descartaba condiciones en silencio). Detalle abajo,
+movidos a "Ya arreglado".
 
 ---
 
@@ -35,6 +40,11 @@ estado que nadie testeaba. Ese patron guio donde buscar.
 | 6 | `GET /api/analytics/debug-env` exponia sin auth un preview de las credenciales de la service account | Alto | `44caa5a` |
 | 7 | v1 no validaba el claim `system`: un token v2 servia en v1 para cualquier email de la tabla `user` | Alto | pendiente de commit |
 | 8 | `POST /test/users` y `/debug-modules` con auth comentada o ausente | Medio | `44caa5a` |
+| 9 | Blacklist de v1 fallaba abierto (mismo bug que v2): con Redis caido, todo token revocado volvia a valer | Alto | fixes auditoria |
+| 10 | 8 templates de email con placeholders doble-escapados: los alumnos recibian `Nota: {nota}` literal | Medio | fixes auditoria |
+| 11 | `QueryBuilder` descartaba en silencio una condicion que no podia construir → la consulta devolvia mas filas de las pedidas (fuga en listados filtrados por permisos/`published`) | Medio | fixes auditoria |
+| 12 | `ACCESS_TOKEN_EXPIRE_MINUTES` compartido v1/v2: setearlo para el portal le cambiaba la vida a los tokens del CMS | Medio | fixes auditoria |
+| 13 | 53 `print("DEBUG ...")` en el modulo de auth imprimiendo jti/email en cada request | Medio | fixes auditoria (security.py) |
 
 **Cadena que existia:** `GET /reset-database` (vaciar la base) → `POST /auth/create-first-user`
 (crear admin de credenciales publicas) → login. Toma de control completa en dos requests sin
@@ -43,24 +53,6 @@ autenticacion. Cortada en los puntos 1 y 4.
 ---
 
 ## Pendiente — Alto
-
-### A1. La blacklist de v1 tambien falla abierto
-
-**Donde:** `database/services/auth/security.py:82`
-
-Es el mismo bug que se arreglo en v2, en el otro sistema. `verify_token()` hace
-`cache_service.exists(blacklist_key, session)`, y `RedisService.exists()` atrapa sus propias
-excepciones y devuelve `False` (`database/services/redis/redis.py:204-211`). O sea que "Redis
-caido" y "el token no esta revocado" son indistinguibles.
-
-**Impacto:** con Redis caido, todo token de v1 revocado vuelve a ser valido hasta expirar. El
-logout deja de tener efecto.
-
-**Fix propuesto:** el mismo que en v2 — verificar conectividad con `test_connection()` antes de
-confiar en `exists()`, y responder 503 si no se puede consultar. Reusar `_redis_disponible()`.
-
-**Riesgo del fix:** con Redis caido, v1 deja de autenticar. Es el comportamiento correcto, pero
-conviene deployarlo sabiendo que ata la disponibilidad del CMS a la de Redis.
 
 ### A2. Sin rate limiting en `/auth/login`
 
@@ -96,26 +88,6 @@ lanzadas, precios, fechas. Anula el workflow de publicacion.
 **Riesgo del fix:** si el panel admin usa el endpoint publico en vez de `/careers/admin/{id}`,
 agregar el filtro lo rompe. **Verificar consumidores antes de tocar.**
 
-### M2. Placeholders doble-escapados en 8 templates de email
-
-**Donde:** `v2/templates/email_templates.py` — las 28 llamadas a `_row()`
-
-Los alumnos reciben emails que dicen literalmente `Nota del curso: {nota}`. Afecta a
-`inscripcion_materia`, `inscripcion_examen`, `recordatorio_examen`, `apertura_inscripcion`,
-`apertura_examen`, `calificacion_disponible`, `exoneracion` y `baja_procesada`.
-
-Los tests `TestTemplates::test_template_*` ya asertan el comportamiento correcto y hoy fallan
-por esto. Detalle completo y verificacion en el chip de tarea correspondiente.
-
-### M3. `ACCESS_TOKEN_EXPIRE_MINUTES` compartido entre v1 y v2
-
-**Donde:** `database/services/auth/security.py:18` y `v2/auth/security.py:16`
-
-Defaults distintos (30 min vs 480 min) pero **leen la misma variable de entorno**. Setearla
-pensando en el portal academico le da 8 horas de vida a los tokens del CMS.
-
-**Fix propuesto:** `V2_ACCESS_TOKEN_EXPIRE_MINUTES` para v2, con fallback al valor actual.
-
 ### M4. CORS permisivo
 
 **Donde:** `main.py:265`
@@ -128,28 +100,12 @@ configuracion.
 **Fix propuesto:** lista explicita de origenes del frontend, reusando el enfoque de
 `OAUTH_ALLOWED_REDIRECT_ORIGINS`.
 
-### M5. 53 `print(f"DEBUG ...")` en el camino de autenticacion
+### M5b. `print(f"DEBUG ...")` restantes en `redis.py`
 
-**Donde:** `database/services/auth/security.py`, `database/services/redis/redis.py`
+**Donde:** `database/services/redis/redis.py`
 
-Se ejecutan en **cada request autenticado**, e imprimen `jti` y email. No exponen el token, pero
-ensucian los logs, meten datos personales en ellos y cuestan I/O.
-
-**Fix propuesto:** pasarlos al logger del proyecto con nivel DEBUG, o eliminarlos.
-
-### M6. Una condicion de filtro que falla se descarta en silencio
-
-**Donde:** `database/services/filter/filters.py:481,520,550`
-
-`_apply_condition()` y `_apply_relation_condition()` loguean el error y devuelven `None`. La
-condicion se cae del query y **la consulta devuelve mas filas de las pedidas**, sin que el
-llamador se entere.
-
-**Impacto:** en un listado filtrado por permisos o por `published`, un error de construccion
-del filtro se convierte en una fuga de datos silenciosa. `QueryBuilder` se usa en los endpoints
-`/filters` de v1 y v2.
-
-**Fix propuesto:** propagar el error (`QueryBuilderError`) en vez de descartar la condicion.
+Los del modulo de auth (`security.py`) ya se limpiaron. Quedan los de `RedisService`, que
+imprimen claves de cache. Menor, pero conviene pasarlos al logger o quitarlos.
 
 ---
 
@@ -181,16 +137,27 @@ del filtro se convierte en una fuga de datos silenciosa. `QueryBuilder` se usa e
 
 ---
 
-## Orden de ataque sugerido
+## Orden de ataque sugerido (pendientes)
 
-1. **A3** — rotar credenciales. Es lo unico que puede estar comprometido ahora mismo y no se
-   arregla con codigo.
-2. **A1** — mismo fix que ya se aplico en v2, bajo riesgo, cierra el ultimo fail-open de auth.
-3. **M6** — una fuga de datos silenciosa es peor que una ruidosa, y toca el sistema de filtros
-   que se usa en todos lados.
-4. **A2** — rate limiting.
-5. **M2** — los emails rotos son lo mas visible para el usuario final.
-6. El resto por orden de severidad.
+1. **A3** — rotar credenciales `admin@gmail.com` en produccion. Es lo unico que puede estar
+   comprometido ahora mismo y no se arregla con codigo.
+2. **A2** — rate limiting en `/auth/login`. Requiere agregar `slowapi` como dependencia; se
+   deja para una tanda propia por tocar el middleware.
+3. **M1** — filtro `published` en `/careers/{id}` publico. Es una fuga real, pero cambia el
+   comportamiento de un endpoint del sitio publico: verificar consumidores antes de tocar.
+4. **M4** — CORS explicito. Necesita la lista de origenes del frontend.
+5. **M5b** y los items **Bajo**, por orden de severidad.
+
+## Deuda deliberadamente no tomada en la segunda tanda (y por que)
+
+- **A2 (rate limiting):** agrega una dependencia (`slowapi`) y toca el middleware global de
+  `main.py`. No se puede testear el efecto sin levantar la app; merece su propio cambio acotado.
+- **M1 (`/careers/{id}` published):** es un cambio de comportamiento de un endpoint del sitio
+  publico. El panel admin no lo consume (usa `/google/test/*` y `/auth`), pero el sitio publico
+  si, y no puedo ver ese frontend. Cambiar la semantica sin confirmar consumidores es arriesgado.
+- **M4 (CORS):** hace falta la lista real de origenes del frontend Next.js; ponerla mal rompe
+  el navegador.
+- **A3 (rotacion):** es operativo, no de codigo.
 
 ---
 

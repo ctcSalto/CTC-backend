@@ -92,9 +92,9 @@ INSCRIPCION_MATERIA = _wrap(f"""
   para el anio lectivo <strong>{{anio_lectivo}}</strong>.
 </p>
 {_TABLE_OPEN}
-  {_row("Programa", "{{programa}}")}
-  {_row("Materia", "{{materia}}")}
-  {_row("Anio lectivo", "{{anio_lectivo}}")}
+  {_row("Programa", "{programa}")}
+  {_row("Materia", "{materia}")}
+  {_row("Anio lectivo", "{anio_lectivo}")}
 </table>
 """)
 
@@ -110,11 +110,11 @@ INSCRIPCION_EXAMEN = _wrap(f"""
   Tu inscripcion al examen de <strong>{{materia}}</strong> ha sido confirmada.
 </p>
 {_TABLE_OPEN}
-  {_row("Materia", "{{materia}}")}
-  {_row("Fecha del examen", "{{fecha_examen}}")}
-  {_row("Hora", "{{hora}}")}
-  {_row("Salon", "{{salon}}")}
-  {_row("Rendicion N.", "{{numero_rendicion}}")}
+  {_row("Materia", "{materia}")}
+  {_row("Fecha del examen", "{fecha_examen}")}
+  {_row("Hora", "{hora}")}
+  {_row("Salon", "{salon}")}
+  {_row("Rendicion N.", "{numero_rendicion}")}
 </table>
 """)
 
@@ -131,10 +131,10 @@ RECORDATORIO_EXAMEN = _wrap(f"""
   en <strong>{{dias_restantes}} dia(s)</strong>.
 </p>
 {_TABLE_OPEN}
-  {_row("Materia", "{{materia}}")}
-  {_row("Fecha", "{{fecha_examen}}")}
-  {_row("Hora", "{{hora}}")}
-  {_row("Salon", "{{salon}}")}
+  {_row("Materia", "{materia}")}
+  {_row("Fecha", "{fecha_examen}")}
+  {_row("Hora", "{hora}")}
+  {_row("Salon", "{salon}")}
 </table>
 """)
 
@@ -151,10 +151,10 @@ APERTURA_INSCRIPCION = _wrap(f"""
   <strong>{{programa}}</strong>.
 </p>
 {_TABLE_OPEN}
-  {_row("Programa", "{{programa}}")}
-  {_row("Anio lectivo", "{{anio_lectivo}}")}
-  {_row("Desde", "{{fecha_inicio}}")}
-  {_row("Hasta", "{{fecha_fin}}")}
+  {_row("Programa", "{programa}")}
+  {_row("Anio lectivo", "{anio_lectivo}")}
+  {_row("Desde", "{fecha_inicio}")}
+  {_row("Hasta", "{fecha_fin}")}
 </table>
 <p style="{_P_STYLE}">
   Ingresa al portal academico para inscribirte a las materias disponibles.
@@ -173,9 +173,9 @@ APERTURA_EXAMEN = _wrap(f"""
   Se ha habilitado una instancia de examen para la materia <strong>{{materia}}</strong>.
 </p>
 {_TABLE_OPEN}
-  {_row("Materia", "{{materia}}")}
-  {_row("Fecha del examen", "{{fecha_examen}}")}
-  {_row("Inscripcion hasta", "{{fecha_fin_inscripcion}}")}
+  {_row("Materia", "{materia}")}
+  {_row("Fecha del examen", "{fecha_examen}")}
+  {_row("Inscripcion hasta", "{fecha_fin_inscripcion}")}
 </table>
 <p style="{_P_STYLE}">
   Ingresa al portal academico para inscribirte al examen.
@@ -211,9 +211,9 @@ CALIFICACION_DISPONIBLE = _wrap(f"""
   Tu calificacion en <strong>{{materia}}</strong> ya esta disponible.
 </p>
 {_TABLE_OPEN}
-  {_row("Materia", "{{materia}}")}
-  {_row("Nota del curso", "{{nota}}")}
-  {_row("Estado", "{{estado}}")}
+  {_row("Materia", "{materia}")}
+  {_row("Nota del curso", "{nota}")}
+  {_row("Estado", "{estado}")}
 </table>
 <p style="{_P_STYLE}">
   Podes consultar tu escolaridad completa en el portal academico.
@@ -232,9 +232,9 @@ EXONERACION = _wrap(f"""
   Te informamos que has <strong style="color:#0d9488;">exonerado</strong> la materia <strong>{{materia}}</strong>.
 </p>
 {_TABLE_OPEN.replace('#e8e8ec', '#99f6e4')}
-  {_row("Materia", "{{materia}}", _TH_GREEN, _TD_GREEN)}
-  {_row("Nota del curso", "{{nota}}", _TH_GREEN, _TD_GREEN)}
-  {_row("Creditos obtenidos", "{{creditos}}", _TH_GREEN, _TD_GREEN)}
+  {_row("Materia", "{materia}", _TH_GREEN, _TD_GREEN)}
+  {_row("Nota del curso", "{nota}", _TH_GREEN, _TD_GREEN)}
+  {_row("Creditos obtenidos", "{creditos}", _TH_GREEN, _TD_GREEN)}
 </table>
 """)
 
@@ -268,9 +268,9 @@ BAJA_PROCESADA = _wrap(f"""
   Tu baja del programa <strong>{{programa}}</strong> ha sido procesada.
 </p>
 {_TABLE_OPEN}
-  {_row("Programa", "{{programa}}")}
-  {_row("Fecha de baja", "{{fecha_baja}}")}
-  {_row("Motivo", "{{motivo}}")}
+  {_row("Programa", "{programa}")}
+  {_row("Fecha de baja", "{fecha_baja}")}
+  {_row("Motivo", "{motivo}")}
 </table>
 <p style="{_P_STYLE}">
   Si tenes consultas, comunicate con bedelia.

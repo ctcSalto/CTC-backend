@@ -259,8 +259,9 @@ class TestTemplates:
         )
         assert "Juan" in html
         assert "Programacion 1" in html
+        assert "Analista Programador" in html
         assert "2026" in html
-        assert "Centro de Tecnolog" in html  # header CTC
+        assert "CTC Salto" in html  # branding en el footer
 
     def test_template_calificacion_renderiza(self):
         """Verifica template de calificación."""

@@ -13,7 +13,14 @@ import uuid
 
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
+# Variable propia de v2. Antes leia ACCESS_TOKEN_EXPIRE_MINUTES, la misma que v1,
+# asi que setearla pensando en el portal academico (8h) le cambiaba la vida a los
+# tokens del CMS (30 min). Fallback a la compartida para no romper entornos que
+# solo tienen esa seteada.
+ACCESS_TOKEN_EXPIRE_MINUTES = int(
+    os.getenv("V2_ACCESS_TOKEN_EXPIRE_MINUTES")
+    or os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480")
+)
 
 
 def create_v2_token(
