@@ -11,6 +11,14 @@ from v2.models.enums import EstadoInscripcionMateria
 class EgresoService:
     """Servicio para verificar requisitos de egreso de un alumno en un programa."""
 
+    # Estados en los que la materia se considera cumplida para el egreso: los
+    # tres otorgan creditos. A_EXAMEN no entra, la materia todavia no esta cerrada.
+    ESTADOS_CUMPLIDA = (
+        EstadoInscripcionMateria.APROBADO,
+        EstadoInscripcionMateria.EXONERADO,
+        EstadoInscripcionMateria.REVALIDADA,
+    )
+
     def verificar_egreso(
         self,
         alumno_id: int,
@@ -38,25 +46,33 @@ class EgresoService:
         creditos_totales = sum(m.creditos for m in materias)
         creditos_requeridos = programa.creditos_requeridos or creditos_totales
 
-        # 3. Obtener inscripciones APROBADAS del alumno en materias del programa
-        # Navegamos via InstanciaCursado para conectar inscripcion → materia
-        inscripciones_aprobadas = list(session.exec(
+        # 3. Inscripciones del alumno que dan la materia por cumplida.
+        # No alcanza con APROBADO: EXONERADO tambien otorga creditos (lo asigna
+        # grading_engine al cerrar el curso) y REVALIDADA tambien (lo asigna
+        # revalidar()). Contando solo APROBADO, un alumno que exonero todo veia
+        # cero creditos y no podia egresar nunca.
+        filas = list(session.exec(
             select(InscripcionMateria, InstanciaCursado)
             .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
             .where(
                 InscripcionMateria.alumno_id == alumno_id,
                 InstanciaCursado.materia_id.in_(materia_ids),
-                InscripcionMateria.estado == EstadoInscripcionMateria.APROBADO,
+                InscripcionMateria.estado.in_(self.ESTADOS_CUMPLIDA),
             )
         ).all())
 
-        # Materias aprobadas (usar set para evitar duplicados si aprobó en distintas instancias)
-        materias_aprobadas_ids = set()
-        for insc, ic in inscripciones_aprobadas:
-            materias_aprobadas_ids.add(ic.materia_id)
+        # Una materia puede tener varias inscripciones cumplidas (recursadas).
+        # Nos queda la del anio lectivo mas reciente, igual criterio que la
+        # escolaridad, para que las notas del detalle no dependan del orden que
+        # devuelva la base.
+        cumplida_por_materia: dict[int, tuple[InscripcionMateria, int]] = {}
+        for insc, ic in filas:
+            elegida = cumplida_por_materia.get(ic.materia_id)
+            if elegida is None or ic.anio_lectivo > elegida[1]:
+                cumplida_por_materia[ic.materia_id] = (insc, ic.anio_lectivo)
 
         creditos_obtenidos = sum(
-            m.creditos for m in materias if m.id in materias_aprobadas_ids
+            m.creditos for m in materias if m.id in cumplida_por_materia
         )
 
         # 4. Construir detalle
@@ -71,13 +87,17 @@ class EgresoService:
                 "semestre": m.semestre,
                 "creditos": m.creditos,
             }
-            if m.id in materias_aprobadas_ids:
-                # Buscar la nota final de la inscripcion aprobada
-                for insc, ic in inscripciones_aprobadas:
-                    if ic.materia_id == m.id:
-                        info["nota_final"] = float(insc.nota_final) if insc.nota_final else None
-                        info["nota_curso"] = float(insc.nota_curso) if insc.nota_curso else None
-                        break
+            elegida = cumplida_por_materia.get(m.id)
+            if elegida:
+                insc, anio_lectivo = elegida
+                # El estado importa: una materia revalidada no tiene notas, y sin
+                # este campo el cliente no puede distinguirla de una aprobada.
+                info["estado"] = insc.estado.value
+                info["anio_lectivo"] = anio_lectivo
+                # Comparar con None y no por verdad: una nota 0 es una nota, y
+                # con `if insc.nota_final` se informaba como "sin nota".
+                info["nota_final"] = float(insc.nota_final) if insc.nota_final is not None else None
+                info["nota_curso"] = float(insc.nota_curso) if insc.nota_curso is not None else None
                 materias_aprobadas.append(info)
             else:
                 materias_pendientes.append(info)

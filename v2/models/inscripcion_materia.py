@@ -93,18 +93,48 @@ class InscripcionMateriaRead(SQLModel):
     id_rastreo_notificacion: Optional[str] = None
 
 
-class InscripcionMateriaResumen(SQLModel):
-    """Vista resumida para escolaridad"""
-    id: int
+# Pseudo-estado para materias del plan en las que el alumno nunca se inscribio.
+# No pertenece a EstadoInscripcionMateria porque ese enum es el tipo de la
+# columna inscripcion_materia.estado y no admite valores sin respaldo en la tabla.
+SIN_INSCRIPCION = "sin_inscripcion"
+
+
+class EscolaridadMateriaItem(SQLModel):
+    """
+    Fila de escolaridad: una materia del plan del programa, con o sin
+    inscripcion del alumno.
+
+    Todas las filas traen el mismo conjunto de campos. Cuando el alumno nunca
+    se inscribio, `estado` es SIN_INSCRIPCION y los campos propios de la
+    inscripcion vienen en None (o 0 para los contadores).
+    """
+    inscripcion_id: Optional[int] = None
     materia_nombre: str
     materia_codigo: Optional[str] = None
     semestre: int
-    anio_lectivo: int
-    estado: EstadoInscripcionMateria
+    anio_lectivo: Optional[int] = None
+    estado: str = Field(
+        description=f'Valor de EstadoInscripcionMateria, o "{SIN_INSCRIPCION}"'
+    )
     nota_curso: Optional[Decimal] = None
     nota_final: Optional[Decimal] = None
-    creditos_obtenidos: int
+    creditos_obtenidos: int = 0
     faltas: int = 0
+
+
+class EscolaridadSemestre(SQLModel):
+    """Materias de un semestre. Lista ordenada, no dict, para preservar el orden."""
+    semestre: int
+    materias: List[EscolaridadMateriaItem]
+
+
+class EscolaridadRead(SQLModel):
+    """Escolaridad completa del alumno en un programa"""
+    alumno_id: int
+    programa_id: int
+    semestres: List[EscolaridadSemestre]
+    total_creditos: int
+    total_creditos_posibles: int
 
 
 class MarcarInasistenciaRequest(SQLModel):

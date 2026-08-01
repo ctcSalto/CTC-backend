@@ -438,6 +438,130 @@ class TestValidarPreviaturasInscripcion:
         )
         assert cumple is False
 
+    def test_previatura_revalidada_cumple(
+        self, session, alumno, materias_con_previaturas
+    ):
+        """
+        REVALIDADA habilita la siguiente materia. Una materia convalidada de otra
+        institucion otorga creditos, asi que tambien tiene que abrir la cadena.
+        """
+        service = InscripcionMateriaService()
+        m1 = materias_con_previaturas["prog1"]
+        m2 = materias_con_previaturas["prog2"]
+
+        ic = InstanciaCursado(
+            materia_id=m1.id, anio_lectivo=2025,
+            estado=EstadoInstanciaCursado.FINALIZADA,
+        )
+        session.add(ic)
+        session.commit()
+        session.refresh(ic)
+
+        insc = InscripcionMateria(
+            alumno_id=alumno.id,
+            instancia_cursado_id=ic.id,
+            estado=EstadoInscripcionMateria.REVALIDADA,
+            motivo_revalida="Aprobada en UTEC - 2024",
+            creditos_obtenidos=m1.creditos,
+        )
+        session.add(insc)
+        session.commit()
+
+        cumple, faltantes = service.validar_previaturas(
+            alumno.id, m2.id, session,
+        )
+        assert cumple is True
+        assert faltantes == []
+
+    def test_previatura_revalidada_cumple_tipo_exonerada(
+        self, session, alumno, materias_con_previaturas
+    ):
+        """
+        REVALIDADA tambien satisface una previatura de tipo EXONERADA: el alumno
+        no puede volver a cursar lo que ya revalido, asi que exigirle la
+        exoneracion lo dejaria trabado sin salida.
+        """
+        service = InscripcionMateriaService()
+        m1 = materias_con_previaturas["prog1"]
+        m2 = materias_con_previaturas["prog2"]
+
+        prev = materias_con_previaturas["prev_p2"]
+        prev.tipo_requerido = TipoPreviatura.EXONERADA
+        session.add(prev)
+        session.commit()
+
+        ic = InstanciaCursado(
+            materia_id=m1.id, anio_lectivo=2025,
+            estado=EstadoInstanciaCursado.FINALIZADA,
+        )
+        session.add(ic)
+        session.commit()
+        session.refresh(ic)
+
+        session.add(InscripcionMateria(
+            alumno_id=alumno.id,
+            instancia_cursado_id=ic.id,
+            estado=EstadoInscripcionMateria.REVALIDADA,
+            creditos_obtenidos=m1.creditos,
+        ))
+        session.commit()
+
+        cumple, faltantes = service.validar_previaturas(
+            alumno.id, m2.id, session,
+        )
+        assert cumple is True
+
+    def test_recursada_alcanza_con_que_una_cumpla(
+        self, session, alumno, materias_con_previaturas
+    ):
+        """
+        Con varias inscripciones en la previa, basta que alguna alcance el tipo
+        requerido. Antes se miraba una sola fila y el resultado dependia del
+        orden que devolviera la base.
+        """
+        service = InscripcionMateriaService()
+        m1 = materias_con_previaturas["prog1"]
+        m2 = materias_con_previaturas["prog2"]
+
+        prev = materias_con_previaturas["prev_p2"]
+        prev.tipo_requerido = TipoPreviatura.EXONERADA
+        session.add(prev)
+        session.commit()
+
+        # 2024: aprobo por examen (no alcanza para tipo EXONERADA)
+        ic_2024 = InstanciaCursado(
+            materia_id=m1.id, anio_lectivo=2024,
+            estado=EstadoInstanciaCursado.FINALIZADA,
+        )
+        # 2025: exonero (si alcanza)
+        ic_2025 = InstanciaCursado(
+            materia_id=m1.id, anio_lectivo=2025,
+            estado=EstadoInstanciaCursado.FINALIZADA,
+        )
+        session.add_all([ic_2024, ic_2025])
+        session.commit()
+        session.refresh(ic_2024)
+        session.refresh(ic_2025)
+
+        session.add_all([
+            InscripcionMateria(
+                alumno_id=alumno.id,
+                instancia_cursado_id=ic_2024.id,
+                estado=EstadoInscripcionMateria.APROBADO,
+            ),
+            InscripcionMateria(
+                alumno_id=alumno.id,
+                instancia_cursado_id=ic_2025.id,
+                estado=EstadoInscripcionMateria.EXONERADO,
+            ),
+        ])
+        session.commit()
+
+        cumple, faltantes = service.validar_previaturas(
+            alumno.id, m2.id, session,
+        )
+        assert cumple is True, f"Deberia alcanzar con la exoneracion de 2025: {faltantes}"
+
     def test_cadena_de_previaturas(
         self, session, alumno, materias_con_previaturas
     ):
@@ -544,6 +668,76 @@ class TestMapaPreviaturas:
         assert estados["Programacion 1"] == "aprobado"
         assert estados["Programacion 2"] == "pendiente"
         assert estados["Programacion 3"] == "pendiente"
+
+    def test_mapa_muestra_revalidada(
+        self, session, alumno, programa, materias_con_previaturas
+    ):
+        """Una materia revalidada se muestra como tal, no como 'pendiente'."""
+        m1 = materias_con_previaturas["prog1"]
+        ic = InstanciaCursado(
+            materia_id=m1.id, anio_lectivo=2025,
+            estado=EstadoInstanciaCursado.FINALIZADA,
+        )
+        session.add(ic)
+        session.commit()
+        session.refresh(ic)
+
+        session.add(InscripcionMateria(
+            alumno_id=alumno.id,
+            instancia_cursado_id=ic.id,
+            estado=EstadoInscripcionMateria.REVALIDADA,
+            creditos_obtenidos=m1.creditos,
+        ))
+        session.commit()
+
+        service = InscripcionMateriaService()
+        mapa = service.get_mapa_previaturas(alumno.id, programa.id, session)
+
+        estados = {item["nombre"]: item["estado_alumno"] for item in mapa}
+        assert estados["Programacion 1"] == "revalidada"
+
+    def test_mapa_revalidada_le_gana_a_un_intento_previo(
+        self, session, alumno, programa, materias_con_previaturas
+    ):
+        """
+        Si el alumno reprobo y despues revalido, el mapa muestra la revalida.
+        Antes REVALIDADA no estaba en la tabla de prioridad y perdia contra
+        cualquier otro estado, incluso contra abandono.
+        """
+        m1 = materias_con_previaturas["prog1"]
+        ic_repro = InstanciaCursado(
+            materia_id=m1.id, anio_lectivo=2024,
+            estado=EstadoInstanciaCursado.FINALIZADA,
+        )
+        ic_reval = InstanciaCursado(
+            materia_id=m1.id, anio_lectivo=2025,
+            estado=EstadoInstanciaCursado.FINALIZADA,
+        )
+        session.add_all([ic_repro, ic_reval])
+        session.commit()
+        session.refresh(ic_repro)
+        session.refresh(ic_reval)
+
+        session.add_all([
+            InscripcionMateria(
+                alumno_id=alumno.id,
+                instancia_cursado_id=ic_repro.id,
+                estado=EstadoInscripcionMateria.REPROBADO,
+            ),
+            InscripcionMateria(
+                alumno_id=alumno.id,
+                instancia_cursado_id=ic_reval.id,
+                estado=EstadoInscripcionMateria.REVALIDADA,
+                creditos_obtenidos=m1.creditos,
+            ),
+        ])
+        session.commit()
+
+        service = InscripcionMateriaService()
+        mapa = service.get_mapa_previaturas(alumno.id, programa.id, session)
+
+        estados = {item["nombre"]: item["estado_alumno"] for item in mapa}
+        assert estados["Programacion 1"] == "revalidada"
 
     def test_mapa_incluye_previaturas(
         self, session, alumno, programa, materias_con_previaturas

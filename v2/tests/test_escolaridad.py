@@ -25,6 +25,14 @@ from v2.services.calificacion_service import CalificacionService
 # Escolaridad
 # ══════════════════════════════════════════════════════════════════════════════
 
+def materias_del_semestre(escolaridad: dict, semestre: int) -> list:
+    """Materias de un semestre dentro de la lista de grupos de escolaridad."""
+    for grupo in escolaridad["semestres"]:
+        if grupo["semestre"] == semestre:
+            return grupo["materias"]
+    return []
+
+
 class TestEscolaridad:
     """Escolaridad completa del alumno en un programa."""
 
@@ -40,15 +48,26 @@ class TestEscolaridad:
         assert esc["total_creditos"] == 0
         assert esc["total_creditos_posibles"] == 30  # 3 materias * 10 creditos
 
+        # semestres es una lista ordenada de grupos
+        semestres = esc["semestres"]
+        assert [grupo["semestre"] for grupo in semestres] == sorted(
+            grupo["semestre"] for grupo in semestres
+        )
+
         # Todas las materias en semestres
-        total_materias = sum(len(mats) for mats in esc["semestres"].values())
+        total_materias = sum(len(grupo["materias"]) for grupo in semestres)
         assert total_materias == 3
 
-        # Todas sin inscripcion
-        for sem, materias in esc["semestres"].items():
-            for mat in materias:
+        # Todas sin inscripcion, con los campos de inscripcion en None
+        for grupo in semestres:
+            for mat in grupo["materias"]:
                 assert mat["estado"] == "sin_inscripcion"
                 assert mat["creditos_obtenidos"] == 0
+                assert mat["inscripcion_id"] is None
+                assert mat["anio_lectivo"] is None
+                assert mat["nota_curso"] is None
+                assert mat["nota_final"] is None
+                assert mat["faltas"] == 0
 
     def test_escolaridad_con_materia_aprobada(
         self, session, alumno, programa, materias_con_previaturas
@@ -81,10 +100,12 @@ class TestEscolaridad:
         assert esc["total_creditos_posibles"] == 30
 
         # Prog1 en semestre 1 esta aprobada
-        sem1 = esc["semestres"][1]
+        sem1 = materias_del_semestre(esc, 1)
         assert len(sem1) == 1
         assert sem1[0]["estado"] == EstadoInscripcionMateria.APROBADO
         assert sem1[0]["creditos_obtenidos"] == 10
+        assert sem1[0]["inscripcion_id"] == insc.id
+        assert sem1[0]["anio_lectivo"] == 2025
 
     def test_escolaridad_multiples_inscripciones_toma_reciente(
         self, session, alumno, programa, materias_con_previaturas
@@ -132,9 +153,74 @@ class TestEscolaridad:
         esc = service.get_escolaridad(alumno.id, programa.id, session)
 
         # Debe tomar la de 2026 (aprobado)
-        sem1 = esc["semestres"][1]
+        sem1 = materias_del_semestre(esc, 1)
         assert sem1[0]["estado"] == EstadoInscripcionMateria.APROBADO
+        assert sem1[0]["anio_lectivo"] == 2026
         assert esc["total_creditos"] == 10
+
+    def test_escolaridad_reporta_faltas(
+        self, session, alumno, programa, materias_con_previaturas
+    ):
+        """Las faltas de la inscripcion se reflejan en la escolaridad."""
+        m1 = materias_con_previaturas["prog1"]
+
+        ic = InstanciaCursado(
+            materia_id=m1.id, anio_lectivo=2026,
+            estado=EstadoInstanciaCursado.EN_CURSO,
+        )
+        session.add(ic)
+        session.commit()
+        session.refresh(ic)
+
+        insc = InscripcionMateria(
+            alumno_id=alumno.id,
+            instancia_cursado_id=ic.id,
+            estado=EstadoInscripcionMateria.CURSANDO,
+            nota_curso=Decimal("40"),
+            faltas=4,
+        )
+        session.add(insc)
+        session.commit()
+
+        service = InscripcionMateriaService()
+        esc = service.get_escolaridad(alumno.id, programa.id, session)
+
+        sem1 = materias_del_semestre(esc, 1)
+        assert sem1[0]["faltas"] == 4
+        assert sem1[0]["nota_curso"] == Decimal("40")
+
+    def test_escolaridad_filas_tienen_misma_forma(
+        self, session, alumno, programa, materias_con_previaturas
+    ):
+        """Con y sin inscripcion, todas las filas exponen las mismas claves."""
+        m1 = materias_con_previaturas["prog1"]
+
+        ic = InstanciaCursado(
+            materia_id=m1.id, anio_lectivo=2026,
+            estado=EstadoInstanciaCursado.EN_CURSO,
+        )
+        session.add(ic)
+        session.commit()
+        session.refresh(ic)
+
+        session.add(InscripcionMateria(
+            alumno_id=alumno.id,
+            instancia_cursado_id=ic.id,
+            estado=EstadoInscripcionMateria.CURSANDO,
+        ))
+        session.commit()
+
+        service = InscripcionMateriaService()
+        esc = service.get_escolaridad(alumno.id, programa.id, session)
+
+        filas = [mat for grupo in esc["semestres"] for mat in grupo["materias"]]
+        # Hay al menos una fila de cada tipo
+        estados = {fila["estado"] for fila in filas}
+        assert EstadoInscripcionMateria.CURSANDO in estados
+        assert "sin_inscripcion" in estados
+
+        claves = {frozenset(fila.keys()) for fila in filas}
+        assert len(claves) == 1, "Las filas de escolaridad no tienen la misma forma"
 
 
 # ══════════════════════════════════════════════════════════════════════════════

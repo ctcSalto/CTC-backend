@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 from database.database import get_session
@@ -11,6 +11,7 @@ from v2.models.inscripcion_materia import (
     InscripcionMateriaRead,
     MarcarInasistenciaRequest,
     MarcarAbandonoRequest,
+    EscolaridadRead,
 )
 
 router = APIRouter(
@@ -22,6 +23,25 @@ router = APIRouter(
 class InscripcionManualRequest(BaseModel):
     alumno_id: int
     instancia_cursado_id: int
+
+
+class BajaProgramaRequest(BaseModel):
+    motivo: str = Field(min_length=1, max_length=255)
+    cerrar_materias: bool = Field(
+        default=True,
+        description="Cierra como abandono las materias EN CURSO del alumno en ese "
+                    "programa. Desactivar solo si la baja no implica soltar las cursadas",
+    )
+
+
+class BajaProgramaResponse(BaseModel):
+    inscripcion_programa_id: int
+    alumno_id: int
+    programa_id: int
+    estado: str
+    fecha_baja: Optional[str] = None
+    motivo_baja: Optional[str] = None
+    materias_cerradas: int
 
 
 @router.post("/marcar-inasistencia", response_model=InscripcionMateriaRead)
@@ -56,7 +76,7 @@ async def marcar_abandono(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/escolaridad/{alumno_id}")
+@router.get("/escolaridad/{alumno_id}", response_model=EscolaridadRead)
 async def escolaridad_alumno(
     alumno_id: int,
     programa_id: int = Query(..., description="ID del programa"),
@@ -87,6 +107,45 @@ async def inscripcion_manual(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# -- Baja de programa ---------------------------------------------------------
+
+@router.post(
+    "/programa/{inscripcion_programa_id}/baja",
+    response_model=BajaProgramaResponse,
+    summary="Dar de baja a un alumno de un programa",
+    description="Registra la baja con fecha y motivo. Por defecto cierra tambien "
+                "las materias que el alumno tenga EN CURSO en ese programa, "
+                "dejandolas en abandono. Las materias de otros programas no se "
+                "tocan. Envia notificacion al alumno (best-effort).",
+)
+async def dar_de_baja_programa(
+    inscripcion_programa_id: int,
+    data: BajaProgramaRequest,
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    try:
+        inscripcion = v2_services.inscripcionProgramaService.dar_de_baja(
+            inscripcion_id=inscripcion_programa_id,
+            motivo=data.motivo,
+            session=session,
+            cerrar_materias=data.cerrar_materias,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return BajaProgramaResponse(
+        inscripcion_programa_id=inscripcion.id,
+        alumno_id=inscripcion.alumno_id,
+        programa_id=inscripcion.programa_id,
+        estado=inscripcion.estado.value,
+        fecha_baja=inscripcion.fecha_baja.isoformat() if inscripcion.fecha_baja else None,
+        motivo_baja=inscripcion.motivo_baja,
+        materias_cerradas=getattr(inscripcion, "materias_cerradas", 0),
+    )
 
 
 # -- Verificacion de egreso --------------------------------------------------
