@@ -9,7 +9,7 @@ from v2.services import V2Services, get_v2_services
 from v2.auth.dependencies import require_estudiante, get_current_alumno
 from v2.models.alumno import Alumno
 from v2.models.usuario import UsuarioRead
-from v2.models.inscripcion_materia import InscripcionMateriaRead
+from v2.models.inscripcion_materia import InscripcionMateriaRead, EscolaridadRead
 from v2.models.calificacion import CalificacionRead
 from v2.models.inscripcion_examen import InscripcionExamenRead
 from v2.models.documento_usuario import DocumentoUsuarioRead
@@ -23,6 +23,28 @@ router = APIRouter(
 
 class InscribirseRequest(BaseModel):
     instancia_cursado_id: int
+
+
+# -- Helpers -------------------------------------------------------------------
+
+def _validar_inscripto_en_programa(alumno_id: int, programa_id: int, session: Session):
+    """
+    Valida que el alumno tenga una inscripcion ACTIVA al programa.
+    Sin esto, cualquier estudiante puede leer el plan de estudios completo de
+    programas ajenos pasando el id por query.
+    """
+    from v2.models.inscripcion_programa import InscripcionPrograma
+    from v2.models.enums import EstadoInscripcionPrograma
+
+    inscripcion = session.exec(
+        select(InscripcionPrograma).where(
+            InscripcionPrograma.alumno_id == alumno_id,
+            InscripcionPrograma.programa_id == programa_id,
+            InscripcionPrograma.estado == EstadoInscripcionPrograma.ACTIVA,
+        )
+    ).first()
+    if not inscripcion:
+        raise HTTPException(status_code=403, detail="No estas inscripto en este programa")
 
 
 # -- Perfil y programas -------------------------------------------------------
@@ -148,7 +170,7 @@ async def mi_materia_detalle(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/mi-escolaridad")
+@router.get("/mi-escolaridad", response_model=EscolaridadRead)
 async def mi_escolaridad(
     programa_id: int = Query(..., description="ID del programa"),
     current_usuario: UsuarioRead = Depends(require_estudiante),
@@ -174,6 +196,28 @@ async def materias_disponibles(
     """Materias a las que el estudiante puede inscribirse"""
     return v2_services.inscripcionService.get_materias_disponibles(
         alumno.id, programa_id, anio_lectivo, session
+    )
+
+
+@router.get("/materias-habilitadas")
+async def materias_habilitadas(
+    programa_id: int = Query(..., description="ID del programa"),
+    current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """
+    Materias a las que el estudiante puede inscribirse en el semestre activo.
+
+    El semestre activo lo define el periodo de inscripcion abierto del programa.
+    Aplica las mismas validaciones que el POST de inscripcion (periodo,
+    previaturas, estado de la instancia y cupo), asi que puede_inscribirse no
+    deberia contradecir al alta.
+    """
+    _validar_inscripto_en_programa(alumno.id, programa_id, session)
+    return v2_services.inscripcionService.get_materias_habilitadas(
+        alumno.id, programa_id, session
     )
 
 
@@ -388,6 +432,27 @@ async def examenes_disponibles(
             })
 
     return resultado
+
+
+@router.get("/examenes-habilitados")
+async def examenes_habilitados(
+    programa_id: int = Query(..., description="ID del programa"),
+    current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """
+    Examenes a los que el estudiante puede inscribirse en un programa.
+
+    Aplica las mismas validaciones que el POST de inscripcion a examen
+    (estado A_EXAMEN, plazo, politica de examen y oportunidades de rendicion),
+    asi que puede_inscribirse no deberia contradecir al alta.
+    """
+    _validar_inscripto_en_programa(alumno.id, programa_id, session)
+    return v2_services.inscripcionExamenService.get_examenes_habilitados(
+        alumno.id, programa_id, session
+    )
 
 
 @router.get("/todos-mis-examenes")

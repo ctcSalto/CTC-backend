@@ -80,3 +80,30 @@ class PeriodoInscripcionService(BaseServiceWithFilters[PeriodoInscripcionMateria
                 PeriodoInscripcionMateria.fecha_fin >= ahora,
             )
         ).first()
+
+    def get_periodo_vigente(
+        self, programa_id: int, session: Session
+    ) -> Optional[PeriodoInscripcionMateria]:
+        """
+        Periodo de inscripcion abierto ahora mismo para el programa, sin
+        necesidad de conocer el anio lectivo de antemano. Es la fuente de
+        verdad del "semestre activo": el periodo abierto declara sobre que
+        anio_lectivo y semestre se esta inscribiendo.
+
+        Si hubiera mas de uno abierto, gana el de anio_lectivo mas alto y,
+        dentro del mismo anio, el de semestre mas alto.
+        """
+        ahora = datetime.now(get_uruguay_tz())
+        return session.exec(
+            select(PeriodoInscripcionMateria)
+            .where(
+                PeriodoInscripcionMateria.programa_id == programa_id,
+                PeriodoInscripcionMateria.habilitado == True,
+                PeriodoInscripcionMateria.fecha_inicio <= ahora,
+                PeriodoInscripcionMateria.fecha_fin >= ahora,
+            )
+            .order_by(
+                PeriodoInscripcionMateria.anio_lectivo.desc(),
+                PeriodoInscripcionMateria.semestre.desc(),
+            )
+        ).first()

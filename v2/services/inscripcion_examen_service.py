@@ -342,14 +342,125 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         materia = session.get(Materia, ic.materia_id) if ic else None
         creditos = materia.creditos if materia else 0
 
+        ahora = datetime.now(get_uruguay_tz())
+
         inscripcion.estado = EstadoInscripcionMateria.APROBADO
         inscripcion.nota_final = nota_examen
         inscripcion.creditos_obtenidos = creditos
-        inscripcion.fecha_cierre = datetime.now(get_uruguay_tz())
-
+        inscripcion.fecha_cierre = ahora
         session.add(inscripcion)
+
+        # Con la materia aprobada, cualquier otra inscripcion a examen pendiente
+        # dejo de tener sentido: el alumno ya no tiene que rendir nada. Si se
+        # dejaran en INSCRIPTO quedarian apuntando a una materia cerrada, saldrian
+        # en las listas del docente y contarian como rendicion al calificarlas.
+        pendientes = session.exec(
+            select(InscripcionExamen).where(
+                InscripcionExamen.inscripcion_materia_id == inscripcion_materia_id,
+                InscripcionExamen.estado == EstadoInscripcionExamen.INSCRIPTO,
+            )
+        ).all()
+        for pendiente in pendientes:
+            pendiente.estado = EstadoInscripcionExamen.BAJA
+            pendiente.fecha_baja = ahora
+            session.add(pendiente)
+
         session.commit()
         session.refresh(inscripcion)
+
+    # -- Examenes habilitados --------------------------------------------------
+
+    def get_examenes_habilitados(
+        self, alumno_id: int, programa_id: int, session: Session
+    ) -> list:
+        """
+        Instancias de examen a las que el alumno puede inscribirse en un programa.
+
+        Aplica las mismas validaciones que inscribir_examen, para que
+        puede_inscribirse no contradiga al POST:
+          - la materia debe estar en estado A_EXAMEN
+          - la instancia habilitada y dentro del plazo de inscripcion
+          - no tener ya una inscripcion INSCRIPTO en esa instancia
+          - la materia debe tener politica de examen configurada
+          - no haber agotado las oportunidades de rendicion
+
+        Las previaturas no se validan aca a proposito: para llegar a A_EXAMEN el
+        alumno tuvo que cursar la materia, y esa inscripcion ya las valido.
+        """
+        ahora = datetime.now(get_uruguay_tz()).replace(tzinfo=None)
+
+        # Materias del programa que el alumno tiene en estado A_EXAMEN
+        filas = session.exec(
+            select(InscripcionMateria, Materia)
+            .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
+            .join(Materia, InstanciaCursado.materia_id == Materia.id)
+            .where(
+                InscripcionMateria.alumno_id == alumno_id,
+                InscripcionMateria.estado == EstadoInscripcionMateria.A_EXAMEN,
+                Materia.programa_id == programa_id,
+            )
+        ).all()
+
+        resultado = []
+        for insc, materia in filas:
+            # Politica de examen: sin ella inscribir_examen falla
+            politica = (
+                session.get(PoliticaExamen, materia.politica_examen_id)
+                if materia.politica_examen_id else None
+            )
+            max_oportunidades = politica.max_oportunidades if politica else 5
+            rendiciones = self._contar_rendiciones_previas(insc.id, session)
+
+            instancias = session.exec(
+                select(InstanciaExamen).where(
+                    InstanciaExamen.materia_id == materia.id,
+                    InstanciaExamen.habilitado == True,
+                    InstanciaExamen.fecha_inicio_inscripcion <= ahora,
+                    InstanciaExamen.fecha_fin_inscripcion >= ahora,
+                ).order_by(InstanciaExamen.fecha_examen)
+            ).all()
+
+            for inst in instancias:
+                ya_inscripto = session.exec(
+                    select(InscripcionExamen).where(
+                        InscripcionExamen.inscripcion_materia_id == insc.id,
+                        InscripcionExamen.instancia_examen_id == inst.id,
+                        InscripcionExamen.estado == EstadoInscripcionExamen.INSCRIPTO,
+                    )
+                ).first() is not None
+
+                motivos = []
+                if materia.politica_examen_id is None:
+                    motivos.append("La materia no tiene politica de examen configurada")
+                if rendiciones >= max_oportunidades:
+                    motivos.append(
+                        f"Agotaste las {max_oportunidades} oportunidades de rendicion. "
+                        "Debes recursar la materia."
+                    )
+                if ya_inscripto:
+                    motivos.append("Ya estas inscripto a este examen")
+
+                resultado.append({
+                    "instancia_examen_id": inst.id,
+                    "inscripcion_materia_id": insc.id,
+                    "materia_id": materia.id,
+                    "materia_nombre": materia.nombre,
+                    "materia_codigo": materia.codigo,
+                    "nombre_examen": inst.nombre,
+                    "fecha_examen": inst.fecha_examen.isoformat() if inst.fecha_examen else None,
+                    "fecha_fin_inscripcion": inst.fecha_fin_inscripcion.isoformat(),
+                    "hora": inst.hora,
+                    "salon": inst.salon,
+                    "modalidad": inst.modalidad.value if inst.modalidad else None,
+                    "tipo": inst.tipo.value if inst.tipo else None,
+                    "ya_inscripto": ya_inscripto,
+                    "rendiciones_previas": rendiciones,
+                    "max_oportunidades": max_oportunidades,
+                    "puede_inscribirse": len(motivos) == 0,
+                    "motivos": motivos,
+                })
+
+        return resultado
 
     def _contar_rendiciones_previas(
         self, inscripcion_materia_id: int, session: Session
