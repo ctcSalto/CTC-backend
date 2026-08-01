@@ -523,16 +523,37 @@ class TestNotaFinalDirecta:
                 session=session,
             )
 
-    def test_nota_directa_solo_cursando(
+    def test_nota_directa_se_puede_corregir_estando_a_examen(
         self, session, usuario_docente, inscripcion_cursando
     ):
-        """Solo se puede cargar nota directa en estado CURSANDO."""
+        """
+        Antes la nota final directa exigia estado CURSANDO. Ahora tambien se
+        acepta en los estados que decidio el curso, para poder corregir una nota
+        mal cargada (ver test_correccion_notas.py).
+        """
         service = CalificacionService()
         inscripcion_cursando.estado = EstadoInscripcionMateria.A_EXAMEN
         session.add(inscripcion_cursando)
         session.commit()
 
-        with pytest.raises(ValueError, match="CURSANDO"):
+        resultado = service.cargar_nota_final_directa(
+            cargado_por_id=usuario_docente.id,
+            inscripcion_id=inscripcion_cursando.id,
+            nota=Decimal("50"),
+            session=session,
+        )
+        assert resultado.nota_final_directa == Decimal("50")
+
+    def test_nota_directa_rechazada_si_abandono(
+        self, session, usuario_docente, inscripcion_cursando
+    ):
+        """Los estados que no decidio el curso siguen bloqueados."""
+        service = CalificacionService()
+        inscripcion_cursando.estado = EstadoInscripcionMateria.ABANDONO
+        session.add(inscripcion_cursando)
+        session.commit()
+
+        with pytest.raises(ValueError, match="dada de baja"):
             service.cargar_nota_final_directa(
                 cargado_por_id=usuario_docente.id,
                 inscripcion_id=inscripcion_cursando.id,
