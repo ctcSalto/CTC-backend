@@ -29,6 +29,13 @@ class InstanciaCursado(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     materia_id: int = Field(foreign_key="materia.id", index=True, description="Materia base")
     anio_lectivo: int = Field(description="Año lectivo (2026, 2027...)")
+    semestre: Optional[int] = Field(
+        default=None,
+        description="Semestre calendario en que se dicta esta instancia (1 o 2). "
+                    "Distinto de materia.semestre, que es la posición en el plan de "
+                    "estudios. NULL = no declarado, se considera dictada en cualquier "
+                    "semestre"
+    )
     fecha_inicio: Optional[datetime] = Field(default=None, index=True, description="Fecha de inicio del cursado")
     fecha_fin: Optional[datetime] = Field(default=None, index=True, description="Fecha de fin del cursado")
     salon: Optional[str] = Field(default=None, max_length=100, description="Salón asignado")
@@ -61,6 +68,7 @@ class InstanciaCursado(SQLModel, table=True):
 class InstanciaCursadoCreate(SQLModel):
     materia_id: int
     anio_lectivo: int
+    semestre: Optional[int] = None
     fecha_inicio: Optional[datetime] = None
     fecha_fin: Optional[datetime] = None
     salon: Optional[str] = None
@@ -71,6 +79,7 @@ class InstanciaCursadoCreate(SQLModel):
 
 
 class InstanciaCursadoUpdate(SQLModel):
+    semestre: Optional[int] = None
     fecha_inicio: Optional[datetime] = None
     fecha_fin: Optional[datetime] = None
     salon: Optional[str] = None
@@ -84,6 +93,7 @@ class InstanciaCursadoRead(SQLModel):
     id: int
     materia_id: int
     anio_lectivo: int
+    semestre: Optional[int] = None
     fecha_inicio: Optional[datetime] = None
     fecha_fin: Optional[datetime] = None
     salon: Optional[str] = None

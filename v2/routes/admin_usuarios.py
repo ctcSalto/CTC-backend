@@ -9,7 +9,7 @@ esa persona luego inicia sesion con Google usando el mismo email, el sistema
 vincula la cuenta automaticamente (ver v2/routes/auth_google.py).
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlmodel import Session
+from sqlmodel import Session, select
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
@@ -18,6 +18,7 @@ from database.database import get_session
 from v2.services import V2Services, get_v2_services
 from v2.auth.dependencies import require_administrativo
 from v2.models.usuario import UsuarioRead
+from v2.models.profesor import Profesor, ProfesorRead
 from v2.models.enums import RolUsuario, CargoDocente, DedicacionDocente
 
 
@@ -55,6 +56,10 @@ class UsuarioManualCreate(BaseModel):
     telefono: Optional[str] = None
     email_personal: Optional[str] = None
     perfil: Optional[PerfilManualCreate] = None
+
+
+class ActivoDocenteUpdate(BaseModel):
+    activo: bool
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -130,11 +135,101 @@ async def listar_docentes(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=200),
     search: Optional[str] = Query(default=None, description="Busca por nombre, apellido o email"),
-    activo: Optional[bool] = Query(default=None),
+    activo: Optional[bool] = Query(
+        default=None, description="Filtra por acceso al sistema (usuario.activo)"
+    ),
+    activo_docente: Optional[bool] = Query(
+        default=None, description="Filtra por si dicta actualmente (profesor.activo)"
+    ),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
     current_usuario: UsuarioRead = Depends(require_administrativo),
 ):
     return v2_services.usuarioService.get_docentes_dashboard(
-        session, page=page, per_page=per_page, search=search, activo=activo
+        session, page=page, per_page=per_page, search=search,
+        activo=activo, activo_docente=activo_docente,
+    )
+
+
+@router.patch(
+    "/docentes/{usuario_id}/activo",
+    response_model=ProfesorRead,
+    summary="Activar o desactivar a un docente",
+    description="Cambia profesor.activo, que indica si el docente dicta "
+                "actualmente. NO afecta el acceso al sistema: un docente "
+                "desactivado sigue pudiendo iniciar sesion y consultar su "
+                "historico. Para cortar el acceso hay que cambiar usuario.activo.",
+)
+async def cambiar_activo_docente(
+    usuario_id: int,
+    body: ActivoDocenteUpdate,
+    session: Session = Depends(get_session),
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+):
+    profesor = session.exec(
+        select(Profesor).where(Profesor.usuario_id == usuario_id)
+    ).first()
+    if not profesor:
+        raise HTTPException(
+            status_code=404, detail=f"No existe perfil de docente para el usuario {usuario_id}"
+        )
+
+    profesor.activo = body.activo
+    session.add(profesor)
+    session.commit()
+    session.refresh(profesor)
+    return profesor
+
+
+@router.get(
+    "/docentes/{usuario_id}/historico-materias",
+    summary="Historico de materias dictadas por un docente",
+    description="Todas las instancias de cursado que dicto el docente, de la mas "
+                "reciente a la mas antigua, con cantidad de inscriptos.",
+)
+async def historico_materias_docente(
+    usuario_id: int,
+    anio_lectivo: Optional[int] = Query(
+        default=None, description="Filtra por año lectivo. Sin este parámetro devuelve todos los años"
+    ),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+):
+    profesor = session.exec(
+        select(Profesor).where(Profesor.usuario_id == usuario_id)
+    ).first()
+    if not profesor:
+        raise HTTPException(
+            status_code=404, detail=f"No existe perfil de docente para el usuario {usuario_id}"
+        )
+    return v2_services.docenteMateriaService.get_historico_materias(
+        profesor.id, session, anio_lectivo=anio_lectivo
+    )
+
+
+@router.get(
+    "/docentes/{usuario_id}/historico-examenes",
+    summary="Historico de examenes tomados por un docente",
+    description="Todas las instancias de examen en las que el docente integro el "
+                "tribunal, de la mas reciente a la mas antigua.",
+)
+async def historico_examenes_docente(
+    usuario_id: int,
+    anio: Optional[int] = Query(
+        default=None, description="Filtra por año de la fecha del examen. Sin este parámetro devuelve todos"
+    ),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+):
+    profesor = session.exec(
+        select(Profesor).where(Profesor.usuario_id == usuario_id)
+    ).first()
+    if not profesor:
+        raise HTTPException(
+            status_code=404, detail=f"No existe perfil de docente para el usuario {usuario_id}"
+        )
+    return v2_services.docenteMateriaService.get_historico_examenes(
+        profesor.id, session, anio=anio
     )

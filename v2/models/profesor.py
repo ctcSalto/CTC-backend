@@ -21,6 +21,12 @@ class Profesor(SQLModel, table=True):
     dedicacion: Optional[DedicacionDocente] = Field(default=None, description="Tipo de dedicación")
     especialidad: Optional[str] = Field(default=None, max_length=200, description="Área de especialidad")
     carga_horaria_semanal: Optional[int] = Field(default=None, description="Carga horaria semanal en horas")
+    activo: bool = Field(
+        default=True,
+        description="Si dicta actualmente. Distinto de usuario.activo, que controla "
+                    "el acceso al sistema: un profesor retirado puede quedar inactivo "
+                    "como docente y seguir entrando a ver su historico"
+    )
     id_rastreo: Optional[str] = Field(
         default_factory=lambda: str(uuid4()),
         unique=True, index=True,
@@ -41,6 +47,7 @@ class ProfesorCreate(SQLModel):
     dedicacion: Optional[DedicacionDocente] = None
     especialidad: Optional[str] = None
     carga_horaria_semanal: Optional[int] = None
+    activo: bool = True
 
 
 class ProfesorRead(SQLModel):
@@ -50,6 +57,7 @@ class ProfesorRead(SQLModel):
     dedicacion: Optional[DedicacionDocente] = None
     especialidad: Optional[str] = None
     carga_horaria_semanal: Optional[int] = None
+    activo: bool = True
     id_rastreo: Optional[str] = None
 
 
@@ -58,3 +66,4 @@ class ProfesorUpdate(SQLModel):
     dedicacion: Optional[DedicacionDocente] = None
     especialidad: Optional[str] = None
     carga_horaria_semanal: Optional[int] = None
+    activo: Optional[bool] = None

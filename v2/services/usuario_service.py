@@ -366,15 +366,21 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
         per_page: int = 50,
         search: Optional[str] = None,
         activo: Optional[bool] = None,
+        activo_docente: Optional[bool] = None,
     ) -> dict:
         """
         Lista paginada de docentes para el dashboard de admin, con datos de
         usuario embebidos. Incluye tanto docentes con cuenta de Google como
         los creados manualmente (ej: ponentes de una charla puntual).
+
+        activo: filtra por acceso al sistema (usuario.activo)
+        activo_docente: filtra por si dicta actualmente (profesor.activo)
         """
         base_filters = [Usuario.eliminado == False]
         if activo is not None:
             base_filters.append(Usuario.activo == activo)
+        if activo_docente is not None:
+            base_filters.append(Profesor.activo == activo_docente)
         if search:
             like = f"%{search}%"
             base_filters.append(
@@ -409,6 +415,7 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
                 "documento": usuario.documento,
                 "telefono": usuario.telefono,
                 "activo": usuario.activo,
+                "activo_docente": profesor.activo,
                 "tiene_login": usuario.google_id is not None,
                 "cargo": profesor.cargo,
                 "dedicacion": profesor.dedicacion,

@@ -99,6 +99,9 @@ async def mi_perfil(
             "cargo": perfil_profesor.cargo.value if perfil_profesor.cargo else None,
             "dedicacion": perfil_profesor.dedicacion.value if perfil_profesor.dedicacion else None,
             "especialidad": perfil_profesor.especialidad,
+            # Si dicta actualmente. El "activo" de nivel usuario va aparte, en la
+            # raiz de la respuesta, y es el que controla el acceso al sistema.
+            "activo": perfil_profesor.activo,
         } if perfil_profesor else None,
     }
 
@@ -179,6 +182,46 @@ async def mis_materias(
             })
 
     return resultado
+
+
+@router.get("/mi-historico-materias")
+async def mi_historico_materias(
+    anio_lectivo: Optional[int] = Query(
+        default=None, description="Filtra por año lectivo. Sin este parámetro devuelve todos los años"
+    ),
+    current_usuario: UsuarioRead = Depends(require_docente_or_admin),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """Historico completo de materias dictadas por el docente, de la mas reciente a la mas antigua"""
+    profesor = session.exec(
+        select(Profesor).where(Profesor.usuario_id == current_usuario.id)
+    ).first()
+    if not profesor:
+        return []
+    return v2_services.docenteMateriaService.get_historico_materias(
+        profesor.id, session, anio_lectivo=anio_lectivo
+    )
+
+
+@router.get("/mi-historico-examenes")
+async def mi_historico_examenes(
+    anio: Optional[int] = Query(
+        default=None, description="Filtra por año de la fecha del examen. Sin este parámetro devuelve todos"
+    ),
+    current_usuario: UsuarioRead = Depends(require_docente_or_admin),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """Historico de examenes en los que el docente integro el tribunal"""
+    profesor = session.exec(
+        select(Profesor).where(Profesor.usuario_id == current_usuario.id)
+    ).first()
+    if not profesor:
+        return []
+    return v2_services.docenteMateriaService.get_historico_examenes(
+        profesor.id, session, anio=anio
+    )
 
 
 @router.get("/instancia-cursado/{instancia_cursado_id}/alumnos")
@@ -320,6 +363,7 @@ async def cargar_calificacion(
             session=session,
             equipo_id=data.equipo_id,
             observaciones=data.observaciones,
+            instancia_cursado_id=instancia_cursado_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -344,6 +388,7 @@ async def cargar_calificaciones_batch(
         instancia_evaluacion_id=data.instancia_evaluacion_id,
         calificaciones=data.calificaciones,
         session=session,
+        instancia_cursado_id=instancia_cursado_id,
     )
 
 
@@ -367,6 +412,7 @@ async def cargar_nota_final_directa(
             inscripcion_id=data.inscripcion_id,
             nota=data.nota,
             session=session,
+            instancia_cursado_id=instancia_cursado_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

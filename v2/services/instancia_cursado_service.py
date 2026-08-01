@@ -106,6 +106,7 @@ class InstanciaCursadoService(BaseServiceWithFilters[InstanciaCursado]):
             "materia_nombre": materia.nombre if materia else "",
             "materia_codigo": materia.codigo if materia else "",
             "anio_lectivo": instancia.anio_lectivo,
+            "semestre": instancia.semestre,
             "salon": instancia.salon,
             "horario": instancia.horario,
             "fecha_inicio": instancia.fecha_inicio.isoformat() if instancia.fecha_inicio else None,
