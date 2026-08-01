@@ -1,5 +1,6 @@
 from typing import Optional, List
 from sqlmodel import Session, select
+from sqlalchemy import or_
 
 from database.services.filter.filters import BaseServiceWithFilters
 from v2.models.materia import Materia, MateriaCreate, MateriaUpdate
@@ -101,14 +102,50 @@ class MateriaService(BaseServiceWithFilters[Materia]):
         if not materia:
             raise ValueError(f"Materia {materia_id} no encontrada")
 
-        # Verificar que no tenga inscripciones
+        # Las inscripciones no cuelgan de la materia sino de sus instancias de
+        # cursado, asi que hay que navegar el join. Este guard consultaba
+        # InscripcionMateria.materia_id, columna que dejo de existir con el
+        # refactor a instancia_cursado: el delete tiraba AttributeError (500)
+        # siempre, hubiera o no inscripciones.
         from v2.models.inscripcion_materia import InscripcionMateria
+        from v2.models.instancia_cursado import InstanciaCursado
+
         inscripcion = session.exec(
-            select(InscripcionMateria).where(InscripcionMateria.materia_id == materia_id)
+            select(InscripcionMateria)
+            .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
+            .where(InstanciaCursado.materia_id == materia_id)
         ).first()
         if inscripcion:
             raise ValueError(
                 "No se puede eliminar: la materia tiene inscripciones registradas"
+            )
+
+        # Sin inscripciones puede haber igual instancias de cursado creadas (con
+        # sus evaluaciones y docentes asignados). Borrar la materia dejaria esas
+        # filas apuntando a la nada.
+        instancia = session.exec(
+            select(InstanciaCursado).where(InstanciaCursado.materia_id == materia_id)
+        ).first()
+        if instancia:
+            raise ValueError(
+                "No se puede eliminar: la materia tiene instancias de cursado. "
+                "Elimina primero las instancias, o marca la materia como inactiva."
+            )
+
+        # Las previaturas referencian la materia por los dos lados
+        from v2.models.previatura import Previatura
+        previatura = session.exec(
+            select(Previatura).where(
+                or_(
+                    Previatura.materia_id == materia_id,
+                    Previatura.materia_previa_id == materia_id,
+                )
+            )
+        ).first()
+        if previatura:
+            raise ValueError(
+                "No se puede eliminar: la materia participa en previaturas. "
+                "Elimina primero esas previaturas."
             )
 
         session.delete(materia)
