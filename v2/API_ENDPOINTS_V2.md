@@ -24,7 +24,8 @@
 14. [Admin - Inscripciones](#14-admin---inscripciones)
 15. [Admin - Examenes](#15-admin---examenes)
 16. [Admin - Documentos](#16-admin---documentos)
-17. [Enums y valores posibles](#17-enums-y-valores-posibles)
+17. [Admin - Usuarios](#17-admin---usuarios)
+18. [Enums y valores posibles](#18-enums-y-valores-posibles)
 
 ---
 
@@ -197,28 +198,133 @@ Detalle completo de una materia inscripta (notas, faltas, calificaciones).
 ```
 
 ### GET `/mi-escolaridad?programa_id={id}`
-Escolaridad completa del alumno en un programa.
+Escolaridad completa del alumno en un programa: **todas** las materias del plan,
+agrupadas por semestre, esten cursadas o no.
 - **Query params:** `programa_id` (int, requerido)
 - **Response 200:**
 ```json
-[
-  {
-    "id": 1,
-    "materia_nombre": "Programacion 1",
-    "materia_codigo": "P1",
-    "semestre": 1,
-    "anio_lectivo": 2026,
-    "estado": "exonerado",
-    "nota_curso": 92.0,
-    "nota_final": 92.0,
-    "creditos_obtenidos": 10,
-    "faltas": 1
-  }
-]
+{
+  "alumno_id": 42,
+  "programa_id": 3,
+  "semestres": [
+    {
+      "semestre": 1,
+      "materias": [
+        {
+          "inscripcion_id": 1,
+          "materia_nombre": "Programacion 1",
+          "materia_codigo": "P1",
+          "semestre": 1,
+          "anio_lectivo": 2026,
+          "estado": "exonerado",
+          "nota_curso": 92.0,
+          "nota_final": 92.0,
+          "creditos_obtenidos": 10,
+          "faltas": 1
+        }
+      ]
+    },
+    {
+      "semestre": 2,
+      "materias": [
+        {
+          "inscripcion_id": null,
+          "materia_nombre": "Base de Datos",
+          "materia_codigo": "BD1",
+          "semestre": 2,
+          "anio_lectivo": null,
+          "estado": "sin_inscripcion",
+          "nota_curso": null,
+          "nota_final": null,
+          "creditos_obtenidos": 0,
+          "faltas": 0
+        }
+      ]
+    }
+  ],
+  "total_creditos": 10,
+  "total_creditos_posibles": 30
+}
 ```
 
+**Notas para el cliente:**
+- `semestres` es una **lista ordenada** por numero de semestre, no un objeto indexado.
+- Todas las filas de `materias` tienen las mismas claves. Las materias en las que
+  el alumno nunca se inscribio traen `estado: "sin_inscripcion"` y los campos de
+  inscripcion en `null` (o `0` en los contadores).
+- `estado` es un valor de `EstadoInscripcionMateria` (`cursando`, `exonerado`,
+  `a_examen`, `aprobado`, `reprobado`, `perdido_inasistencia`, `abandono`,
+  `revalidada`) o el pseudo-estado `sin_inscripcion`.
+- Si el alumno recurso una materia, se devuelve **solo** la inscripcion del
+  `anio_lectivo` mas alto; las anteriores no aparecen.
+- `total_creditos_posibles` suma los creditos de todas las materias del plan,
+  no solo de las cursadas.
+
+### GET `/materias-habilitadas?programa_id={id}`
+Materias a las que el alumno puede inscribirse **en el semestre activo**.
+
+El semestre activo lo define el periodo de inscripcion abierto del programa: de
+ahi salen `anio_lectivo` y `semestre`, por eso el cliente no los manda. Aplica
+las mismas validaciones que el POST de inscripcion, asi que `puede_inscribirse`
+no deberia contradecir al alta.
+
+- **Query params:** `programa_id` (int, requerido)
+- **Response 200:**
+```json
+{
+  "programa_id": 3,
+  "periodo_inscripcion": {
+    "abierto": true,
+    "periodo_id": 5,
+    "anio_lectivo": 2026,
+    "semestre": 1,
+    "fecha_inicio": "2026-02-01T00:00:00-03:00",
+    "fecha_fin": "2026-03-15T23:59:00-03:00"
+  },
+  "materias": [
+    {
+      "materia_id": 2,
+      "nombre": "Programacion 2",
+      "codigo": "P2",
+      "semestre_plan": 2,
+      "creditos": 10,
+      "instancia_cursado_id": 5,
+      "anio_lectivo": 2026,
+      "semestre": 1,
+      "horario": "Lunes 18-21",
+      "salon": "Lab 2",
+      "cupo_maximo": 30,
+      "inscriptos": 12,
+      "puede_inscribirse": true,
+      "motivos": [],
+      "previaturas_faltantes": []
+    }
+  ]
+}
+```
+
+Sin periodo abierto la respuesta es `{"programa_id": 3, "periodo_inscripcion": {"abierto": false}, "materias": []}`.
+
+**Notas para el cliente:**
+- Chequea `periodo_inscripcion.abierto` antes de interpretar una lista vacia: sin
+  periodo abierto no hay nada habilitado, y es distinto de "no te queda nada por cursar".
+- `semestre_plan` es la posicion de la materia en el plan de estudios;
+  `semestre` es el semestre calendario en que se dicta la instancia. No son lo mismo.
+- Una materia aparece solo si se dicta en el semestre activo, con instancia en
+  estado `planificada` o `en_curso`. Las instancias con `semestre: null` se
+  consideran dictadas en cualquier semestre.
+- Se excluyen las materias ya `aprobado`, `exonerado`, `revalidada` o `cursando`.
+  Una `reprobado` si aparece, para recursar.
+- `motivos` acumula todo lo que impide inscribirse: previaturas faltantes y cupo
+  completo. `previaturas_faltantes` es el subconjunto de previaturas.
+- **403** si el alumno no tiene inscripcion activa al programa.
+
 ### GET `/materias-disponibles?programa_id={id}&anio_lectivo={anio}`
-Materias a las que el alumno puede inscribirse (valida previaturas cumplidas).
+Version anterior, **superada por `/materias-habilitadas`**. No chequea el periodo
+de inscripcion ni el estado de la instancia, asi que puede devolver
+`puede_inscribirse: true` para una materia cuyo POST falla con
+`"No hay un periodo de inscripcion activo"`. Se mantiene por compatibilidad.
+
 - **Query params:** `programa_id` (int), `anio_lectivo` (int) - ambos requeridos
 - **Response 200:**
 ```json
@@ -228,18 +334,10 @@ Materias a las que el alumno puede inscribirse (valida previaturas cumplidas).
     "nombre": "Programacion 2",
     "codigo": "P2",
     "semestre": 2,
-    "instancia_cursado_id": 5,
-    "inscribible": true,
-    "motivo": null
-  },
-  {
-    "materia_id": 3,
-    "nombre": "Programacion 3",
-    "codigo": "P3",
-    "semestre": 3,
-    "instancia_cursado_id": null,
-    "inscribible": false,
-    "motivo": "Previaturas no cumplidas: Programacion 2"
+    "creditos": 10,
+    "puede_inscribirse": true,
+    "previaturas_faltantes": [],
+    "instancia_cursado_id": 5
   }
 ]
 ```
@@ -344,6 +442,48 @@ Examenes disponibles para el alumno (materias en A_EXAMEN con inscripcion abiert
 ]
 ```
 
+### GET `/examenes-habilitados?programa_id={id}`
+Examenes a los que el alumno puede inscribirse. **Supera a
+`/examenes-disponibles`**: aplica todas las validaciones del POST, no solo el
+plazo, asi que `puede_inscribirse` no contradice al alta.
+
+- **Query params:** `programa_id` (int, requerido)
+- **Response 200:**
+```json
+[
+  {
+    "instancia_examen_id": 3,
+    "inscripcion_materia_id": 1,
+    "materia_id": 1,
+    "materia_nombre": "Programacion 1",
+    "materia_codigo": "P1",
+    "nombre_examen": "Febrero 2026",
+    "fecha_examen": "2026-02-15T09:00:00",
+    "fecha_fin_inscripcion": "2026-02-10T23:59:00",
+    "hora": "09:00",
+    "salon": "Salon A",
+    "modalidad": "presencial",
+    "tipo": "ordinario",
+    "ya_inscripto": false,
+    "rendiciones_previas": 1,
+    "max_oportunidades": 5,
+    "puede_inscribirse": true,
+    "motivos": []
+  }
+]
+```
+
+**Notas para el cliente:**
+- Solo aparecen materias en estado `a_examen` con instancias habilitadas y dentro
+  del plazo de inscripcion.
+- `motivos` explica por que no se puede inscribir: oportunidades agotadas, materia
+  sin politica de examen configurada, o ya inscripto a ese examen.
+- `rendiciones_previas` cuenta las rendiciones consumidas (aprobado, reprobado o
+  ausente; no cuentan las bajas ni las inscripciones pendientes).
+- **Las previaturas no se validan aca a proposito.** Para llegar a `a_examen` el
+  alumno tuvo que cursar la materia, y esa inscripcion ya las valido.
+- **403** si el alumno no tiene inscripcion activa al programa.
+
 ### GET `/todos-mis-examenes`
 Todos los examenes del alumno, todas las materias, ordenados por fecha.
 - **Response 200:**
@@ -365,7 +505,67 @@ Todos los examenes del alumno, todas las materias, ordenados por fecha.
 ### GET `/mi-egreso?programa_id={id}`
 Verificar progreso de egreso en un programa.
 - **Query params:** `programa_id` (int, requerido)
-- **Response 200:** Estado de egreso con materias pendientes/aprobadas
+- **Response 200:**
+```json
+{
+  "cumple": false,
+  "programa_id": 3,
+  "programa_nombre": "Analista en Informatica",
+  "creditos_obtenidos": 20,
+  "creditos_requeridos": 30,
+  "creditos_totales_plan": 30,
+  "materias_aprobadas": 2,
+  "materias_pendientes": 1,
+  "materias_totales": 3,
+  "porcentaje_avance": 66.67,
+  "detalle_aprobadas": [
+    {
+      "materia_id": 1,
+      "nombre": "Programacion 1",
+      "codigo": "P1",
+      "semestre": 1,
+      "creditos": 10,
+      "estado": "exonerado",
+      "anio_lectivo": 2025,
+      "nota_final": 95.0,
+      "nota_curso": 95.0
+    },
+    {
+      "materia_id": 2,
+      "nombre": "Base de Datos",
+      "codigo": "BD1",
+      "semestre": 2,
+      "creditos": 10,
+      "estado": "revalidada",
+      "anio_lectivo": 2024,
+      "nota_final": null,
+      "nota_curso": null
+    }
+  ],
+  "detalle_pendientes": [
+    {
+      "materia_id": 3,
+      "nombre": "Programacion 2",
+      "codigo": "P2",
+      "semestre": 3,
+      "creditos": 10
+    }
+  ]
+}
+```
+
+**Notas para el cliente:**
+- Una materia cuenta como cumplida si esta `aprobado`, `exonerado` o `revalidada`
+  — los tres otorgan creditos. `a_examen` **no** cuenta: el curso no esta cerrado.
+- El campo `estado` de `detalle_aprobadas` dice cual de los tres es. Importa
+  porque una `revalidada` no tiene notas y vendria con `null` en ambas.
+- Las entradas de `detalle_pendientes` **no** traen `estado`, `anio_lectivo` ni
+  notas: son materias del plan que el alumno todavia no cumplio, con o sin
+  intentos previos.
+- Si el alumno recurso una materia, el detalle reporta la inscripcion del
+  `anio_lectivo` mas alto, y los creditos se cuentan **una sola vez**.
+- `cumple` exige las dos cosas: llegar a `creditos_requeridos` **y** no tener
+  materias pendientes.
 
 ---
 
@@ -384,14 +584,22 @@ Perfil del docente con datos de profesor.
   "nombre": "Maria",
   "apellido": "Lopez",
   "rol": "docente",
+  "activo": true,
   "perfil_profesor": {
     "profesor_id": 1,
     "cargo": "titular",
     "dedicacion": "tiempo_completo",
-    "especialidad": "Programacion"
+    "especialidad": "Programacion",
+    "activo": true
   }
 }
 ```
+
+**Cuidado con los dos `activo`:** el de la raiz es `usuario.activo` y controla el
+acceso al sistema (en `false` no puede iniciar sesion). El de `perfil_profesor`
+es `profesor.activo` e indica si dicta actualmente. Un profesor retirado queda
+con `perfil_profesor.activo: false` y `activo: true`, para poder seguir
+consultando su historico.
 
 ### GET `/mis-programas`
 Programas donde el docente es coordinador.
@@ -426,6 +634,66 @@ Materias asignadas al docente en un ano lectivo.
     "horario": "Lunes 18-21",
     "estado": "en_curso",
     "rol_docente": "titular"
+  }
+]
+```
+
+### GET `/mi-historico-materias?anio_lectivo={anio}`
+Historico completo de materias dictadas, de la mas reciente a la mas antigua.
+A diferencia de `/mis-materias`, el año es **opcional**: sin el parametro
+devuelve todos los años.
+
+- **Query params:** `anio_lectivo` (int, opcional)
+- **Response 200:**
+```json
+[
+  {
+    "asignacion_id": 12,
+    "instancia_cursado_id": 40,
+    "materia_id": 1,
+    "materia_nombre": "Programacion 1",
+    "materia_codigo": "P1",
+    "programa_id": 3,
+    "programa_nombre": "Analista en Informatica",
+    "semestre_plan": 1,
+    "anio_lectivo": 2026,
+    "semestre": 1,
+    "salon": "Lab 2",
+    "horario": "Lunes 18-21",
+    "estado_instancia": "en_curso",
+    "rol_docente": "titular",
+    "total_inscriptos": 27
+  }
+]
+```
+
+Devuelve `[]` si el usuario no tiene perfil de profesor (por ejemplo un
+administrativo, que accede con el mismo rol permitido en este router).
+
+### GET `/mi-historico-examenes?anio={anio}`
+Historico de examenes en los que el docente integro el tribunal, del mas
+reciente al mas antiguo.
+
+- **Query params:** `anio` (int, opcional) - filtra por año de `fecha_examen`
+- **Response 200:**
+```json
+[
+  {
+    "asignacion_id": 8,
+    "instancia_examen_id": 15,
+    "materia_id": 1,
+    "materia_nombre": "Programacion 1",
+    "materia_codigo": "P1",
+    "programa_id": 3,
+    "programa_nombre": "Analista en Informatica",
+    "nombre_examen": "Febrero 2026 - Programacion 1",
+    "fecha_examen": "2026-02-15T09:00:00",
+    "hora": "09:00",
+    "salon": "Salon A",
+    "modalidad": "presencial",
+    "tipo": "ordinario",
+    "estado_instancia": "programado",
+    "total_inscriptos": 14
   }
 ]
 ```
@@ -650,6 +918,7 @@ Crear instancia de cursado. **Body:**
 {
   "materia_id": 1,
   "anio_lectivo": 2026,
+  "semestre": 1,
   "fecha_inicio": "2026-03-01T00:00:00",
   "fecha_fin": "2026-07-15T00:00:00",
   "salon": "Salon A",
@@ -660,6 +929,13 @@ Crear instancia de cursado. **Body:**
 }
 ```
 **Response 200:** `InstanciaCursadoRead`
+
+**Sobre `semestre`:** es el semestre calendario en que se dicta esta instancia
+(1 o 2), distinto de `materia.semestre`, que es la posicion en el plan de
+estudios. Es opcional y `null` significa "no declarado": esas instancias se
+consideran dictadas en cualquier semestre y por eso siguen apareciendo en
+`/materias-habilitadas`. **Cargalo** en las instancias nuevas, o el filtro por
+semestre activo no discrimina nada.
 
 ### GET `/?materia_id={id}&anio_lectivo={anio}` - Listar (filtros opcionales)
 ### GET `/{instancia_id}` - Obtener por ID
@@ -893,11 +1169,20 @@ Marcar alumno como abandono. **Body:**
 { "inscripcion_id": 1, "motivo": "No se presento mas" }
 ```
 
-### GET `/escolaridad/{usuario_id}?programa_id={id}`
+### GET `/escolaridad/{alumno_id}?programa_id={id}`
 Consultar escolaridad de cualquier alumno.
+- **Params:** `alumno_id` (path, int) - es el id del **perfil de alumno**, no el de usuario
+- **Query params:** `programa_id` (int, requerido)
+- **Response 200:** identica a
+  [`GET /v2/portal/estudiante/mi-escolaridad`](#get-mi-escolaridadprograma_idid)
+  (mismo servicio). Ver ahi la forma completa y las notas para el cliente.
 
-### GET `/verificar-egreso/{usuario_id}?programa_id={id}`
+### GET `/verificar-egreso/{alumno_id}?programa_id={id}`
 Verificar si un alumno cumple requisitos de egreso.
+- **Params:** `alumno_id` (path, int) - id del perfil de alumno
+- **Response 200:** identica a
+  [`GET /v2/portal/estudiante/mi-egreso`](#get-mi-egresoprograma_idid)
+  (mismo servicio). Ver ahi la forma completa y las notas para el cliente.
 
 ### POST `/{inscripcion_id}/revalidar`
 Revalidar (convalidar) una materia. Cambia estado a `revalidada`, otorga creditos.
@@ -1015,7 +1300,103 @@ Eliminar documento (soft delete). **Response 204**
 
 ---
 
-## 17. Enums y valores posibles
+## 17. Admin - Usuarios
+
+**Prefijo:** `/v2/admin/usuarios`
+**Auth:** Bearer Token (rol `administrativo`)
+
+### POST `/manual`
+Crear usuario y su perfil sin cuenta de Google. Sirve para ponentes de una charla
+puntual o asistentes que deben quedar registrados sin necesitar login. Si esa
+persona luego inicia sesion con Google usando el mismo email, el sistema vincula
+la cuenta automaticamente. Se crea con `activo=false` (sin acceso al portal).
+
+- **Body:** `email` es opcional (un oyente puede no tener cuenta institucional).
+  Del bloque `perfil` solo se leen los campos que aplican al `rol` enviado.
+```json
+{
+  "nombre": "Ana",
+  "apellido": "Gomez",
+  "rol": "docente",
+  "email": "ponente@ejemplo.com",
+  "documento": "1234567-8",
+  "telefono": "099111222",
+  "email_personal": "ana@gmail.com",
+  "perfil": {
+    "cargo": "titular",
+    "dedicacion": "tiempo_completo",
+    "especialidad": "Programacion",
+    "carga_horaria_semanal": 20
+  }
+}
+```
+
+### GET `/alumnos`
+Lista paginada de alumnos para el dashboard.
+- **Query params:** `page` (default 1), `per_page` (default 50, max 200),
+  `search` (nombre, apellido o email), `activo` (bool)
+- **Response 200:** `{ "items": [...], "total": 120, "page": 1, "per_page": 50, "pages": 3 }`
+
+### GET `/docentes`
+Lista paginada de docentes para el dashboard.
+- **Query params:** `page`, `per_page`, `search`, `activo`, `activo_docente`
+- **Response 200:**
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "usuario_id": 3,
+      "nombre": "Maria",
+      "apellido": "Lopez",
+      "email": "profe@ctcsalto.edu.uy",
+      "documento": "1234567-8",
+      "telefono": "099111222",
+      "activo": true,
+      "activo_docente": true,
+      "tiene_login": true,
+      "cargo": "titular",
+      "dedicacion": "tiempo_completo",
+      "especialidad": "Programacion",
+      "carga_horaria_semanal": 20
+    }
+  ],
+  "total": 12,
+  "page": 1,
+  "per_page": 50,
+  "pages": 1
+}
+```
+
+**Los dos filtros de actividad no son lo mismo:**
+- `activo` -> `usuario.activo`: si puede iniciar sesion.
+- `activo_docente` -> `profesor.activo`: si dicta actualmente.
+
+Para listar los docentes que estan dictando hoy, usa `activo_docente=true`.
+
+### PATCH `/docentes/{usuario_id}/activo`
+Activar o desactivar a un docente. Cambia **solo** `profesor.activo`: el docente
+desactivado sigue pudiendo iniciar sesion y consultar su historico. Para cortar
+el acceso al sistema hay que cambiar `usuario.activo`.
+
+- **Body:** `{ "activo": false }`
+- **Response 200:** `ProfesorRead`
+- **Error 404:** `"No existe perfil de docente para el usuario {id}"`
+
+### GET `/docentes/{usuario_id}/historico-materias?anio_lectivo={anio}`
+Historico de materias dictadas por cualquier docente. Misma respuesta que
+`/v2/portal/docente/mi-historico-materias`, pero para el docente indicado.
+- **Params:** `usuario_id` (path, int) - id de **usuario**, no de profesor
+- **Error 404:** si ese usuario no tiene perfil de docente
+
+### GET `/docentes/{usuario_id}/historico-examenes?anio={anio}`
+Historico de examenes tomados por cualquier docente. Misma respuesta que
+`/v2/portal/docente/mi-historico-examenes`.
+- **Params:** `usuario_id` (path, int) - id de **usuario**, no de profesor
+
+---
+
+## 18. Enums y valores posibles
 
 ### RolUsuario
 `"estudiante"` | `"docente"` | `"administrativo"`
@@ -1033,7 +1414,21 @@ Eliminar documento (soft delete). **Response 204**
 `"administracion"` | `"comunicacion"` | `"cultura"` | `"general"` | `"informatica"`
 
 ### TipoPreviatura
-`"aprobada"` (requiere APROBADO o EXONERADO) | `"exonerada"` (requiere solo EXONERADO)
+`"aprobada"` | `"exonerada"`
+
+| Tipo requerido | Estados de la materia previa que lo cumplen |
+|---|---|
+| `aprobada` | `aprobado`, `exonerado`, `revalidada` |
+| `exonerada` | `exonerado`, `revalidada` |
+
+`revalidada` cumple **ambos** tipos: una materia convalidada de otra institucion
+otorga creditos y cuenta para el egreso, asi que tambien habilita la siguiente. Y
+como el alumno no puede volver a cursar lo que ya revalido, exigirle la
+exoneracion lo dejaria trabado sin salida — el control academico ya lo hizo
+administracion al otorgar la revalida.
+
+Con varias inscripciones en la materia previa (recursadas) alcanza con que
+**alguna** llegue al estado requerido.
 
 ### RolDocente
 `"titular"` | `"adjunto"` | `"asistente"`
