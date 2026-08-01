@@ -98,8 +98,36 @@ def start_scheduler():
             replace_existing=True
         )
 
+        # Configurar tarea: Notificaciones de apertura (diario, antes de los recordatorios)
+        from utils.jobs.notificaciones_jobs import (
+            recordatorio_examenes, recordatorio_cierre_inscripcion,
+            apertura_inscripcion, apertura_examen,
+        )
+        scheduler.add_job(
+            apertura_inscripcion,
+            trigger=CronTrigger(
+                hour=7,
+                minute=0,
+                timezone=URUGUAY_TZ
+            ),
+            id='apertura_inscripcion',
+            name='Aviso de apertura de inscripcion a materias',
+            replace_existing=True
+        )
+
+        scheduler.add_job(
+            apertura_examen,
+            trigger=CronTrigger(
+                hour=7,
+                minute=30,
+                timezone=URUGUAY_TZ
+            ),
+            id='apertura_examen',
+            name='Aviso de apertura de inscripcion a examenes',
+            replace_existing=True
+        )
+
         # Configurar tarea: Recordatorio de exámenes próximos (diario 8:00 AM)
-        from utils.jobs.notificaciones_jobs import recordatorio_examenes, recordatorio_cierre_inscripcion
         scheduler.add_job(
             recordatorio_examenes,
             trigger=CronTrigger(

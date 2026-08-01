@@ -330,6 +330,11 @@ class NotificationService:
             if not usuario or not usuario.activo:
                 continue
 
+            if self._ya_enviada_hoy(
+                TipoNotificacion.APERTURA_INSCRIPCION, usuario.id, periodo.id, session
+            ):
+                continue
+
             email = self._get_email_destinatario(usuario)
             asunto = f"Inscripción abierta: {programa.nombre}"
             try:
@@ -375,6 +380,11 @@ class NotificationService:
             if not usuario or not usuario.activo:
                 continue
 
+            if self._ya_enviada_hoy(
+                TipoNotificacion.APERTURA_EXAMEN, usuario.id, instancia_examen.id, session
+            ):
+                continue
+
             email = self._get_email_destinatario(usuario)
             asunto = f"Examen disponible: {materia.nombre}"
             try:
@@ -396,6 +406,78 @@ class NotificationService:
                 )
             except Exception as e:
                 ic(f"Error notificando examen a {usuario.email}: {e}")
+
+    # ── Jobs de apertura ─────────────────────────────────────────────────────
+    # Se buscan las aperturas de HOY, no las que estan abiertas: un periodo
+    # abierto sigue abierto muchos dias, y avisar sobre "lo que esta abierto"
+    # mandaria el mismo mail todos los dias. La ventana de un dia hace que el
+    # aviso salga una sola vez, y _ya_enviada_hoy cubre que el job se corra dos
+    # veces la misma jornada.
+
+    def _ventana_de_hoy(self):
+        ahora = datetime.now(_get_tz())
+        inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+        fin = ahora.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return inicio, fin
+
+    def notificar_aperturas_inscripcion_del_dia(self, session: Session) -> dict:
+        """
+        Job del scheduler: periodos de inscripcion que abren hoy.
+        Retorna un resumen para que el job lo pueda loguear.
+        """
+        from v2.models.periodo_inscripcion_materia import PeriodoInscripcionMateria
+        from v2.models.programa import Programa
+
+        inicio_dia, fin_dia = self._ventana_de_hoy()
+
+        periodos = session.exec(
+            select(PeriodoInscripcionMateria)
+            .where(col(PeriodoInscripcionMateria.fecha_inicio) >= inicio_dia)
+            .where(col(PeriodoInscripcionMateria.fecha_inicio) <= fin_dia)
+            .where(PeriodoInscripcionMateria.habilitado == True)
+        ).all()
+
+        procesados = 0
+        for periodo in periodos:
+            programa = session.get(Programa, periodo.programa_id)
+            if not programa:
+                continue
+            self.notificar_apertura_inscripcion(periodo, programa, session)
+            procesados += 1
+
+        return {"periodos": len(periodos), "notificados": procesados}
+
+    def notificar_aperturas_examen_del_dia(self, session: Session) -> dict:
+        """
+        Job del scheduler: instancias de examen cuya inscripcion abre hoy.
+        Avisa a quienes tienen la materia en A_EXAMEN.
+        """
+        from v2.models.instancia_examen import InstanciaExamen
+        from v2.models.materia import Materia
+
+        inicio_dia, fin_dia = self._ventana_de_hoy()
+
+        # Las fechas de instancia_examen se guardan sin tzinfo, asi que la
+        # ventana se compara naive para no mezclar aware y naive.
+        inicio_naive = inicio_dia.replace(tzinfo=None)
+        fin_naive = fin_dia.replace(tzinfo=None)
+
+        instancias = session.exec(
+            select(InstanciaExamen)
+            .where(col(InstanciaExamen.fecha_inicio_inscripcion) >= inicio_naive)
+            .where(col(InstanciaExamen.fecha_inicio_inscripcion) <= fin_naive)
+            .where(InstanciaExamen.habilitado == True)
+        ).all()
+
+        procesados = 0
+        for instancia in instancias:
+            materia = session.get(Materia, instancia.materia_id)
+            if not materia:
+                continue
+            self.notificar_apertura_examen(instancia, materia, session)
+            procesados += 1
+
+        return {"instancias": len(instancias), "notificados": procesados}
 
     def notificar_cierre_inscripcion_proximo(self, session: Session):
         """Job del scheduler: busca períodos cerrando pronto y avisa a estudiantes del programa."""
