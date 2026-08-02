@@ -128,23 +128,57 @@ class TestJWTVerificacion:
         assert exc_info.value.status_code == 401
 
 
-class _FakeRedis:
+class _ClienteRedisFalso:
     """
-    Doble de RedisService. Imita su contrato real, incluido el detalle que
-    importa: exists() se traga los errores y devuelve False, asi que "Redis
-    caido" y "la clave no existe" se ven identicos desde afuera.
+    Doble del cliente de redis-py. Lo importante: cuando el servidor no
+    responde, LEVANTA. Esa excepcion es la que distingue "caido" de "la clave no
+    existe", y es la razon por la que la validacion consulta este cliente y no
+    el wrapper.
     """
     def __init__(self, disponible=True, revocados=()):
         self.disponible = disponible
         self.revocados = set(revocados)
+        self.escritos = {}
+
+    def exists(self, key):
+        if not self.disponible:
+            raise ConnectionError("Redis down")
+        # Mira las dos fuentes: las claves precargadas por el test y las que
+        # escribio el codigo. Si fueran almacenes separados, un logout real no
+        # se veria reflejado en la consulta siguiente.
+        return 1 if (key in self.revocados or key in self.escritos) else 0
+
+    def set(self, key, value, ex=None):
+        if not self.disponible:
+            raise ConnectionError("Redis down")
+        self.escritos[key] = (value, ex)
+        return True
+
+
+class _FakeRedis:
+    """
+    Doble de RedisService. Expone `redis_client` con el nombre real del
+    atributo: un MagicMock inventa cualquier atributo que se le pida, y por eso
+    los tests pasaban mientras el codigo escribia en `.client`, que no existe.
+
+    Conserva ademas exists() con su falla silenciosa, tal como el original, para
+    que si alguien vuelve a usarlo el doble siga siendo fiel.
+    """
+    def __init__(self, disponible=True, revocados=()):
+        self.redis_client = _ClienteRedisFalso(disponible, revocados)
+
+    @property
+    def disponible(self):
+        return self.redis_client.disponible
 
     def test_connection(self):
-        return self.disponible
+        return self.redis_client.disponible
 
     def exists(self, key, session=None):
-        if not self.disponible:
+        try:
+            return bool(self.redis_client.exists(key))
+        except Exception:
             return False  # tal cual el real: falla silenciosa
-        return key in self.revocados
 
 
 class TestBlacklistFallaCerrado:
@@ -208,40 +242,61 @@ class TestJWTBlacklist:
     """Blacklist de tokens via Redis."""
 
     def test_blacklist_token_valido(self):
-        """Token se agrega al blacklist correctamente."""
-        token = create_v2_token("test@ctcsalto.edu.uy", 1, "estudiante")
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
+        """
+        Token se agrega al blacklist correctamente.
 
-        result = blacklist_v2_token(token, mock_redis)
+        Se usa un doble explicito y no un MagicMock: el mock inventaba el
+        atributo `.client`, que RedisService no tiene, asi que este test pasaba
+        mientras el logout real no revocaba nada.
+        """
+        token = create_v2_token("test@ctcsalto.edu.uy", 1, "estudiante")
+        redis = _FakeRedis()
+
+        result = blacklist_v2_token(token, redis)
         assert result is True
-        mock_redis.client.set.assert_called_once()
-        call_args = mock_redis.client.set.call_args
-        assert call_args[0][0].startswith("blacklist_")
+
+        escritos = list(redis.redis_client.escritos)
+        assert len(escritos) == 1
+        assert escritos[0].startswith("blacklist_")
 
     def test_verificar_token_en_blacklist(self):
         """Token en blacklist es rechazado."""
         from fastapi import HTTPException
         token = create_v2_token("test@ctcsalto.edu.uy", 1, "estudiante")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        jti = payload["jti"]
+        jti = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])["jti"]
 
-        mock_redis = MagicMock()
-        mock_redis.exists.return_value = True
+        redis = _FakeRedis(revocados=[f"blacklist_{jti}"])
 
         with pytest.raises(HTTPException) as exc_info:
-            verify_v2_token(token, redis_service=mock_redis)
+            verify_v2_token(token, redis_service=redis)
         assert exc_info.value.status_code == 401
         assert "revocado" in exc_info.value.detail.lower()
 
     def test_token_no_en_blacklist_pasa(self):
         """Token no en blacklist es aceptado."""
         token = create_v2_token("test@ctcsalto.edu.uy", 1, "estudiante")
-        mock_redis = MagicMock()
-        mock_redis.exists.return_value = False
 
-        payload = verify_v2_token(token, redis_service=mock_redis)
+        payload = verify_v2_token(token, redis_service=_FakeRedis())
         assert payload["sub"] == "test@ctcsalto.edu.uy"
+
+    def test_el_logout_invalida_el_token(self):
+        """
+        Ciclo completo: token valido -> logout -> token rechazado.
+
+        Es lo que ningun test cubria, y por eso el bug de `.client` sobrevivio:
+        se verificaba que la funcion devolviera True, no que el token dejara de
+        servir.
+        """
+        from fastapi import HTTPException
+        token = create_v2_token("test@ctcsalto.edu.uy", 1, "estudiante")
+        redis = _FakeRedis()
+
+        assert verify_v2_token(token, redis)["sub"] == "test@ctcsalto.edu.uy"
+        assert blacklist_v2_token(token, redis) is True
+
+        with pytest.raises(HTTPException) as exc_info:
+            verify_v2_token(token, redis)
+        assert exc_info.value.status_code == 401
 
     def test_redis_caido_bloquea(self):
         """
@@ -256,12 +311,9 @@ class TestJWTBlacklist:
         """
         from fastapi import HTTPException
         token = create_v2_token("test@ctcsalto.edu.uy", 1, "estudiante")
-        mock_redis = MagicMock()
-        mock_redis.test_connection.return_value = False
-        mock_redis.exists.side_effect = ConnectionError("Redis down")
 
         with pytest.raises(HTTPException) as exc_info:
-            verify_v2_token(token, redis_service=mock_redis)
+            verify_v2_token(token, redis_service=_FakeRedis(disponible=False))
         assert exc_info.value.status_code == 503
 
 

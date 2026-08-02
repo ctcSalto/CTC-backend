@@ -47,18 +47,32 @@ def create_v2_token(
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def _redis_disponible(redis_service) -> bool:
+def _cliente_redis(redis_service):
     """
-    Chequea conectividad real con Redis antes de confiar en su respuesta.
+    Cliente redis-py crudo detras del servicio.
 
-    Necesario porque RedisService.exists() atrapa sus propias excepciones y
-    devuelve False, o sea que "Redis caido" y "la clave no existe" se ven igual
-    desde afuera. Para la blacklist esa ambiguedad es justamente la peligrosa.
+    Se usa el cliente directo en vez de RedisService.exists() porque ese metodo
+    atrapa sus propias excepciones y devuelve False: desde afuera "Redis caido"
+    y "la clave no existe" se ven igual, y para una blacklist esa ambiguedad es
+    justo la peligrosa. Yendo al cliente, una excepcion significa "no se pudo
+    consultar" sin lugar a dudas.
     """
-    try:
-        return bool(redis_service.test_connection())
-    except Exception:
-        return False
+    cliente = getattr(redis_service, "redis_client", None)
+    if cliente is None:
+        raise AttributeError(
+            "El servicio de Redis no expone redis_client: no se puede consultar "
+            "la blacklist de tokens"
+        )
+    return cliente
+
+
+def _token_revocado(redis_service, jti: str) -> bool:
+    """
+    True si el token esta en la blacklist.
+
+    Levanta si Redis no se puede consultar; el llamador traduce eso a un 503.
+    """
+    return bool(_cliente_redis(redis_service).exists(f"blacklist_{jti}"))
 
 
 def verify_v2_token(token: str, redis_service=None) -> dict:
@@ -92,17 +106,20 @@ def verify_v2_token(token: str, redis_service=None) -> dict:
         # revocado servia de nuevo. El logout es la unica forma de cortar acceso
         # antes del vencimiento, asi que no puede depender de que Redis este vivo.
         #
-        # Ojo: RedisService.exists() se traga sus propias excepciones y devuelve
-        # False, asi que no alcanza con envolver la llamada en un try. Hay que
-        # verificar la conectividad por separado.
+        # Una sola ida a Redis. Antes eran TRES por request autenticado: un ping
+        # propio para saber si Redis estaba vivo, mas RedisService.exists(), que
+        # a su vez pinguea antes de consultar. Consultando el cliente directo, la
+        # excepcion ya distingue "caido" de "no revocado" y el ping sobra.
         jti = payload.get("jti")
         if redis_service and jti:
-            if not _redis_disponible(redis_service):
+            try:
+                revocado = _token_revocado(redis_service, jti)
+            except Exception:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="No se puede validar la sesion en este momento. Reintenta en unos minutos.",
                 )
-            if redis_service.exists(f"blacklist_{jti}"):
+            if revocado:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Token revocado",
@@ -118,7 +135,14 @@ def verify_v2_token(token: str, redis_service=None) -> dict:
 
 
 def blacklist_v2_token(token: str, redis_service) -> bool:
-    """Agrega un token v2 al blacklist de Redis."""
+    """
+    Agrega un token v2 al blacklist de Redis.
+
+    Escribia en `redis_service.client`, atributo que RedisService no tiene: el
+    AttributeError lo tragaba el except y la funcion devolvia False siempre. El
+    logout de v2 nunca revoco nada — respondia 500 y el token seguia valido
+    hasta vencer. El atributo correcto es `redis_client`.
+    """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         jti = payload.get("jti")
@@ -136,8 +160,11 @@ def blacklist_v2_token(token: str, redis_service) -> bool:
                 return False  # Ya expiro
             ttl = int((expires_at - now).total_seconds())
 
-        redis_service.client.set(f"blacklist_{jti}", "1", ex=ttl)
+        _cliente_redis(redis_service).set(f"blacklist_{jti}", "1", ex=ttl)
         return True
 
-    except Exception:
+    except Exception as e:
+        # El llamador responde 500, pero sin esto el motivo no queda en ningun
+        # lado y un error de programacion se ve igual que un Redis caido.
+        print(f"[ERROR] blacklist_v2_token: no se pudo revocar el token: {e!r}")
         return False
