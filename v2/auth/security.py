@@ -13,14 +13,32 @@ import uuid
 
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
-# Variable propia de v2. Antes leia ACCESS_TOKEN_EXPIRE_MINUTES, la misma que v1,
-# asi que setearla pensando en el portal academico (8h) le cambiaba la vida a los
-# tokens del CMS (30 min). Fallback a la compartida para no romper entornos que
-# solo tienen esa seteada.
-ACCESS_TOKEN_EXPIRE_MINUTES = int(
-    os.getenv("V2_ACCESS_TOKEN_EXPIRE_MINUTES")
-    or os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480")
-)
+
+# Vida del token del portal academico: 8 horas, una jornada.
+#
+# Se lee SOLO de la variable propia de v2. Antes caia a ACCESS_TOKEN_EXPIRE_MINUTES,
+# la del CMS, y en los entornos donde esa vale 4000 los tokens del portal duraban
+# 66 horas: tres dias de sesion para un alumno. Ese fallback existia para no
+# romper entornos que tenian una sola variable seteada, pero el efecto era
+# gobernar la sesion del portal con un valor pensado para otra aplicacion.
+#
+# Para cambiarla hay que setear V2_ACCESS_TOKEN_EXPIRE_MINUTES explicitamente.
+DEFAULT_EXPIRE_MINUTES = 480
+
+
+def minutos_de_expiracion() -> int:
+    """
+    Minutos de vida de un token v2, leidos en el momento.
+
+    Se lee por llamada y no una sola vez al importar para que se pueda verificar
+    sin recargar el modulo: recargarlo en un test rebinde SECRET_KEY y rompe la
+    firma de los tokens que otros tests ya habian creado.
+    """
+    return int(os.getenv("V2_ACCESS_TOKEN_EXPIRE_MINUTES", str(DEFAULT_EXPIRE_MINUTES)))
+
+
+# Se mantiene el nombre por compatibilidad con lo que ya lo importa.
+ACCESS_TOKEN_EXPIRE_MINUTES = minutos_de_expiracion()
 
 
 def create_v2_token(
@@ -41,7 +59,7 @@ def create_v2_token(
     if expires_delta is not None:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=minutos_de_expiracion())
 
     to_encode["exp"] = expire
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)

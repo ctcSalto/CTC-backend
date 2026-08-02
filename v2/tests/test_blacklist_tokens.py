@@ -17,7 +17,7 @@ import pytest
 from fastapi import HTTPException
 
 from v2.auth.security import (
-    create_v2_token, blacklist_v2_token, verify_v2_token,
+    create_v2_token, blacklist_v2_token, verify_v2_token, minutos_de_expiracion,
 )
 
 
@@ -147,6 +147,55 @@ class TestCostoDeValidar:
     def test_sin_redis_no_consulta_nada(self, token):
         """Sin servicio de Redis el token se valida igual, solo por firma."""
         assert verify_v2_token(token, None)["sub"] == "alumno@ctcsalto.edu.uy"
+
+
+class TestDuracionDelToken:
+    """
+    La sesion del portal dura una jornada.
+
+    Antes se leia ACCESS_TOKEN_EXPIRE_MINUTES, la del CMS, y en los entornos
+    donde esa vale 4000 los tokens de alumnos duraban 66 horas.
+    """
+
+    def test_default_de_ocho_horas(self, monkeypatch):
+        monkeypatch.delenv("V2_ACCESS_TOKEN_EXPIRE_MINUTES", raising=False)
+        assert minutos_de_expiracion() == 480
+
+    def test_el_token_vence_a_las_ocho_horas(self, token):
+        from datetime import datetime, timezone
+        from jose import jwt
+        from v2.auth.security import SECRET_KEY, ALGORITHM
+
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        faltan = datetime.fromtimestamp(payload["exp"], tz=timezone.utc) - datetime.now(timezone.utc)
+
+        # Margen de un minuto por el tiempo de ejecucion del test
+        assert 479 <= faltan.total_seconds() / 60 <= 480
+
+    def test_ignora_la_variable_del_cms(self, monkeypatch):
+        """Setear la del CMS no tiene que mover la sesion del portal."""
+        monkeypatch.setenv("ACCESS_TOKEN_EXPIRE_MINUTES", "4000")
+        monkeypatch.delenv("V2_ACCESS_TOKEN_EXPIRE_MINUTES", raising=False)
+
+        assert minutos_de_expiracion() == 480
+
+    def test_se_puede_configurar_con_su_propia_variable(self, monkeypatch):
+        monkeypatch.setenv("V2_ACCESS_TOKEN_EXPIRE_MINUTES", "120")
+
+        assert minutos_de_expiracion() == 120
+
+    def test_la_variable_propia_se_aplica_al_token(self, monkeypatch):
+        """No alcanza con leerla: el token tiene que salir con esa vida."""
+        from datetime import datetime, timezone
+        from jose import jwt
+        from v2.auth.security import SECRET_KEY, ALGORITHM
+
+        monkeypatch.setenv("V2_ACCESS_TOKEN_EXPIRE_MINUTES", "60")
+        corto = create_v2_token("a@ctcsalto.edu.uy", 1, "estudiante")
+
+        payload = jwt.decode(corto, SECRET_KEY, algorithms=[ALGORITHM])
+        faltan = datetime.fromtimestamp(payload["exp"], tz=timezone.utc) - datetime.now(timezone.utc)
+        assert 59 <= faltan.total_seconds() / 60 <= 60
 
 
 class TestFallaCerrado:

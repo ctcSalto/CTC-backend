@@ -235,12 +235,22 @@ N8N_EMAIL_WEBHOOK_URL=https://automatizaciones-n8n.vtu0xl.easypanel.host/webhook
 PLAZO_BAJA_EXAMEN_HORAS=72   # default 72
 ```
 
-### Auth / tokens (nuevas, opcionales)
+### Auth / tokens (opcional)
 ```bash
-# Duracion de los tokens del portal v2, separada de la del CMS v1.
-# Si no se setea, cae a ACCESS_TOKEN_EXPIRE_MINUTES (compartida) o al default 480.
+# Duracion de los tokens del portal v2, en minutos. Default: 480 (8 horas).
+# Solo hace falta setearla para usar un valor distinto.
 V2_ACCESS_TOKEN_EXPIRE_MINUTES=480
 ```
+
+> **Ya no cae a `ACCESS_TOKEN_EXPIRE_MINUTES`.** Ese fallback existia para no
+> romper entornos con una sola variable seteada, pero tenia el efecto de
+> gobernar la sesion del portal con un valor pensado para el CMS: en develop,
+> donde `ACCESS_TOKEN_EXPIRE_MINUTES=4000`, los tokens de alumnos y docentes
+> duraban **66 horas**. Ahora v2 usa su propia variable o su propio default.
+>
+> `ACCESS_TOKEN_EXPIRE_MINUTES` sigue rigiendo **solo** al CMS v1 (default 30).
+> Vale revisar aparte si 4000 minutos es lo que se quiere para las sesiones de
+> administracion del sitio publico.
 
 ### Bootstrap del primer admin (nuevas)
 ```bash
