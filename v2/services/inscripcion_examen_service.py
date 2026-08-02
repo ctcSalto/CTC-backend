@@ -1,6 +1,6 @@
 from typing import Optional, List
 from decimal import Decimal
-from sqlmodel import Session, select
+from sqlmodel import Session, select, col
 
 from database.services.filter.filters import BaseServiceWithFilters
 from v2.models.inscripcion_examen import InscripcionExamen
@@ -368,6 +368,82 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         session.commit()
         session.refresh(inscripcion)
 
+    # -- Precarga en lote ------------------------------------------------------
+
+    @staticmethod
+    def _politicas_por_id(politica_ids, session: Session) -> dict:
+        ids = {pid for pid in politica_ids if pid is not None}
+        if not ids:
+            return {}
+        return {
+            p.id: p for p in session.exec(
+                select(PoliticaExamen).where(col(PoliticaExamen.id).in_(ids))
+            ).all()
+        }
+
+    @staticmethod
+    def _contar_rendiciones_en_lote(inscripcion_ids: List[int], session: Session) -> dict:
+        """Rendiciones consumidas por inscripcion. Mismo criterio que el conteo individual."""
+        if not inscripcion_ids:
+            return {}
+        from sqlalchemy import func
+
+        filas = session.exec(
+            select(
+                InscripcionExamen.inscripcion_materia_id,
+                func.count(InscripcionExamen.id),
+            )
+            .where(
+                col(InscripcionExamen.inscripcion_materia_id).in_(inscripcion_ids),
+                col(InscripcionExamen.estado).in_([
+                    EstadoInscripcionExamen.APROBADO,
+                    EstadoInscripcionExamen.REPROBADO,
+                    EstadoInscripcionExamen.AUSENTE,
+                ]),
+            )
+            .group_by(InscripcionExamen.inscripcion_materia_id)
+        ).all()
+        return {insc_id: total for insc_id, total in filas}
+
+    @staticmethod
+    def _instancias_abiertas(materia_ids: List[int], ahora, session: Session) -> dict:
+        """Instancias de examen con la inscripcion abierta, agrupadas por materia."""
+        if not materia_ids:
+            return {}
+
+        instancias = session.exec(
+            select(InstanciaExamen)
+            .where(
+                col(InstanciaExamen.materia_id).in_(materia_ids),
+                InstanciaExamen.habilitado == True,
+                InstanciaExamen.fecha_inicio_inscripcion <= ahora,
+                InstanciaExamen.fecha_fin_inscripcion >= ahora,
+            )
+            .order_by(InstanciaExamen.fecha_examen)
+        ).all()
+
+        por_materia: dict[int, list] = {}
+        for inst in instancias:
+            por_materia.setdefault(inst.materia_id, []).append(inst)
+        return por_materia
+
+    @staticmethod
+    def _inscripciones_vigentes(inscripcion_ids: List[int], session: Session) -> set:
+        """Pares (inscripcion_materia_id, instancia_examen_id) ya inscriptos."""
+        if not inscripcion_ids:
+            return set()
+
+        filas = session.exec(
+            select(
+                InscripcionExamen.inscripcion_materia_id,
+                InscripcionExamen.instancia_examen_id,
+            ).where(
+                col(InscripcionExamen.inscripcion_materia_id).in_(inscripcion_ids),
+                InscripcionExamen.estado == EstadoInscripcionExamen.INSCRIPTO,
+            )
+        ).all()
+        return {(insc_id, inst_id) for insc_id, inst_id in filas}
+
     # -- Examenes habilitados --------------------------------------------------
 
     def get_examenes_habilitados(
@@ -401,33 +477,33 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
             )
         ).all()
 
+        if not filas:
+            return []
+
+        # Precarga en lote: antes cada materia disparaba su politica, su conteo
+        # de rendiciones y sus instancias, y cada instancia una consulta mas para
+        # saber si ya estaba inscripto.
+        inscripcion_ids = [insc.id for insc, _ in filas]
+        materia_ids = [materia.id for _, materia in filas]
+
+        politicas = self._politicas_por_id(
+            [m.politica_examen_id for _, m in filas], session
+        )
+        rendiciones_por_inscripcion = self._contar_rendiciones_en_lote(
+            inscripcion_ids, session
+        )
+        instancias_por_materia = self._instancias_abiertas(materia_ids, ahora, session)
+        ya_inscripto_en = self._inscripciones_vigentes(inscripcion_ids, session)
+
         resultado = []
         for insc, materia in filas:
             # Politica de examen: sin ella inscribir_examen falla
-            politica = (
-                session.get(PoliticaExamen, materia.politica_examen_id)
-                if materia.politica_examen_id else None
-            )
+            politica = politicas.get(materia.politica_examen_id)
             max_oportunidades = politica.max_oportunidades if politica else 5
-            rendiciones = self._contar_rendiciones_previas(insc.id, session)
+            rendiciones = rendiciones_por_inscripcion.get(insc.id, 0)
 
-            instancias = session.exec(
-                select(InstanciaExamen).where(
-                    InstanciaExamen.materia_id == materia.id,
-                    InstanciaExamen.habilitado == True,
-                    InstanciaExamen.fecha_inicio_inscripcion <= ahora,
-                    InstanciaExamen.fecha_fin_inscripcion >= ahora,
-                ).order_by(InstanciaExamen.fecha_examen)
-            ).all()
-
-            for inst in instancias:
-                ya_inscripto = session.exec(
-                    select(InscripcionExamen).where(
-                        InscripcionExamen.inscripcion_materia_id == insc.id,
-                        InscripcionExamen.instancia_examen_id == inst.id,
-                        InscripcionExamen.estado == EstadoInscripcionExamen.INSCRIPTO,
-                    )
-                ).first() is not None
+            for inst in instancias_por_materia.get(materia.id, []):
+                ya_inscripto = (insc.id, inst.id) in ya_inscripto_en
 
                 motivos = []
                 if materia.politica_examen_id is None:

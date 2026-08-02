@@ -1,7 +1,7 @@
 from typing import Optional, List, Tuple
 from datetime import datetime
 from decimal import Decimal
-from sqlmodel import Session, select
+from sqlmodel import Session, select, col
 from sqlalchemy import func, or_
 
 from database.services.filter.filters import BaseServiceWithFilters
@@ -162,68 +162,108 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
 
     # ── Validación de previaturas ─────────────────────────────────────────────
 
+    # Estados de la materia previa que satisfacen cada tipo de previatura.
+    #
+    # REVALIDADA cuenta como materia cumplida, igual que APROBADO y EXONERADO:
+    # una materia convalidada de otra institucion otorga creditos y cuenta para
+    # el egreso, asi que tambien tiene que habilitar la siguiente. Y satisface
+    # una previatura de tipo EXONERADA porque el alumno no puede volver a cursar
+    # lo que ya revalido: exigirle la exoneracion lo dejaria sin salida. El
+    # control academico de la revalida ya lo hizo administracion al otorgarla.
+    CUMPLE_APROBADA = (
+        EstadoInscripcionMateria.APROBADO,
+        EstadoInscripcionMateria.EXONERADO,
+        EstadoInscripcionMateria.REVALIDADA,
+    )
+    CUMPLE_EXONERADA = (
+        EstadoInscripcionMateria.EXONERADO,
+        EstadoInscripcionMateria.REVALIDADA,
+    )
+
+    @classmethod
+    def _evaluar_previaturas(
+        cls,
+        previaturas: List[Previatura],
+        estados_por_materia: dict,
+        nombres_por_materia: dict,
+    ) -> Tuple[bool, List[str]]:
+        """
+        Regla de previaturas, sin tocar la base.
+
+        Se separo de la consulta para poder evaluarla en lote: las pantallas de
+        disponibilidad la necesitan para todas las materias del plan a la vez, y
+        resolviendola materia por materia cada una disparaba dos consultas por
+        previatura.
+
+        estados_por_materia: materia_id -> set de estados del alumno en esa materia
+        nombres_por_materia: materia_id -> nombre, para los mensajes
+        """
+        faltantes = []
+        for prev in previaturas:
+            # Se miran TODOS los estados del alumno en la materia previa, no uno:
+            # si recurso puede tener varias filas y basta con que alguna alcance
+            # el tipo requerido.
+            estados = estados_por_materia.get(prev.materia_previa_id, set())
+            cumplen = estados & set(cls.CUMPLE_APROBADA)
+
+            nombre = nombres_por_materia.get(
+                prev.materia_previa_id, f"Materia {prev.materia_previa_id}"
+            )
+
+            if not cumplen:
+                faltantes.append(f"Debe aprobar {nombre}")
+                continue
+
+            if prev.tipo_requerido == TipoPreviatura.EXONERADA:
+                if not cumplen & set(cls.CUMPLE_EXONERADA):
+                    faltantes.append(f"Debe exonerar {nombre} (no alcanza con aprobar por examen)")
+
+        return len(faltantes) == 0, faltantes
+
+    def _estados_del_alumno(
+        self, alumno_id: int, materia_ids: List[int], session: Session
+    ) -> dict:
+        """Estados del alumno en cada materia, en una sola consulta."""
+        if not materia_ids:
+            return {}
+
+        filas = session.exec(
+            select(InstanciaCursado.materia_id, InscripcionMateria.estado)
+            .join(InscripcionMateria, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
+            .where(
+                InscripcionMateria.alumno_id == alumno_id,
+                col(InstanciaCursado.materia_id).in_(materia_ids),
+            )
+        ).all()
+
+        estados: dict[int, set] = {}
+        for materia_id, estado in filas:
+            estados.setdefault(materia_id, set()).add(estado)
+        return estados
+
     def validar_previaturas(
         self, alumno_id: int, materia_id: int, session: Session
     ) -> Tuple[bool, List[str]]:
         """
         Verifica que el estudiante cumpla todas las previaturas de la materia.
         Retorna (cumple, lista_mensajes_faltantes)
-
-        REVALIDADA cuenta como materia cumplida, igual que APROBADO y EXONERADO:
-        una materia convalidada de otra institucion otorga creditos y cuenta para
-        el egreso, asi que tambien tiene que habilitar la siguiente. Ademas
-        satisface una previatura de tipo EXONERADA: el alumno no puede volver a
-        cursar una materia que ya revalido, asi que exigirle la exoneracion lo
-        dejaria trabado sin salida. El control academico de la revalida ya lo
-        hizo administracion al otorgarla.
         """
-        previaturas = session.exec(
+        previaturas = list(session.exec(
             select(Previatura).where(Previatura.materia_id == materia_id)
-        ).all()
+        ).all())
 
         if not previaturas:
             return True, []
 
-        CUMPLE_APROBADA = (
-            EstadoInscripcionMateria.APROBADO,
-            EstadoInscripcionMateria.EXONERADO,
-            EstadoInscripcionMateria.REVALIDADA,
-        )
-        CUMPLE_EXONERADA = (
-            EstadoInscripcionMateria.EXONERADO,
-            EstadoInscripcionMateria.REVALIDADA,
-        )
+        previas_ids = [p.materia_previa_id for p in previaturas]
+        estados = self._estados_del_alumno(alumno_id, previas_ids, session)
+        nombres = {
+            m.id: m.nombre for m in session.exec(
+                select(Materia).where(col(Materia.id).in_(previas_ids))
+            ).all()
+        }
 
-        faltantes = []
-        for prev in previaturas:
-            # Todas las inscripciones que cumplen, no solo una: si el alumno
-            # recurso, puede tener varias filas y basta con que alguna alcance el
-            # tipo requerido. Con .first() el resultado dependia del orden que
-            # devolviera la base.
-            estados_previos = set(session.exec(
-                select(InscripcionMateria.estado)
-                .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
-                .where(
-                    InscripcionMateria.alumno_id == alumno_id,
-                    InstanciaCursado.materia_id == prev.materia_previa_id,
-                    InscripcionMateria.estado.in_(CUMPLE_APROBADA),
-                )
-            ).all())
-
-            materia_previa = session.exec(
-                select(Materia).where(Materia.id == prev.materia_previa_id)
-            ).first()
-            nombre_previa = materia_previa.nombre if materia_previa else f"Materia {prev.materia_previa_id}"
-
-            if not estados_previos:
-                faltantes.append(f"Debe aprobar {nombre_previa}")
-                continue
-
-            if prev.tipo_requerido == TipoPreviatura.EXONERADA:
-                if not estados_previos & set(CUMPLE_EXONERADA):
-                    faltantes.append(f"Debe exonerar {nombre_previa} (no alcanza con aprobar por examen)")
-
-        return len(faltantes) == 0, faltantes
+        return self._evaluar_previaturas(previaturas, estados, nombres)
 
     # ── Snapshots ─────────────────────────────────────────────────────────────
 
@@ -403,36 +443,44 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
             ).order_by(Materia.semestre, Materia.nombre)
         ).all()
 
-        resultado = []
-        for materia in materias:
-            # Verificar si ya tiene inscripción aprobada/exonerada/cursando en alguna instancia
-            inscripcion_activa = session.exec(
-                select(InscripcionMateria)
-                .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
-                .where(
-                    InscripcionMateria.alumno_id == alumno_id,
-                    InstanciaCursado.materia_id == materia.id,
-                    InscripcionMateria.estado.in_([
-                        EstadoInscripcionMateria.CURSANDO,
-                        EstadoInscripcionMateria.EXONERADO,
-                        EstadoInscripcionMateria.APROBADO,
-                    ]),
-                )
-            ).first()
+        # Precarga en lote, igual que get_materias_habilitadas: consultar por
+        # materia hacia ~150 consultas con un plan de 30.
+        materia_ids = [m.id for m in materias]
+        estados_alumno = self._estados_del_alumno(alumno_id, materia_ids, session)
+        previaturas_por_materia, nombres_previas = self._previaturas_de(
+            materia_ids, session
+        )
+        nombres = {m.id: m.nombre for m in materias}
+        nombres.update(nombres_previas)
 
-            if inscripcion_activa:
-                continue  # Ya la tiene aprobada o la está cursando
-
-            # Verificar previaturas
-            cumple, faltantes = self.validar_previaturas(alumno_id, materia.id, session)
-
-            # Buscar instancia de cursado activa para este año
-            instancia = session.exec(
+        # Esta consulta no filtra por estado ni semestre, a diferencia de
+        # get_materias_habilitadas: se conserva el comportamiento original.
+        instancias_por_materia: dict[int, InstanciaCursado] = {}
+        if materia_ids:
+            for instancia in session.exec(
                 select(InstanciaCursado).where(
-                    InstanciaCursado.materia_id == materia.id,
+                    col(InstanciaCursado.materia_id).in_(materia_ids),
                     InstanciaCursado.anio_lectivo == anio_lectivo,
                 )
-            ).first()
+            ).all():
+                instancias_por_materia.setdefault(instancia.materia_id, instancia)
+
+        bloquean = (
+            EstadoInscripcionMateria.CURSANDO,
+            EstadoInscripcionMateria.EXONERADO,
+            EstadoInscripcionMateria.APROBADO,
+        )
+
+        resultado = []
+        for materia in materias:
+            # Ya la tiene aprobada o la esta cursando
+            if estados_alumno.get(materia.id, set()) & set(bloquean):
+                continue
+
+            cumple, faltantes = self._evaluar_previaturas(
+                previaturas_por_materia.get(materia.id, []), estados_alumno, nombres
+            )
+            instancia = instancias_por_materia.get(materia.id)
 
             resultado.append({
                 "materia_id": materia.id,
@@ -446,6 +494,100 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
             })
 
         return resultado
+
+    # ── Precarga en lote ──────────────────────────────────────────────────────
+    # Estos helpers existen para que las pantallas de disponibilidad no consulten
+    # por materia. Cada uno resuelve en UNA consulta lo que antes se pedia N veces.
+
+    def _previaturas_de(
+        self, materia_ids: List[int], session: Session
+    ) -> Tuple[dict, dict]:
+        """
+        Previaturas de varias materias y los nombres de sus materias previas.
+
+        Devuelve (previaturas_por_materia, nombres_por_materia_previa). Los
+        nombres se resuelven aparte porque una materia previa puede no estar en
+        la lista consultada.
+        """
+        if not materia_ids:
+            return {}, {}
+
+        previaturas = list(session.exec(
+            select(Previatura).where(col(Previatura.materia_id).in_(materia_ids))
+        ).all())
+
+        por_materia: dict[int, list] = {}
+        for prev in previaturas:
+            por_materia.setdefault(prev.materia_id, []).append(prev)
+
+        previas_ids = {p.materia_previa_id for p in previaturas}
+        nombres = {}
+        if previas_ids:
+            nombres = {
+                m.id: m.nombre for m in session.exec(
+                    select(Materia).where(col(Materia.id).in_(previas_ids))
+                ).all()
+            }
+
+        return por_materia, nombres
+
+    def _instancias_del_periodo(
+        self, materia_ids: List[int], periodo, session: Session
+    ) -> dict:
+        """
+        Instancia de cursado ofrecida en el periodo, por materia.
+
+        Con varias candidatas gana la del semestre mas alto, igual criterio que
+        la consulta por materia que reemplaza.
+        """
+        if not materia_ids:
+            return {}
+
+        stmt = select(InstanciaCursado).where(
+            col(InstanciaCursado.materia_id).in_(materia_ids),
+            InstanciaCursado.anio_lectivo == periodo.anio_lectivo,
+            col(InstanciaCursado.estado).in_([
+                EstadoInstanciaCursado.PLANIFICADA,
+                EstadoInstanciaCursado.EN_CURSO,
+            ]),
+        )
+        if periodo.semestre is not None:
+            # Una instancia con semestre NULL se considera dictada en cualquier
+            # semestre, para no ocultar oferta cargada antes de que el campo
+            # existiera. Si el periodo no declara semestre, no se filtra: vale
+            # para todo el anio lectivo.
+            stmt = stmt.where(
+                or_(
+                    InstanciaCursado.semestre == periodo.semestre,
+                    col(InstanciaCursado.semestre).is_(None),
+                )
+            )
+
+        por_materia: dict[int, InstanciaCursado] = {}
+        for instancia in session.exec(stmt).all():
+            actual = por_materia.get(instancia.materia_id)
+            if actual is None or (instancia.semestre or 0) > (actual.semestre or 0):
+                por_materia[instancia.materia_id] = instancia
+        return por_materia
+
+    @staticmethod
+    def _contar_cursando(instancia_ids: List[int], session: Session) -> dict:
+        """Inscripciones vivas por instancia de cursado, para el control de cupo."""
+        if not instancia_ids:
+            return {}
+
+        filas = session.exec(
+            select(
+                InscripcionMateria.instancia_cursado_id,
+                func.count(InscripcionMateria.id),
+            )
+            .where(
+                col(InscripcionMateria.instancia_cursado_id).in_(instancia_ids),
+                InscripcionMateria.estado == EstadoInscripcionMateria.CURSANDO,
+            )
+            .group_by(InscripcionMateria.instancia_cursado_id)
+        ).all()
+        return {instancia_id: total for instancia_id, total in filas}
 
     # ── Materias habilitadas en el semestre activo ────────────────────────────
 
@@ -499,60 +641,41 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
             ).order_by(Materia.semestre, Materia.nombre)
         ).all()
 
+        # Todo lo que necesita el bucle se trae de una, en cinco consultas fijas.
+        # Antes cada materia disparaba las suyas (estado del alumno, instancia,
+        # previaturas con dos consultas por cada una, y cupo): con un plan de 30
+        # materias eran ~180 consultas, y la base esta en otro servidor.
+        materia_ids = [m.id for m in materias]
+        estados_alumno = self._estados_del_alumno(alumno_id, materia_ids, session)
+        instancias_por_materia = self._instancias_del_periodo(
+            materia_ids, periodo, session
+        )
+        previaturas_por_materia, nombres_previas = self._previaturas_de(
+            materia_ids, session
+        )
+        inscriptos_por_instancia = self._contar_cursando(
+            [i.id for i in instancias_por_materia.values()], session
+        )
+        # Los nombres de las materias del plan ya estan cargados; las previas de
+        # otro programa (si las hubiera) vienen de la consulta anterior.
+        nombres = {m.id: m.nombre for m in materias}
+        nombres.update(nombres_previas)
+
         resultado = []
         for materia in materias:
             # Ya aprobada, exonerada, revalidada o en curso: no se vuelve a cursar
-            ya_la_tiene = session.exec(
-                select(InscripcionMateria)
-                .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
-                .where(
-                    InscripcionMateria.alumno_id == alumno_id,
-                    InstanciaCursado.materia_id == materia.id,
-                    InscripcionMateria.estado.in_(self._ESTADOS_BLOQUEAN_RECURSADA),
-                )
-            ).first()
-            if ya_la_tiene:
+            if estados_alumno.get(materia.id, set()) & set(self._ESTADOS_BLOQUEAN_RECURSADA):
                 continue
 
-            # Instancia de cursado ofrecida en el semestre activo.
-            stmt_instancia = select(InstanciaCursado).where(
-                InstanciaCursado.materia_id == materia.id,
-                InstanciaCursado.anio_lectivo == periodo.anio_lectivo,
-                InstanciaCursado.estado.in_([
-                    EstadoInstanciaCursado.PLANIFICADA,
-                    EstadoInstanciaCursado.EN_CURSO,
-                ]),
-            )
-            if periodo.semestre is not None:
-                # Una instancia con semestre NULL se considera dictada en
-                # cualquier semestre, para no ocultar oferta cargada antes de
-                # que el campo existiera.
-                stmt_instancia = stmt_instancia.where(
-                    or_(
-                        InstanciaCursado.semestre == periodo.semestre,
-                        InstanciaCursado.semestre.is_(None),
-                    )
-                )
-            # Si el periodo no declara semestre no se filtra por semestre:
-            # el periodo abierto vale para todo el anio lectivo.
-            instancia = session.exec(
-                stmt_instancia.order_by(InstanciaCursado.semestre.desc())
-            ).first()
-
+            instancia = instancias_por_materia.get(materia.id)
             if instancia is None:
                 continue  # No se dicta en el semestre activo
 
-            cumple_previaturas, faltantes = self.validar_previaturas(
-                alumno_id, materia.id, session
+            cumple_previaturas, faltantes = self._evaluar_previaturas(
+                previaturas_por_materia.get(materia.id, []), estados_alumno, nombres
             )
 
-            # Cupo: cuenta las inscripciones vivas de la instancia
-            inscriptos = session.exec(
-                select(func.count(InscripcionMateria.id)).where(
-                    InscripcionMateria.instancia_cursado_id == instancia.id,
-                    InscripcionMateria.estado == EstadoInscripcionMateria.CURSANDO,
-                )
-            ).one()
+            inscriptos = inscriptos_por_instancia.get(instancia.id, 0)
             hay_cupo = instancia.cupo_maximo is None or inscriptos < instancia.cupo_maximo
 
             motivos = list(faltantes)
