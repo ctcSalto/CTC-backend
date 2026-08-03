@@ -111,8 +111,12 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
         if existente:
             raise ValueError("Ya estas inscripto en esta instancia de cursado")
 
-        # 4. Validar previaturas
-        cumple, faltantes = self.validar_previaturas(alumno_id, materia.id, session)
+        # 4. Validar previaturas. El anio lectivo de la cursada define que
+        # excepciones de bedelia aplican: valen solo para el anio otorgado.
+        cumple, faltantes = self.validar_previaturas(
+            alumno_id, materia.id, session,
+            anio_lectivo=instancia_cursado.anio_lectivo,
+        )
         if not cumple:
             raise ValueError(
                 "No cumple las previaturas requeridas: " + "; ".join(faltantes)
@@ -181,11 +185,71 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
     )
 
     @classmethod
+    def _cumple_plenamente(
+        cls,
+        materia_id: int,
+        estados_por_materia: dict,
+        previaturas_por_materia: dict,
+        cache: dict,
+        en_curso: Optional[set] = None,
+    ) -> bool:
+        """
+        Si la materia cuenta para habilitar a las que dependen de ella.
+
+        No alcanza con estar aprobada: toda su cadena de previaturas tiene que
+        estar cumplida tambien. De ahi sale el efecto que pidio administracion
+        sin necesidad de marcar nada en la inscripcion: si un alumno curso
+        Programacion 2 por excepcion y la aprueba pero sigue debiendo
+        Programacion 1, esa aprobacion NO habilita Programacion 3. Y el dia que
+        apruebe Programacion 1, la cadena queda completa y Programacion 3 se
+        habilita sola.
+
+        Las excepciones no se miran aca a proposito: habilitan una inscripcion
+        puntual, no convalidan la materia adeudada.
+
+        REVALIDADA corta la recursion: es una certificacion administrativa de
+        estudios hechos en otra institucion, donde la cadena local no aplica.
+        """
+        if materia_id in cache:
+            return cache[materia_id]
+
+        # Guarda contra ciclos. previatura_service solo detecta los directos
+        # (A->B con B->A), asi que un ciclo indirecto llegaria hasta aca; sin
+        # esto la recursion no terminaria.
+        en_curso = en_curso or set()
+        if materia_id in en_curso:
+            return False
+
+        estados = estados_por_materia.get(materia_id, set())
+        if not (estados & set(cls.CUMPLE_APROBADA)):
+            cache[materia_id] = False
+            return False
+
+        if EstadoInscripcionMateria.REVALIDADA in estados:
+            cache[materia_id] = True
+            return True
+
+        en_curso.add(materia_id)
+        pleno = all(
+            cls._cumple_plenamente(
+                prev.materia_previa_id, estados_por_materia,
+                previaturas_por_materia, cache, en_curso,
+            )
+            for prev in previaturas_por_materia.get(materia_id, [])
+        )
+        en_curso.discard(materia_id)
+
+        cache[materia_id] = pleno
+        return pleno
+
+    @classmethod
     def _evaluar_previaturas(
         cls,
         previaturas: List[Previatura],
         estados_por_materia: dict,
         nombres_por_materia: dict,
+        previaturas_por_materia: Optional[dict] = None,
+        excepciones_vigentes: Optional[dict] = None,
     ) -> Tuple[bool, List[str]]:
         """
         Regla de previaturas, sin tocar la base.
@@ -195,14 +259,28 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
         resolviendola materia por materia cada una disparaba dos consultas por
         previatura.
 
-        estados_por_materia: materia_id -> set de estados del alumno en esa materia
+        estados_por_materia: materia_id -> set de estados del alumno
         nombres_por_materia: materia_id -> nombre, para los mensajes
+        previaturas_por_materia: grafo completo, para el cumplimiento pleno
+        excepciones_vigentes: previatura_id -> motivo, de las exceptuadas para
+            este alumno y este anio lectivo
         """
+        previaturas_por_materia = previaturas_por_materia or {}
+        excepciones_vigentes = excepciones_vigentes or {}
+        cache: dict[int, bool] = {}
+
         faltantes = []
         for prev in previaturas:
-            # Se miran TODOS los estados del alumno en la materia previa, no uno:
-            # si recurso puede tener varias filas y basta con que alguna alcance
-            # el tipo requerido.
+            # Bedelia habilito esta previatura puntual para este alumno y este
+            # anio: no se exige, aunque la aprobacion resultante quede
+            # condicionada por la regla de cumplimiento pleno.
+            if prev.id is not None and prev.id in excepciones_vigentes:
+                continue
+
+            pleno = cls._cumple_plenamente(
+                prev.materia_previa_id, estados_por_materia,
+                previaturas_por_materia, cache,
+            )
             estados = estados_por_materia.get(prev.materia_previa_id, set())
             cumplen = estados & set(cls.CUMPLE_APROBADA)
 
@@ -214,11 +292,68 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
                 faltantes.append(f"Debe aprobar {nombre}")
                 continue
 
+            if not pleno:
+                # Aprobada, pero arrastrando una deuda de su propia cadena.
+                faltantes.append(
+                    f"{nombre} esta aprobada por excepcion: primero hay que "
+                    f"regularizar sus propias previaturas"
+                )
+                continue
+
             if prev.tipo_requerido == TipoPreviatura.EXONERADA:
                 if not cumplen & set(cls.CUMPLE_EXONERADA):
                     faltantes.append(f"Debe exonerar {nombre} (no alcanza con aprobar por examen)")
 
         return len(faltantes) == 0, faltantes
+
+    def _excepciones_vigentes(
+        self, alumno_id: int, anio_lectivo: Optional[int], session: Session
+    ) -> dict:
+        """
+        Previaturas exceptuadas para el alumno en ese anio: id -> motivo.
+
+        Devuelve el motivo y no solo el id porque la pantalla de inscripcion lo
+        muestra: si el alumno ve habilitada una materia cuya previatura debe,
+        tiene que poder entender por que. Como dict, el `in` de la regla sigue
+        funcionando igual que con un set.
+
+        Sin anio no hay excepciones aplicables: valen solo para el anio en que
+        se otorgaron, no se trasladan al siguiente.
+        """
+        if anio_lectivo is None:
+            return {}
+
+        from v2.models.excepcion_previatura import ExcepcionPreviatura
+
+        filas = session.exec(
+            select(
+                ExcepcionPreviatura.previatura_id, ExcepcionPreviatura.motivo
+            ).where(
+                ExcepcionPreviatura.alumno_id == alumno_id,
+                ExcepcionPreviatura.anio_lectivo == anio_lectivo,
+                ExcepcionPreviatura.revocada == False,
+            )
+        ).all()
+        return {previatura_id: motivo for previatura_id, motivo in filas}
+
+    def _grafo_previaturas(self, programa_id: int, session: Session) -> dict:
+        """
+        Todas las previaturas del programa, para poder recorrer la cadena.
+
+        Se carga por programa y no por las materias consultadas porque el
+        cumplimiento pleno es transitivo: una previatura de una previatura tiene
+        que estar en el grafo aunque esa materia no aparezca en la pantalla.
+        """
+        previaturas = session.exec(
+            select(Previatura)
+            .join(Materia, Previatura.materia_id == Materia.id)
+            .where(Materia.programa_id == programa_id)
+        ).all()
+
+        por_materia: dict[int, list] = {}
+        for prev in previaturas:
+            por_materia.setdefault(prev.materia_id, []).append(prev)
+        return por_materia
 
     def _estados_del_alumno(
         self, alumno_id: int, materia_ids: List[int], session: Session
@@ -242,28 +377,41 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
         return estados
 
     def validar_previaturas(
-        self, alumno_id: int, materia_id: int, session: Session
+        self, alumno_id: int, materia_id: int, session: Session,
+        anio_lectivo: Optional[int] = None,
     ) -> Tuple[bool, List[str]]:
         """
         Verifica que el estudiante cumpla todas las previaturas de la materia.
         Retorna (cumple, lista_mensajes_faltantes)
-        """
-        previaturas = list(session.exec(
-            select(Previatura).where(Previatura.materia_id == materia_id)
-        ).all())
 
+        anio_lectivo: necesario para aplicar las excepciones de bedelia, que
+        valen solo para el anio en que se otorgaron. Sin el, no se considera
+        ninguna.
+        """
+        materia = session.get(Materia, materia_id)
+        if materia is None:
+            return True, []
+
+        # El grafo completo del programa, no solo las previaturas directas: el
+        # cumplimiento pleno es transitivo.
+        grafo = self._grafo_previaturas(materia.programa_id, session)
+        previaturas = grafo.get(materia_id, [])
         if not previaturas:
             return True, []
 
-        previas_ids = [p.materia_previa_id for p in previaturas]
-        estados = self._estados_del_alumno(alumno_id, previas_ids, session)
-        nombres = {
-            m.id: m.nombre for m in session.exec(
-                select(Materia).where(col(Materia.id).in_(previas_ids))
-            ).all()
-        }
+        materias_programa = session.exec(
+            select(Materia.id, Materia.nombre).where(
+                Materia.programa_id == materia.programa_id
+            )
+        ).all()
+        nombres = {mid: nombre for mid, nombre in materias_programa}
 
-        return self._evaluar_previaturas(previaturas, estados, nombres)
+        estados = self._estados_del_alumno(alumno_id, list(nombres), session)
+        excepciones = self._excepciones_vigentes(alumno_id, anio_lectivo, session)
+
+        return self._evaluar_previaturas(
+            previaturas, estados, nombres, grafo, excepciones
+        )
 
     # ── Snapshots ─────────────────────────────────────────────────────────────
 
@@ -447,11 +595,9 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
         # materia hacia ~150 consultas con un plan de 30.
         materia_ids = [m.id for m in materias]
         estados_alumno = self._estados_del_alumno(alumno_id, materia_ids, session)
-        previaturas_por_materia, nombres_previas = self._previaturas_de(
-            materia_ids, session
-        )
+        previaturas_por_materia = self._grafo_previaturas(programa_id, session)
+        excepciones = self._excepciones_vigentes(alumno_id, anio_lectivo, session)
         nombres = {m.id: m.nombre for m in materias}
-        nombres.update(nombres_previas)
 
         # Esta consulta no filtra por estado ni semestre, a diferencia de
         # get_materias_habilitadas: se conserva el comportamiento original.
@@ -478,7 +624,8 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
                 continue
 
             cumple, faltantes = self._evaluar_previaturas(
-                previaturas_por_materia.get(materia.id, []), estados_alumno, nombres
+                previaturas_por_materia.get(materia.id, []), estados_alumno, nombres,
+                previaturas_por_materia, excepciones,
             )
             instancia = instancias_por_materia.get(materia.id)
 
@@ -650,16 +797,14 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
         instancias_por_materia = self._instancias_del_periodo(
             materia_ids, periodo, session
         )
-        previaturas_por_materia, nombres_previas = self._previaturas_de(
-            materia_ids, session
+        previaturas_por_materia = self._grafo_previaturas(programa_id, session)
+        excepciones = self._excepciones_vigentes(
+            alumno_id, periodo.anio_lectivo, session
         )
         inscriptos_por_instancia = self._contar_cursando(
             [i.id for i in instancias_por_materia.values()], session
         )
-        # Los nombres de las materias del plan ya estan cargados; las previas de
-        # otro programa (si las hubiera) vienen de la consulta anterior.
         nombres = {m.id: m.nombre for m in materias}
-        nombres.update(nombres_previas)
 
         resultado = []
         for materia in materias:
@@ -671,9 +816,28 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
             if instancia is None:
                 continue  # No se dicta en el semestre activo
 
+            previaturas_materia = previaturas_por_materia.get(materia.id, [])
+
             cumple_previaturas, faltantes = self._evaluar_previaturas(
-                previaturas_por_materia.get(materia.id, []), estados_alumno, nombres
+                previaturas_materia, estados_alumno, nombres,
+                previaturas_por_materia, excepciones,
             )
+
+            # Si la materia aparece habilitada pese a deber una previatura, el
+            # alumno tiene que ver por que. Va aparte de `motivos`, que explica
+            # lo que lo bloquea.
+            excepciones_aplicadas = [
+                {
+                    "previatura_id": prev.id,
+                    "materia_previa_id": prev.materia_previa_id,
+                    "materia_previa": nombres.get(
+                        prev.materia_previa_id, f"Materia {prev.materia_previa_id}"
+                    ),
+                    "motivo": excepciones[prev.id],
+                }
+                for prev in previaturas_materia
+                if prev.id is not None and prev.id in excepciones
+            ]
 
             inscriptos = inscriptos_por_instancia.get(instancia.id, 0)
             hay_cupo = instancia.cupo_maximo is None or inscriptos < instancia.cupo_maximo
@@ -700,6 +864,7 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
                 "puede_inscribirse": cumple_previaturas and hay_cupo,
                 "motivos": motivos,
                 "previaturas_faltantes": faltantes,
+                "excepciones_aplicadas": excepciones_aplicadas,
             })
 
         return {

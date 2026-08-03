@@ -208,6 +208,42 @@ no renombra ni borra nada.
 
 ---
 
+### 16. `d2e3f4a5b6c7_excepciones_de_previatura` — Excepciones de previatura
+
+> ✅ **Ya corrió y se verificó en develop** (`c1d2e3f4a5b6` → `d2e3f4a5b6c7`).
+
+Tabla nueva `excepcion_previatura`: permiso de bedelía para que un alumno curse
+una materia sin tener aprobada una previatura puntual. **Tabla nueva, impacto en
+datos existentes: cero.**
+
+Regla pedida por administración, con su ejemplo textual: si un alumno no tiene
+Programación 1 y bedelía le permite cursar Programación 2, aprobar Programación 2
+**no** lo habilita para Programación 3 mientras siga debiendo Programación 1. El
+día que la apruebe, la cadena se completa y Programación 3 se habilita sola.
+
+Eso **no se guarda en ningún lado**: sale de la regla de cumplimiento pleno, que
+exige que toda la cadena de previaturas esté cumplida, no solo la previatura
+directa. Por eso no hay ninguna columna nueva en `inscripcion_materia`, y por eso
+el desbloqueo posterior es automático sin que nadie tenga que revisar nada.
+
+Alcance de cada excepción, según lo definido con administración:
+- **Por previatura puntual**, no por materia: si mañana se agrega otra previatura
+  a esa materia, la excepción vieja no la cubre.
+- **Solo para el año lectivo** en que se otorgó. No se traslada al siguiente.
+- Motivo obligatorio, con registro de quién la otorgó y quién la revocó.
+
+**Checklist:**
+- [ ] `\d excepcion_previatura` existe con sus 4 foreign keys
+- [ ] `SELECT count(*) FROM pg_indexes WHERE tablename='excepcion_previatura'` = 6
+
+> **Riesgo conocido, no resuelto:** `previatura_service` solo detecta ciclos
+> **directos** (A→B con B→A), no indirectos (A→B→C→A). La regla nueva es
+> recursiva, así que un ciclo indirecto en la base la haría no terminar. Está
+> implementada con guarda de visitados y hay un test que lo cubre, pero conviene
+> completar esa validación al crear previaturas.
+
+---
+
 ## Verificación general post-deploy
 
 - [ ] `alembic current` ANTES de `upgrade head` (confirmar revisión de partida)

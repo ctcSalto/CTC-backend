@@ -19,6 +19,7 @@ from v2.services.local_file_service import LocalFileService
 from v2.services.email_service import EmailService
 from v2.services.notification_service import NotificationService
 from v2.services.proximos_eventos_service import ProximosEventosService
+from v2.services.excepcion_previatura_service import ExcepcionPreviaturaService
 
 
 class V2Services:
@@ -29,6 +30,7 @@ class V2Services:
         self.programaService = ProgramaService()
         self.materiaService = MateriaService()
         self.previaturaService = PreviaturaService()
+        self.excepcionPreviaturaService = ExcepcionPreviaturaService()
         self.instanciaEvaluacionService = InstanciaEvaluacionService()
         self.docenteMateriaService = DocenteMateriaService()
         self.periodoInscripcionService = PeriodoInscripcionService()

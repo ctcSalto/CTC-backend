@@ -19,6 +19,7 @@
 9. [Admin - Politicas de Calificacion](#9-admin---politicas-de-calificacion)
 10. [Admin - Politicas de Examen](#10-admin---politicas-de-examen)
 11. [Admin - Previaturas](#11-admin---previaturas)
+    - [11.b Admin - Excepciones de Previatura](#11b-admin---excepciones-de-previatura)
 12. [Admin - Periodos de Inscripcion](#12-admin---periodos-de-inscripcion)
 13. [Admin - Docentes por Materia](#13-admin---docentes-por-materia)
 14. [Admin - Inscripciones](#14-admin---inscripciones)
@@ -297,7 +298,15 @@ no deberia contradecir al alta.
       "inscriptos": 12,
       "puede_inscribirse": true,
       "motivos": [],
-      "previaturas_faltantes": []
+      "previaturas_faltantes": [],
+      "excepciones_aplicadas": [
+        {
+          "previatura_id": 7,
+          "materia_previa_id": 1,
+          "materia_previa": "Programacion 1",
+          "motivo": "Autorizado por direccion, ultimo semestre de carrera"
+        }
+      ]
     }
   ]
 }
@@ -317,6 +326,11 @@ Sin periodo abierto la respuesta es `{"programa_id": 3, "periodo_inscripcion": {
   Una `reprobado` si aparece, para recursar.
 - `motivos` acumula todo lo que impide inscribirse: previaturas faltantes y cupo
   completo. `previaturas_faltantes` es el subconjunto de previaturas.
+- `excepciones_aplicadas` es lo contrario: previaturas que el alumno **debe** pero
+  que bedelia le exceptuo. Casi siempre viene vacio. Cuando no lo esta, mostralo
+  en la ficha de la materia (algo como *"Cursas sin Programacion 1 por excepcion:
+  {motivo}"*), o el alumno ve habilitada una materia que sabe que no le
+  corresponde y lo lee como un error del sistema.
 - **403** si el alumno no tiene inscripcion activa al programa.
 
 ### GET `/materias-disponibles?programa_id={id}&anio_lectivo={anio}`
@@ -1095,6 +1109,86 @@ Previaturas de una materia con nombres.
 Malla curricular completa agrupada por semestre con previaturas.
 
 ### DELETE `/{previatura_id}` - Eliminar (204)
+
+---
+
+## 11.b Admin - Excepciones de Previatura
+
+**Prefijo:** `/v2/admin/excepciones-previatura`
+**Auth:** Bearer Token (rol `administrativo`)
+
+Bedelia habilita a un alumno a cursar una materia sin tener aprobada una
+previatura puntual.
+
+**La excepcion habilita la inscripcion y nada mas.** Lo que el alumno apruebe
+cursando bajo excepcion **no** habilita la materia siguiente mientras la
+previatura original siga sin aprobar. Ejemplo: si se le exceptua Programacion 1
+para cursar Programacion 2, y aprueba Programacion 2 pero reprueba Programacion
+1, Programacion 3 sigue bloqueada aunque su previatura directa (Programacion 2)
+figure aprobada. El dia que apruebe Programacion 1 la cadena se completa y
+Programacion 3 se habilita **sola**, sin que bedelia tenga que volver a
+intervenir.
+
+Alcance de cada excepcion:
+- **Por previatura puntual**, no por materia. Si la materia tiene dos previaturas
+  y se exceptua una, la otra se sigue exigiendo.
+- **Solo para el anio lectivo** en que se otorgo. No se traslada al siguiente.
+
+### POST ``
+Otorgar una excepcion.
+- **Body:**
+```json
+{
+  "alumno_id": 12,
+  "previatura_id": 7,
+  "anio_lectivo": 2026,
+  "motivo": "Autorizado por direccion, ultimo semestre de carrera"
+}
+```
+- **Response 201:** `ExcepcionPreviaturaRead`
+- **Error 400:** `"El motivo es obligatorio"` / `"Ya existe una excepcion vigente
+  para esa previatura en {anio}"` / previatura o alumno inexistentes
+
+### POST `/{excepcion_id}/revocar`
+Dar de baja una excepcion. **No afecta a las inscripciones ya hechas** al amparo
+de ella: lo que deja de valer es la habilitacion para inscribirse de nuevo.
+- **Body:** `{ "motivo": "Otorgada por error" }`
+- **Response 200:** `ExcepcionPreviaturaRead`
+- **Error 400:** motivo vacio, o excepcion ya revocada
+
+### GET `/alumno/{alumno_id}?anio_lectivo={anio}&incluir_revocadas=false`
+Excepciones de un alumno con los nombres resueltos.
+- **Response 200:**
+```json
+[
+  {
+    "id": 3,
+    "alumno_id": 12,
+    "previatura_id": 7,
+    "anio_lectivo": 2026,
+    "motivo": "Autorizado por direccion, ultimo semestre de carrera",
+    "otorgada_por_id": 4,
+    "fecha_otorgamiento": "2026-02-10T11:30:00-03:00",
+    "revocada": false,
+    "fecha_revocacion": null,
+    "motivo_revocacion": null,
+    "revocada_por_id": null,
+    "vigente": true,
+    "materia_id": 2,
+    "materia_nombre": "Programacion 2",
+    "materia_previa_id": 1,
+    "materia_previa_nombre": "Programacion 1",
+    "id_rastreo": null
+  }
+]
+```
+- Ordenado por `fecha_otorgamiento` descendente.
+- `incluir_revocadas=true` agrega las dadas de baja, para auditoria; se
+  distinguen por `vigente: false`.
+
+El alumno ve el motivo desde su lado en
+[`/materias-habilitadas`](#get-materias-habilitadasprograma_idid), en
+`excepciones_aplicadas`.
 
 ---
 

@@ -253,7 +253,8 @@ deberia contradecir al alta.
       "inscriptos": 12,
       "puede_inscribirse": true,
       "motivos": [],
-      "previaturas_faltantes": []
+      "previaturas_faltantes": [],
+      "excepciones_aplicadas": []
     }
   ]
 }
@@ -276,6 +277,32 @@ se dicta esa instancia. No son lo mismo y pueden no coincidir.
 **`motivos` es lo que mostras al usuario.** Acumula todo lo que impide
 inscribirse: previaturas faltantes y cupo completo. `previaturas_faltantes` es el
 subconjunto de previaturas, por si queres tratarlas aparte.
+
+**`excepciones_aplicadas` es lo contrario:** previaturas que el alumno **debe**
+pero que bedelia le exceptuo. Casi siempre viene vacio. Cuando no lo esta,
+mostralo en la ficha de la materia, o el alumno ve habilitada una materia que
+sabe que no le corresponde y lo lee como un error del sistema:
+
+```json
+"excepciones_aplicadas": [
+  {
+    "previatura_id": 7,
+    "materia_previa_id": 1,
+    "materia_previa": "Programacion 1",
+    "motivo": "Autorizado por direccion, ultimo semestre de carrera"
+  }
+]
+```
+
+Sirve un cartel del tipo *"Cursas sin Programacion 1 por excepcion de bedelia:
+{motivo}"*.
+
+Ojo con un caso que va a llegar como reporte de bug si no lo contemplas: una
+materia puede quedar bloqueada **aunque su previatura directa figure aprobada**.
+Pasa cuando esa previatura se aprobo bajo excepcion y la deuda original sigue
+abierta. El `motivo` lo explica (*"Programacion 2 esta aprobada por excepcion:
+primero hay que regularizar sus propias previaturas"*); mostralo tal cual. Se
+resuelve solo cuando el alumno aprueba la materia que debe.
 
 Una materia aparece solo si se dicta en el semestre activo, con instancia en
 estado `planificada` o `en_curso`. Se excluyen las que el alumno ya tiene

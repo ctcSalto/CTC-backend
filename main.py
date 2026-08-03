@@ -36,6 +36,7 @@ if V2_ENABLED:
         admin_documentos as v2_admin_documentos,
         admin_notificaciones as v2_admin_notificaciones,
         admin_usuarios as v2_admin_usuarios,
+        admin_excepciones as v2_admin_excepciones,
         inicio as v2_inicio,
     )
 
@@ -306,6 +307,7 @@ if V2_ENABLED:
     app.include_router(v2_admin_documentos.router)
     app.include_router(v2_admin_notificaciones.router)
     app.include_router(v2_admin_usuarios.router)
+    app.include_router(v2_admin_excepciones.router)
     app.include_router(v2_inicio.router)
 
 # CORS
