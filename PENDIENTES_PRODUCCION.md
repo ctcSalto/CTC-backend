@@ -236,11 +236,19 @@ Alcance de cada excepción, según lo definido con administración:
 - [ ] `\d excepcion_previatura` existe con sus 4 foreign keys
 - [ ] `SELECT count(*) FROM pg_indexes WHERE tablename='excepcion_previatura'` = 6
 
-> **Riesgo conocido, no resuelto:** `previatura_service` solo detecta ciclos
-> **directos** (A→B con B→A), no indirectos (A→B→C→A). La regla nueva es
-> recursiva, así que un ciclo indirecto en la base la haría no terminar. Está
-> implementada con guarda de visitados y hay un test que lo cubre, pero conviene
-> completar esa validación al crear previaturas.
+> **Ciclos de previaturas — resuelto.** `previatura_service.create` ahora
+> recorre el grafo del programa y rechaza también los ciclos **indirectos**
+> (A→B→C→A), no solo los directos. El error dice cuál es la cadena, para poder
+> encontrar el arco a sacar en una malla grande. La guarda de visitados en la
+> regla recursiva se mantiene igual, por si hay algún ciclo cargado antes de
+> esta validación. Para descartarlo, contra la base de producción:
+>
+> ```bash
+> python -m v2.scripts.verificar_ciclos_previaturas
+> ```
+>
+> Solo lee. Sale con código 1 y lista las cadenas si encuentra alguno, así que
+> se puede encadenar en el deploy.
 
 ---
 

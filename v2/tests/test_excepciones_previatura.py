@@ -386,9 +386,10 @@ class TestPantallaDeInscripcion:
 
 class TestCicloIndirecto:
     """
-    previatura_service solo detecta ciclos directos (A->B con B->A), asi que un
-    ciclo indirecto puede existir en la base. La regla es recursiva: sin guarda
-    no terminaria.
+    previatura_service ya bloquea los ciclos al crear, pero puede haber alguno
+    cargado antes de esa validacion o por fuera de la API. La regla es
+    recursiva: sin guarda no terminaria. Por eso se arma el ciclo a mano,
+    salteando el servicio.
     """
 
     def test_no_se_cuelga_con_un_ciclo(self, session, alumno, cadena):

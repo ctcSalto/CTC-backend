@@ -213,9 +213,9 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
         if materia_id in cache:
             return cache[materia_id]
 
-        # Guarda contra ciclos. previatura_service solo detecta los directos
-        # (A->B con B->A), asi que un ciclo indirecto llegaria hasta aca; sin
-        # esto la recursion no terminaria.
+        # Guarda contra ciclos. previatura_service ya los bloquea al crear, pero
+        # esto cubre lo que se haya cargado antes de esa validacion o por fuera
+        # de la API: sin la guarda, un ciclo en la base cuelga la recursion.
         en_curso = en_curso or set()
         if materia_id in en_curso:
             return False

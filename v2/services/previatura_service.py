@@ -1,5 +1,5 @@
 from typing import Optional, List
-from sqlmodel import Session, select
+from sqlmodel import Session, select, col
 
 from database.services.filter.filters import BaseServiceWithFilters
 from v2.models.previatura import Previatura, PreviaturaCreate, PreviaturaConNombres
@@ -49,16 +49,15 @@ class PreviaturaService(BaseServiceWithFilters[Previatura]):
         if existente:
             raise ValueError("Esta relacion de previatura ya existe")
 
-        # Validar que no cree un ciclo directo (A requiere B y B requiere A)
-        ciclo = session.exec(
-            select(Previatura).where(
-                Previatura.materia_id == data.materia_previa_id,
-                Previatura.materia_previa_id == data.materia_id,
-            )
-        ).first()
-        if ciclo:
+        # Validar que no cree un ciclo, directo (A requiere B y B requiere A) ni
+        # indirecto (A requiere B, B requiere C, C requiere A)
+        camino = self._camino_de_ciclo(
+            data.materia_id, data.materia_previa_id, materia.programa_id, session
+        )
+        if camino:
             raise ValueError(
-                "No se puede crear: generaria un ciclo de previaturas"
+                "No se puede crear: generaria un ciclo de previaturas "
+                f"({self._describir_ciclo(materia, camino, session)})"
             )
 
         previatura = Previatura(**data.model_dump())
@@ -66,6 +65,68 @@ class PreviaturaService(BaseServiceWithFilters[Previatura]):
         session.commit()
         session.refresh(previatura)
         return previatura
+
+    @staticmethod
+    def _camino_de_ciclo(
+        materia_id: int, materia_previa_id: int, programa_id: int, session: Session
+    ) -> Optional[List[int]]:
+        """
+        Si agregar "materia_id requiere materia_previa_id" cerrara un ciclo,
+        devuelve el camino que lo cierra; si no, None.
+
+        Un ciclo se cierra cuando la materia previa ya depende, directa o
+        indirectamente, de la materia que la va a requerir. Asi que se arranca
+        en la materia previa y se sigue lo que ella misma requiere: si por ahi
+        se llega a materia_id, el arco nuevo cierra el circulo.
+
+        El grafo del programa se carga entero de una sola vez y se recorre en
+        memoria. Antes solo se miraba el arco inverso, asi que A->B->C->A
+        entraba sin problema y despues colgaba a quien recorriera la cadena.
+
+        `vistos` no es solo una optimizacion: si la base ya tiene un ciclo
+        cargado de antes, sin eso este recorrido no terminaria.
+        """
+        arcos = session.exec(
+            select(Previatura.materia_id, Previatura.materia_previa_id)
+            .join(Materia, Previatura.materia_id == Materia.id)
+            .where(Materia.programa_id == programa_id)
+        ).all()
+
+        requiere: dict = {}
+        for origen, destino in arcos:
+            requiere.setdefault(origen, []).append(destino)
+
+        pila = [(materia_previa_id, [materia_previa_id])]
+        vistos = set()
+        while pila:
+            actual, camino = pila.pop()
+            if actual == materia_id:
+                return camino
+            if actual in vistos:
+                continue
+            vistos.add(actual)
+            for siguiente in requiere.get(actual, []):
+                pila.append((siguiente, camino + [siguiente]))
+
+        return None
+
+    @staticmethod
+    def _describir_ciclo(materia: Materia, camino: List[int], session: Session) -> str:
+        """
+        El ciclo en palabras, para que bedelia sepa que arco sacar.
+
+        Sin esto el error dice que hay un ciclo pero no cual, y en una malla de
+        treinta materias encontrarlo a mano es un problema.
+        """
+        nombres = {
+            mid: nombre for mid, nombre in session.exec(
+                select(Materia.id, Materia.nombre).where(col(Materia.id).in_(camino))
+            ).all()
+        }
+        secuencia = [materia.nombre] + [
+            nombres.get(mid, f"Materia {mid}") for mid in camino
+        ]
+        return " requiere ".join(secuencia)
 
     def get_by_materia(
         self, materia_id: int, session: Session

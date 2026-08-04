@@ -205,6 +205,174 @@ class TestPreviaturaValidaciones:
                 session,
             )
 
+    def test_ciclo_indirecto_rechazado(self, session, materias_con_previaturas):
+        """
+        P1->P2->P3 ya existe; cerrar P1 requiere P3 arma el circulo.
+
+        Antes solo se miraba el arco inverso, asi que este pasaba y despues
+        colgaba a cualquiera que recorriera la cadena.
+        """
+        service = PreviaturaService()
+        m1 = materias_con_previaturas["prog1"]
+        m3 = materias_con_previaturas["prog3"]
+
+        with pytest.raises(ValueError, match="ciclo"):
+            service.create(
+                PreviaturaCreate(
+                    materia_id=m1.id,
+                    materia_previa_id=m3.id,
+                    tipo_requerido=TipoPreviatura.APROBADA,
+                ),
+                session,
+            )
+
+    def test_el_error_dice_cual_es_el_ciclo(self, session, materias_con_previaturas):
+        """En una malla grande, saber que hay un ciclo no alcanza: hay que ver cual."""
+        service = PreviaturaService()
+        m1 = materias_con_previaturas["prog1"]
+        m3 = materias_con_previaturas["prog3"]
+
+        with pytest.raises(ValueError) as error:
+            service.create(
+                PreviaturaCreate(
+                    materia_id=m1.id,
+                    materia_previa_id=m3.id,
+                    tipo_requerido=TipoPreviatura.APROBADA,
+                ),
+                session,
+            )
+
+        mensaje = str(error.value)
+        for nombre in ("Programacion 1", "Programacion 2", "Programacion 3"):
+            assert nombre in mensaje, mensaje
+
+    def test_cadena_larga_sin_ciclo_se_permite(
+        self, session, programa, politica_base100, materias_con_previaturas
+    ):
+        """El recorrido no puede confundir 'llegue lejos' con 'volvi al inicio'."""
+        service = PreviaturaService()
+        m4 = Materia(
+            nombre="Programacion 4", codigo="P4", programa_id=programa.id,
+            semestre=4, creditos=10, politica_id=politica_base100.id,
+        )
+        session.add(m4)
+        session.commit()
+        session.refresh(m4)
+
+        prev = service.create(
+            PreviaturaCreate(
+                materia_id=m4.id,
+                materia_previa_id=materias_con_previaturas["prog3"].id,
+                tipo_requerido=TipoPreviatura.APROBADA,
+            ),
+            session,
+        )
+        assert prev.id is not None
+
+    def test_no_confunde_ramas_paralelas(
+        self, session, programa, politica_base100, materias_con_previaturas
+    ):
+        """
+        Dos materias distintas pueden requerir la misma previa sin que eso sea
+        un ciclo. El recorrido pasa dos veces por el mismo nodo y no debe
+        interpretarlo como vuelta al origen.
+        """
+        service = PreviaturaService()
+        m1 = materias_con_previaturas["prog1"]
+        electiva = Materia(
+            nombre="Electiva", codigo="EL1", programa_id=programa.id,
+            semestre=3, creditos=5, politica_id=politica_base100.id,
+        )
+        session.add(electiva)
+        session.commit()
+        session.refresh(electiva)
+
+        # Electiva requiere P1, igual que P2
+        prev = service.create(
+            PreviaturaCreate(
+                materia_id=electiva.id, materia_previa_id=m1.id,
+                tipo_requerido=TipoPreviatura.APROBADA,
+            ),
+            session,
+        )
+        assert prev.id is not None
+
+    def test_ciclo_de_otro_programa_no_bloquea(
+        self, session, politica_base100, materias_con_previaturas
+    ):
+        """
+        El grafo se carga por programa. Una materia homonima de otra carrera no
+        tiene que interferir: ya se valida antes que ambas sean del mismo
+        programa, esto cubre que el recorrido tampoco las mezcle.
+        """
+        from v2.models.programa import Programa
+        from v2.models.enums import TipoPrograma
+
+        otro = Programa(
+            nombre="Otra carrera", descripcion="x", tipo=TipoPrograma.CARRERA,
+            duracion_semestres=4, activo=True,
+        )
+        session.add(otro)
+        session.commit()
+        session.refresh(otro)
+
+        a = Materia(nombre="A", codigo="OA1", programa_id=otro.id, semestre=1,
+                    creditos=5, politica_id=politica_base100.id)
+        b = Materia(nombre="B", codigo="OB1", programa_id=otro.id, semestre=2,
+                    creditos=5, politica_id=politica_base100.id)
+        session.add(a)
+        session.add(b)
+        session.commit()
+        session.refresh(a)
+        session.refresh(b)
+
+        service = PreviaturaService()
+        prev = service.create(
+            PreviaturaCreate(
+                materia_id=b.id, materia_previa_id=a.id,
+                tipo_requerido=TipoPreviatura.APROBADA,
+            ),
+            session,
+        )
+        assert prev.id is not None
+
+
+class TestDeteccionDeCiclosCargados:
+    """
+    El script de verificacion busca ciclos ya presentes en la base, para los que
+    se hayan cargado antes de la validacion o por SQL directo.
+    """
+
+    def test_encuentra_un_ciclo_cargado_a_mano(
+        self, session, materias_con_previaturas
+    ):
+        from v2.scripts.verificar_ciclos_previaturas import buscar_ciclos
+
+        assert buscar_ciclos(session) == []
+
+        # P1 requiere P3 cierra P1->P2->P3->P1, salteando el servicio
+        session.add(Previatura(
+            materia_id=materias_con_previaturas["prog1"].id,
+            materia_previa_id=materias_con_previaturas["prog3"].id,
+            tipo_requerido=TipoPreviatura.APROBADA,
+        ))
+        session.commit()
+
+        ciclos = buscar_ciclos(session)
+        assert len(ciclos) == 1
+
+        ids_del_ciclo = set(ciclos[0])
+        assert ids_del_ciclo == {
+            materias_con_previaturas["prog1"].id,
+            materias_con_previaturas["prog2"].id,
+            materias_con_previaturas["prog3"].id,
+        }
+
+    def test_una_malla_sana_no_reporta_nada(self, session, materias_con_previaturas):
+        from v2.scripts.verificar_ciclos_previaturas import buscar_ciclos
+
+        assert buscar_ciclos(session) == []
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Malla curricular
