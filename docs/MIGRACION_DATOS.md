@@ -112,8 +112,18 @@ como si nunca las hubieran cursado.
 ### Paso 1b — Traer las personas de Google
 
 ```bash
-python -m v2.scripts.traer_usuarios_google carga_inicial.xlsx
+python -m v2.scripts.traer_usuarios_google carga_inicial.xlsx --consultar-ou
 ```
+
+Resultado real sobre las 142 cuentas del directorio:
+
+| Unidad organizativa | Cuentas | Va a |
+|---|---|---|
+| `/Alumnos` | 111 | hoja `1-Alumnos` |
+| `/Equipo Docente` | 15 | hoja `2-Docentes` |
+| `/Administración y Ventas` | 4 | ninguna — acceso desde el portal |
+| `/Gestión de Datos` | 8 | ninguna — casillas funcionales |
+| `/` (raíz) | 4 | ninguna — 2 genéricas + 2 personas sin clasificar |
 
 Va contra el mismo webhook de n8n que ya administra las cuentas, así que no
 necesita credenciales nuevas. **Hoy trae 142 cuentas** con apellido, nombre y
@@ -129,18 +139,23 @@ escribió: saltea los correos que ya están en la planilla.
 
 - **La cédula.** Google no la tiene cargada en estas cuentas (`externalIds` viene
   vacío) y es la columna que une todas las hojas.
-- **El rol**, por ahora. Google clasifica a la gente por unidad organizativa
-  (`/Alumnos`, `/Equipo Docente`, `/Administración y Ventas`) y el código ya sabe
-  mapearlas, pero el workflow `getManyUsersGoogle` tiene activada la opción
-  **"Simplify"** del nodo de Google Workspace y no devuelve `orgUnitPath`. Sin
-  ese dato no se puede separar alumnos de docentes, y el script deja todo en
-  `1-Alumnos` marcado `VERIFICAR ROL` en Observaciones.
+**Sobre el rol:** el workflow `getManyUsersGoogle` tiene activada la opción
+**"Simplify"** del nodo de Google Workspace y no devuelve `orgUnitPath`, así que
+el lote no alcanza para clasificar. Por eso existe `--consultar-ou`, que
+resuelve la unidad de a una persona contra el workflow `getGoogleUO`
+(`POST {"primaryEmail": "..."}` → `{"orgUnitPath": "/Alumnos"}`). Son 142
+llamadas, un par de minutos, y se corre una sola vez.
 
-  **Se arregla con un toggle:** en n8n, abrir el workflow `getManyUsersGoogle` y
-  desactivar "Simplify". Después volver a correr el script y sale clasificado
-  solo. El parámetro `query` tampoco se propaga (filtrar por
-  `orgUnitPath='/Alumnos'` devuelve el directorio entero), y el workflow
-  `google-user-ou` está **inactivo** y responde 404.
+Si en algún momento se desactiva "Simplify" en `getManyUsersGoogle`, el lote
+trae la unidad directamente y `--consultar-ou` deja de hacer falta. El parámetro
+`query` tampoco se propaga: filtrar por `orgUnitPath='/Alumnos'` devuelve el
+directorio entero.
+
+**Las cuentas que no se pueden clasificar no se escriben.** En la práctica son
+casillas funcionales (`soporte@`, `becas@`, `servidor@`, `aulavirtual@`) que no
+son personas y no deben figurar como alumnos. El script las lista por pantalla
+para que alguien las revise. Antes del arreglo de `ou_to_rol` estas 12 cuentas
+habrían entrado como estudiantes.
 
 ### Paso 2 — Validar lo que devuelvan
 
@@ -255,9 +270,10 @@ Falta definir la política de examen de **Base de Datos 1**, que tiene
 - [ ] Migraciones 13, 14, 15 y `d2e3f4a5b6c7` aplicadas (ver
       [PENDIENTES_PRODUCCION.md](../PENDIENTES_PRODUCCION.md))
 - [ ] `V2_ENABLED=true`
-- [ ] Workflow `google-user-ou` **activo** en n8n, o los roles no se sincronizan
-- [ ] `getManyUsersGoogle` con "Simplify" desactivado, si se quiere que la
-      precarga de Google salga clasificada por rol
+- [ ] Workflow `getGoogleUO` **activo** en n8n (no en modo test), o los roles no
+      se sincronizan en el login y toda alta nueva entra como estudiante
+- [ ] `agustina.finozzi@` y `ana.escobal@` movidas a su OU correcta en Google:
+      hoy están en la raíz y el sistema no las puede clasificar
 - [ ] `python -m v2.scripts.verificar_ciclos_previaturas` en verde
 - [ ] Validador sin errores y con los avisos revisados uno por uno
 - [ ] Backup de la base **antes** de correr el importador

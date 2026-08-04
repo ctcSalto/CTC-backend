@@ -25,7 +25,9 @@ class N8nOUClient:
         self.api_token = os.getenv('N8N_API_TOKEN', '')
         self.header_name = os.getenv('N8N_HEADER_NAME', 'Authorization')
         self.timeout = int(os.getenv('N8N_TIMEOUT', '30'))
-        self.ou_endpoint = os.getenv('N8N_OU_ENDPOINT', 'google-user-ou')
+        # El workflow viejo se llamaba google-user-ou y quedo inactivo (404).
+        # El que responde es getGoogleUO, que devuelve {"orgUnitPath": "/Alumnos"}.
+        self.ou_endpoint = os.getenv('N8N_OU_ENDPOINT', 'getGoogleUO')
 
     def _get_headers(self) -> dict:
         return {
@@ -37,6 +39,9 @@ class N8nOUClient:
         """
         Llama a n8n para obtener la OU de un usuario de Google.
         Retorna el orgUnitPath (ej: '/Alumnos') o None si falla.
+
+        La clave es `primaryEmail`, igual que en getGoogleAccount: el nodo de
+        Google lee ese nombre y con cualquier otro devuelve 400.
         """
         url = f"{self.base_url}/{self.ou_endpoint}"
 
@@ -45,7 +50,7 @@ class N8nOUClient:
                 method='POST',
                 url=url,
                 headers=self._get_headers(),
-                json={"email": email},
+                json={"primaryEmail": email},
                 timeout=self.timeout
             )
 

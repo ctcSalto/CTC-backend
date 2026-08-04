@@ -69,14 +69,81 @@ class TestClasificacion:
 
     def test_sin_ou_queda_sin_clasificar(self):
         """
-        Es el caso real de hoy: el workflow getManyUsersGoogle tiene 'Simplify'
-        activado y no devuelve orgUnitPath. No se puede asumir estudiante.
+        getManyUsersGoogle tiene 'Simplify' activado y no devuelve orgUnitPath.
+        No se puede asumir estudiante.
         """
         usuarios = [cuenta("a@x.uy", "Ana", "Perez")]
         por_rol = clasificar(usuarios)
 
         assert por_rol.get(RolUsuario.ESTUDIANTE) is None
         assert len(por_rol[None]) == 1
+
+    def test_ou_no_mapeada_no_es_estudiante(self):
+        """
+        En el directorio real hay 8 casillas funcionales en /Gestión de Datos
+        (soporte@, becas@, servidor@) y 4 cuentas en la raiz. Antes del arreglo
+        de ou_to_rol, las 12 entraban como alumnos.
+        """
+        usuarios = [
+            cuenta("soporte@x.uy", "Soporte", "CTC", "/Gestión de Datos"),
+            cuenta("admisiones@x.uy", "Admisiones", "CTC", "/"),
+        ]
+        por_rol = clasificar(usuarios)
+
+        assert por_rol.get(RolUsuario.ESTUDIANTE) is None
+        assert len(por_rol[None]) == 2
+
+
+class TestResolucionDeOUPorUsuario:
+    """
+    Plan B cuando el lote no trae la OU: se consulta de a una persona contra
+    el workflow getGoogleUO.
+    """
+
+    def test_completa_las_que_faltan(self, monkeypatch):
+        from v2.scripts import traer_usuarios_google as modulo
+        import v2.auth.n8n_ou_client as cliente
+
+        monkeypatch.setattr(
+            cliente.n8n_ou_client, "get_user_ou",
+            lambda email: "/Alumnos" if "alumno" in email else "/Equipo Docente",
+        )
+
+        usuarios = [
+            cuenta("alumno@x.uy", "Ana", "Perez"),
+            cuenta("profe@x.uy", "Luis", "Gomez"),
+        ]
+        resueltas = modulo.completar_ou(usuarios)
+
+        assert resueltas == 2
+        assert usuarios[0]["orgUnitPath"] == "/Alumnos"
+        assert usuarios[1]["orgUnitPath"] == "/Equipo Docente"
+
+    def test_no_reconsulta_las_que_ya_tienen_ou(self, monkeypatch):
+        from v2.scripts import traer_usuarios_google as modulo
+        import v2.auth.n8n_ou_client as cliente
+
+        llamadas = []
+        monkeypatch.setattr(
+            cliente.n8n_ou_client, "get_user_ou",
+            lambda email: llamadas.append(email) or "/Alumnos",
+        )
+
+        usuarios = [cuenta("a@x.uy", "Ana", "Perez", "/Equipo Docente")]
+        modulo.completar_ou(usuarios)
+
+        assert llamadas == []
+        assert usuarios[0]["orgUnitPath"] == "/Equipo Docente"
+
+    def test_si_la_consulta_falla_no_inventa(self, monkeypatch):
+        from v2.scripts import traer_usuarios_google as modulo
+        import v2.auth.n8n_ou_client as cliente
+
+        monkeypatch.setattr(cliente.n8n_ou_client, "get_user_ou", lambda email: None)
+
+        usuarios = [cuenta("a@x.uy", "Ana", "Perez")]
+        assert modulo.completar_ou(usuarios) == 0
+        assert usuarios[0].get("orgUnitPath") is None
 
 
 class TestEscrituraEnLaPlanilla:

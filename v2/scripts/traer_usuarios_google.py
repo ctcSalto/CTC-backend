@@ -81,6 +81,40 @@ def traer_directorio() -> List[dict]:
     return usuarios
 
 
+def completar_ou(usuarios: List[dict]) -> int:
+    """
+    Consulta la OU de a una persona, para cuando el lote no la trae.
+
+    Es el plan B: `getManyUsersGoogle` viene con "Simplify" activado y omite
+    `orgUnitPath`, asi que sin esto no se puede separar alumnos de docentes.
+    Una llamada por persona es lento —con 142 cuentas son varios minutos— pero
+    se corre una sola vez.
+
+    Modifica los diccionarios en el lugar. Devuelve cuantas resolvio.
+    """
+    from v2.auth.n8n_ou_client import n8n_ou_client
+
+    resueltas = 0
+    total = len(usuarios)
+
+    for indice, usuario in enumerate(usuarios, start=1):
+        if usuario.get("orgUnitPath"):
+            continue
+        email = usuario.get("primaryEmail")
+        if not email:
+            continue
+
+        ou = n8n_ou_client.get_user_ou(email)
+        if ou:
+            usuario["orgUnitPath"] = ou
+            resueltas += 1
+
+        if indice % 20 == 0 or indice == total:
+            print(f"  consultadas {indice}/{total} ({resueltas} resueltas)")
+
+    return resueltas
+
+
 def clasificar(usuarios: List[dict]) -> Dict[Optional[RolUsuario], List[dict]]:
     """Reparte por rol segun la unidad organizativa. None = no se sabe."""
     por_rol: Dict[Optional[RolUsuario], List[dict]] = {}
@@ -184,6 +218,12 @@ def main() -> int:
         "--solo-ver", action="store_true",
         help="Muestra lo que traeria sin escribir el archivo",
     )
+    parser.add_argument(
+        "--consultar-ou", action="store_true",
+        help="Si el lote no trae la unidad organizativa, la consulta de a una "
+             "persona. Es lento (una llamada por cuenta) y necesita el workflow "
+             "getGoogleUO activo en n8n, no en modo test.",
+    )
     args = parser.parse_args()
 
     print("Consultando el directorio de Google via n8n...")
@@ -196,6 +236,19 @@ def main() -> int:
     print(f"Cuentas encontradas: {len(usuarios)}")
     if not usuarios:
         return 1
+
+    sin_unidad = [u for u in usuarios if not u.get("orgUnitPath")]
+    if sin_unidad and args.consultar_ou:
+        print(
+            f"\nEl lote no trajo la unidad organizativa de {len(sin_unidad)} "
+            f"cuentas. Consultando de a una..."
+        )
+        resueltas = completar_ou(usuarios)
+        if resueltas == 0:
+            print(
+                "  Ninguna se pudo resolver. Revisar que el workflow getGoogleUO\n"
+                "  este ACTIVO en n8n: en modo test responde una sola llamada."
+            )
 
     por_rol = clasificar(usuarios)
     sin_ou = list(por_rol.get(None, []))
@@ -235,6 +288,7 @@ def main() -> int:
     if hay_clasificacion:
         alumnos = por_rol.get(RolUsuario.ESTUDIANTE, [])
         docentes = por_rol.get(RolUsuario.DOCENTE, [])
+
         # Los administrativos no tienen hoja propia: no participan de la
         # escolaridad. Se cargan aparte cuando se les da acceso al portal.
         administrativos = por_rol.get(RolUsuario.ADMINISTRATIVO, [])
@@ -243,8 +297,23 @@ def main() -> int:
                 f"\n  {len(administrativos)} administrativos: no van en la planilla, "
                 f"se les da acceso desde el portal."
             )
-        # Los de OU no reconocida van a alumnos, marcados
-        alumnos = alumnos + sin_ou
+
+        # Las que quedaron sin clasificar NO se escriben. En la practica son
+        # casillas funcionales (soporte@, becas@, servidor@) que no son personas
+        # y no deben aparecer como alumnos. Se listan para que alguien decida.
+        if sin_ou:
+            print(
+                f"\n  {len(sin_ou)} cuentas sin unidad organizativa reconocida. "
+                f"NO se escriben en la planilla:"
+            )
+            for usuario in sin_ou:
+                apellido, nombre, email, _ = _datos_persona(usuario)
+                unidad = usuario.get("orgUnitPath") or "(sin OU)"
+                print(f"      {unidad:<24} {apellido}, {nombre}  <{email}>")
+            print(
+                "      Si alguna es una persona real, moverla a su OU en Google "
+                "y volver a correr esto."
+            )
     else:
         alumnos, docentes = usuarios, []
 
