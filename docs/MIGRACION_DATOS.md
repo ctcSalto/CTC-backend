@@ -19,9 +19,32 @@ Inventario de `develop` al 03/08/2026:
 | `usuario` | 12 | 6 estudiantes, 3 docentes, 3 administrativos |
 | `politica_calificacion` | 2 | base 100 (70/86) y curso corto |
 
-**Lo que hay en `develop` son datos de prueba, no datos reales.** Las previaturas
-no están cargadas: hay una sola. El plan de estudios completo, los alumnos, los
-docentes y el historial académico hay que cargarlos enteros.
+**Lo que hay en `develop` son datos de prueba, no datos reales.**
+
+### Las previaturas sí están definidas — pero nunca llegaron a la base
+
+La migración `f3g4h5i6j7k8_seed_previaturas` (03/05/2026) tiene la malla completa
+que salió de `moodle_materias_previaturas.xlsx`: **44 previaturas sobre 40
+materias**, en dos programas (Analista Programador y Técnico en Gestión y
+Dirección de Empresas), más la regla de que el Integrador requiere todas.
+
+Esa migración **corrió y no insertó nada**. Resuelve cada materia por nombre
+exacto contra la tabla `materia`, que en ese momento estaba vacía: cada búsqueda
+devolvió `None` y siguió de largo en silencio. De las 40 materias que menciona,
+hoy encuentra **1**. Ignorando tildes y mayúsculas encontraría 3 — el seed busca
+`Programación 1` y en la base figura `Programacion 1`.
+
+La única previatura que hay en la tabla tiene `id_rastreo = NULL`, y el seed
+siempre asigna un UUID: **no la creó el seed**, se cargó a mano o desde un test.
+
+Alembic no vuelve a correr una revisión ya aplicada, así que esos datos quedaron
+en el repo sin forma de llegar a la base por sí solos. La malla se movió a
+[`v2/scripts/malla_inicial.py`](../v2/scripts/malla_inicial.py) como fuente única,
+y desde ahí la planilla la precarga: bedelía **no tiene que volver a escribir las
+44 previaturas**, solo revisarlas.
+
+Lo que falta de verdad es la tabla `materia` — nada en el repo la carga, ni
+migración ni script. Y con ella, alumnos, docentes e historial.
 
 `inscripcion_programa` en 0 es bloqueante por sí solo: el portal del estudiante
 devuelve **403** si el alumno no tiene inscripción activa a un programa. Sin esa
@@ -47,8 +70,8 @@ Produce un `.xlsx` con siete hojas:
 | `LEEME` | instrucciones, en criollo |
 | `1-Alumnos` | personas + a qué carrera pertenecen |
 | `2-Docentes` | personas, incluidos los que ya no dictan |
-| `3-Plan de estudios` | materias (**precargado** lo que ya existe) |
-| `4-Previaturas` | requisitos entre materias (**precargado**) |
+| `3-Plan de estudios` | 40 materias **precargadas**; falta semestre y créditos |
+| `4-Previaturas` | 44 requisitos **precargados**; solo hay que revisarlos |
 | `5-Historial` | alumno × materia × estado — **la importante** |
 | `6-Dictado actual` | quién dicta qué este semestre |
 
@@ -60,8 +83,15 @@ importable sin interpretar nada a mano:
   guiones, así que `4.123.456-7` y `41234567` son la misma persona.
 - **Listas desplegables** en cada columna de valor cerrado. Sin eso, la columna
   estado vuelve con `aprobado`, `APROBADO`, `Aprobó`, `ex.` y `exo`.
-- **Lo que el sistema ya sabe viene precargado** en gris. Bedelía corrige o
-  agrega, no tipea de cero.
+- **Lo que ya sabemos viene precargado.** Gris = está en la base. Verde = sale de
+  la malla ya definida y todavía no llegó a la base. Bedelía corrige o completa,
+  no tipea de cero. En concreto: las 44 previaturas llegan hechas y de las 40
+  materias solo falta el semestre del plan y los créditos.
+- **La materia se identifica por nombre, no por código.** `Materia.codigo` es
+  nullable en el modelo y la malla que ya tenemos vino sin códigos, así que
+  exigirlos sería inventar un requisito que el sistema no tiene. Las hojas que
+  referencian materias aceptan las dos formas; el validador resuelve nombres
+  ignorando tildes y mayúsculas, y avisa si un nombre existe en dos carreras.
 - **Vocabulario reducido** en el historial: cinco estados, no los ocho del enum.
   Administración no lleva registro de "perdido por inasistencia" de hace cuatro
   años, y ofrecer opciones que nadie va a usar bien solo genera ruido.
@@ -106,6 +136,10 @@ Pendiente de escribir. Se hace cuando vuelva la primera planilla con datos
 reales: el importador depende de cómo se vean los datos de verdad, y escribirlo
 antes es adivinar. Va a tener `--dry-run` y ser idempotente (correrlo dos veces
 no duplica nada).
+
+Tiene que resolver los nombres **ignorando tildes y mayúsculas**. Es exactamente
+el error que dejó el seed sin efecto, y se repite solo si se vuelve a comparar
+con igualdad exacta.
 
 ---
 

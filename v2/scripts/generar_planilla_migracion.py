@@ -30,6 +30,9 @@ from database.database import get_db_session
 from v2.models.materia import Materia
 from v2.models.previatura import Previatura
 from v2.models.programa import Programa
+from v2.scripts.malla_inicial import (
+    materias_por_programa, normalizar, previaturas_por_programa,
+)
 
 # ── Vocabulario de bedelia ───────────────────────────────────────────────────
 # Deliberadamente mas chico que EstadoInscripcionMateria: administracion no
@@ -59,6 +62,9 @@ FUENTE_TITULO = Font(bold=True, color="FFFFFF", size=11)
 RELLENO_TITULO = PatternFill("solid", fgColor=AZUL)
 RELLENO_PRECARGADO = PatternFill("solid", fgColor=GRIS)
 RELLENO_COMPLETAR = PatternFill("solid", fgColor=AMARILLO)
+# Lo que viene de la malla ya definida pero todavia no esta en la base: hay que
+# distinguirlo de lo que el sistema ya tiene cargado.
+RELLENO_MALLA = PatternFill("solid", fgColor="E2EFDA")
 BORDE = Border(*[Side(style="thin", color="BFBFBF")] * 4)
 
 
@@ -128,12 +134,13 @@ def _armar_hoja(
     return ws
 
 
-def _escribir_fila(ws: Worksheet, fila: int, valores: list, precargada: bool = False):
+def _escribir_fila(ws: Worksheet, fila: int, valores: list,
+                   relleno: Optional[PatternFill] = None):
     for indice, valor in enumerate(valores, start=1):
         celda = ws.cell(row=fila, column=indice, value=valor)
         celda.border = BORDE
-        if precargada:
-            celda.fill = RELLENO_PRECARGADO
+        if relleno is not None:
+            celda.fill = relleno
 
 
 # ── Hojas ────────────────────────────────────────────────────────────────────
@@ -264,17 +271,20 @@ def _hoja_docentes(wb: Workbook) -> None:
 def _hoja_plan(wb: Workbook, session: Session, nombres_programas: List[str]) -> None:
     columnas = [
         Columna("Programa*", 32, opciones=nombres_programas, obligatoria=True),
-        Columna("Codigo de materia*", 18, obligatoria=True),
+        Columna("Codigo de materia\n(opcional)", 18),
         Columna("Nombre de la materia*", 36, obligatoria=True),
         Columna("Semestre del plan*", 14, obligatoria=True),
-        Columna("Creditos", 12),
+        Columna("Creditos*", 12, obligatoria=True),
         Columna("¿Se sigue dictando?*", 16, opciones=SI_NO, obligatoria=True),
         Columna("Observaciones", 40),
     ]
     ws = _armar_hoja(
         wb, "3-Plan de estudios", columnas,
-        nota="Las filas grises ya estan en el sistema. Revisalas y agregá abajo las que "
-             "falten. El codigo tiene que ser unico y es el que se usa en las otras hojas.",
+        nota="GRIS = ya esta en el sistema. VERDE = sale de la malla que ya nos pasaron; "
+             "falta completarle el SEMESTRE y los CREDITOS. Revisá todo y agregá abajo "
+             "lo que falte. Lo que identifica a la materia es el NOMBRE: no puede "
+             "repetirse dentro de una misma carrera. El codigo es opcional, pero si lo "
+             "ponés tiene que ser unico.",
     )
 
     materias = session.exec(
@@ -284,30 +294,46 @@ def _hoja_plan(wb: Workbook, session: Session, nombres_programas: List[str]) -> 
     ).all()
 
     fila = 3
+    ya_en_base = set()
     for materia, programa in materias:
         _escribir_fila(ws, fila, [
             programa.nombre, materia.codigo, materia.nombre,
             materia.semestre, materia.creditos,
             "SI" if materia.activo else "NO", "",
-        ], precargada=True)
+        ], relleno=RELLENO_PRECARGADO)
+        ya_en_base.add((programa.nombre, normalizar(materia.nombre)))
         fila += 1
+
+    # Las materias que la malla menciona y todavia no existen. Van con el nombre
+    # puesto y el resto vacio: bedelia completa codigo, semestre y creditos, que
+    # es bastante menos trabajo que escribir cuarenta nombres a mano.
+    for programa_malla, nombres in materias_por_programa().items():
+        for nombre in nombres:
+            if (programa_malla, normalizar(nombre)) in ya_en_base:
+                continue
+            _escribir_fila(ws, fila, [
+                programa_malla, "", nombre, "", "", "SI", "",
+            ], relleno=RELLENO_MALLA)
+            fila += 1
 
 
 def _hoja_previaturas(wb: Workbook, session: Session, nombres_programas: List[str]) -> None:
     columnas = [
         Columna("Programa*", 32, opciones=nombres_programas, obligatoria=True),
-        Columna("Codigo de la materia*", 20, obligatoria=True),
-        Columna("Codigo de la materia previa*", 24, obligatoria=True),
+        Columna("Materia*\n(codigo o nombre)", 34, obligatoria=True),
+        Columna("Materia previa*\n(codigo o nombre)", 34, obligatoria=True),
         Columna("¿Alcanza con aprobar\no tiene que exonerar?*", 22,
                 opciones=TIPOS_PREVIATURA, obligatoria=True),
         Columna("Observaciones", 40),
     ]
     ws = _armar_hoja(
         wb, "4-Previaturas", columnas,
-        nota="Se lee: para cursar la MATERIA hay que tener la MATERIA PREVIA. Una fila por "
-             "cada requisito; si una materia tiene dos previas, dos filas. "
-             "APROBADA = le alcanza con aprobarla (por examen o exonerando). "
-             "EXONERADA = solo sirve si la exonero.",
+        nota="ESTA HOJA YA VIENE COMPLETA con la malla que nos pasaron. Solo revisala y "
+             "corregí si algo cambio. Se lee: para cursar la MATERIA hay que tener la "
+             "MATERIA PREVIA. APROBADA = le alcanza con aprobarla (por examen o "
+             "exonerando). EXONERADA = solo sirve si la exonero. "
+             "El Integrador de Analista Programador requiere TODAS las materias del "
+             "programa: eso se carga solo, no hace falta una fila por cada una.",
     )
 
     previaturas = session.exec(select(Previatura)).all()
@@ -315,24 +341,43 @@ def _hoja_previaturas(wb: Workbook, session: Session, nombres_programas: List[st
     programas = {p.id: p.nombre for p in session.exec(select(Programa)).all()}
 
     fila = 3
+    ya_en_base = set()
     for prev in previaturas:
         materia = materias.get(prev.materia_id)
         previa = materias.get(prev.materia_previa_id)
         if not materia or not previa:
             continue
+        nombre_programa = programas.get(materia.programa_id, "")
         _escribir_fila(ws, fila, [
-            programas.get(materia.programa_id, ""),
-            materia.codigo, previa.codigo,
+            nombre_programa, materia.codigo, previa.codigo,
             prev.tipo_requerido.value.upper(), "",
-        ], precargada=True)
+        ], relleno=RELLENO_PRECARGADO)
+        ya_en_base.add((
+            nombre_programa,
+            normalizar(materia.nombre), normalizar(previa.nombre),
+        ))
         fila += 1
+
+    # La malla definida. Va por nombre porque los codigos todavia no existen: la
+    # hoja acepta las dos cosas justamente por esto.
+    for programa_malla, pares in previaturas_por_programa().items():
+        for materia_nombre, previa_nombre in pares:
+            clave = (
+                programa_malla, normalizar(materia_nombre), normalizar(previa_nombre),
+            )
+            if clave in ya_en_base:
+                continue
+            _escribir_fila(ws, fila, [
+                programa_malla, materia_nombre, previa_nombre, "APROBADA", "",
+            ], relleno=RELLENO_MALLA)
+            fila += 1
 
 
 def _hoja_historial(wb: Workbook, nombres_programas: List[str]) -> None:
     columnas = [
         Columna("DOCUMENTO del alumno*", 20, obligatoria=True),
         Columna("Programa*", 32, opciones=nombres_programas, obligatoria=True),
-        Columna("Codigo de materia*", 18, obligatoria=True),
+        Columna("Materia*\n(codigo o nombre)", 30, obligatoria=True),
         Columna("Estado*", 16, opciones=ESTADOS_HISTORIAL, obligatoria=True),
         Columna("Nota", 10),
         Columna("Año", 10),
@@ -351,7 +396,7 @@ def _hoja_historial(wb: Workbook, nombres_programas: List[str]) -> None:
 def _hoja_dictado(wb: Workbook, anio: int, nombres_programas: List[str]) -> None:
     columnas = [
         Columna("Programa*", 32, opciones=nombres_programas, obligatoria=True),
-        Columna("Codigo de materia*", 18, obligatoria=True),
+        Columna("Materia*\n(codigo o nombre)", 30, obligatoria=True),
         Columna("Año*", 10, obligatoria=True),
         Columna("Semestre*\n(1 o 2)", 12, obligatoria=True),
         Columna("DOCUMENTO del docente*", 20, obligatoria=True),

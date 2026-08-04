@@ -30,6 +30,7 @@ from openpyxl import load_workbook
 from v2.scripts.generar_planilla_migracion import (
     ESTADOS_CARRERA, ESTADOS_HISTORIAL, ROLES_DOCENTE, SI_NO, TIPOS_PREVIATURA,
 )
+from v2.scripts.malla_inicial import normalizar
 
 HOJAS = {
     "alumnos": "1-Alumnos",
@@ -69,7 +70,14 @@ class Validador:
         self.problemas: List[Problema] = []
 
         # Catalogos que se van armando a medida que se leen las hojas
-        self.materias: Dict[str, dict] = {}          # codigo -> datos
+        # La clave de una materia es su codigo si lo tiene, y si no
+        # "PROGRAMA::nombre". `Materia.codigo` es nullable en el modelo y la
+        # malla que ya nos pasaron viene sin codigos, asi que exigirlos seria
+        # inventar un requisito que el sistema no tiene.
+        self.materias: Dict[str, dict] = {}          # clave -> datos
+        self.por_codigo: Dict[str, str] = {}         # codigo -> clave
+        self.por_nombre: Dict[Tuple[str, str], str] = {}   # (prog, nombre) -> clave
+        self.nombres_ambiguos: Dict[str, List[str]] = defaultdict(list)
         self.programas: Set[str] = set()             # los que aparecen en el plan
         self.programas_de_alumno: Dict[str, Set[str]] = defaultdict(set)
         self.documentos_alumnos: Set[str] = set()
@@ -132,6 +140,47 @@ class Validador:
             return None
         return numero
 
+    def _resolver_materia(
+        self, valor, programa: Optional[str] = None
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Encuentra la materia venga escrito el codigo o el nombre.
+
+        La hoja de previaturas viene precargada con nombres, porque la malla que
+        ya nos pasaron no trae codigos. Aceptar las dos formas evita pedirle a
+        bedelia que traduzca 44 filas a mano.
+
+        Devuelve (clave, motivo_del_fallo). Si el nombre existe en dos carreras
+        y no se dice cual, es ambiguo y hay que aclararlo.
+        """
+        texto = self._texto(valor)
+        if not texto:
+            return None, "esta vacio"
+
+        if texto.upper() in self.por_codigo:
+            return self.por_codigo[texto.upper()], None
+
+        normalizado = normalizar(texto)
+
+        if programa:
+            clave = self.por_nombre.get((normalizar(programa), normalizado))
+            if clave:
+                return clave, None
+
+        candidatos = self.nombres_ambiguos.get(normalizado, [])
+        if len(candidatos) == 1:
+            return candidatos[0], None
+        if len(candidatos) > 1:
+            carreras = sorted(
+                self.materias[c]["programa"] for c in candidatos
+            )
+            return None, (
+                f"existe en mas de una carrera ({', '.join(carreras)}); "
+                f"hay que aclarar cual en la columna Programa"
+            )
+
+        return None, f"no esta en la hoja '{HOJAS['plan']}', ni por codigo ni por nombre"
+
     def _opcion(self, hoja: str, fila: int, valor, campo: str,
                 opciones: List[str]) -> Optional[str]:
         texto = self._texto(valor).upper()
@@ -150,83 +199,148 @@ class Validador:
 
     def validar_plan(self):
         hoja = HOJAS["plan"]
-        vistos: Dict[str, int] = {}
+        codigos_vistos: Dict[str, int] = {}
+        nombres_vistos: Dict[Tuple[str, str], int] = {}
+        incompletas: List[Tuple[int, str, str]] = []
 
         for fila, datos in self._filas("plan"):
             programa, codigo, nombre, semestre, creditos, dictando, _ = (
                 list(datos) + [None] * 7
             )[:7]
 
+            programa = self._texto(programa)
             codigo = self._texto(codigo).upper()
-            self._obligatorio(hoja, fila, programa, "el programa")
-            self._obligatorio(hoja, fila, nombre, "el nombre de la materia")
+            nombre = self._texto(nombre)
 
-            if not codigo:
-                self.error(hoja, fila, "Falta el codigo de materia.")
+            if not programa:
+                self.error(hoja, fila, "Falta el programa.")
                 continue
-            if codigo in vistos:
+            if not nombre:
+                self.error(hoja, fila, "Falta el nombre de la materia.")
+                continue
+
+            nombre_normalizado = normalizar(nombre)
+            clave_nombre = (normalizar(programa), nombre_normalizado)
+            if clave_nombre in nombres_vistos:
                 self.error(
                     hoja, fila,
-                    f"El codigo '{codigo}' ya aparece en la fila {vistos[codigo]}. "
-                    f"Tiene que ser unico.",
+                    f"'{nombre}' ya aparece en '{programa}' en la fila "
+                    f"{nombres_vistos[clave_nombre]}. Dentro de una carrera el "
+                    f"nombre no se puede repetir.",
                 )
                 continue
-            vistos[codigo] = fila
+            nombres_vistos[clave_nombre] = fila
 
-            self._entero(hoja, fila, semestre, "el semestre del plan", 1, 20)
-            if self._texto(creditos):
+            if codigo:
+                if codigo in codigos_vistos:
+                    self.error(
+                        hoja, fila,
+                        f"El codigo '{codigo}' ya aparece en la fila "
+                        f"{codigos_vistos[codigo]}. Tiene que ser unico.",
+                    )
+                    continue
+                codigos_vistos[codigo] = fila
+
+            # El semestre y los creditos son obligatorios en el modelo; el
+            # codigo no. Las filas precargadas desde la malla llegan sin
+            # semestre ni creditos y son decenas: se acumulan y se informan
+            # juntas, porque ochenta lineas identicas no le sirven a nadie.
+            faltan = []
+            if not self._texto(semestre):
+                faltan.append("semestre")
+            else:
+                self._entero(hoja, fila, semestre, "el semestre del plan", 1, 20)
+            if not self._texto(creditos):
+                faltan.append("creditos")
+            else:
                 self._entero(hoja, fila, creditos, "los creditos", 0, 500)
+            if faltan:
+                incompletas.append((fila, nombre, " y ".join(faltan)))
+
             self._opcion(hoja, fila, dictando, "si se sigue dictando", SI_NO)
 
-            self.materias[codigo] = {
-                "programa": self._texto(programa),
-                "nombre": self._texto(nombre),
+            clave = codigo or f"{programa}::{nombre_normalizado}"
+            self.materias[clave] = {
+                "programa": programa,
+                "nombre": nombre,
+                "codigo": codigo,
                 "semestre": semestre,
                 "fila": fila,
             }
-            if self._texto(programa):
-                self.programas.add(self._texto(programa))
+            self.programas.add(programa)
+            if codigo:
+                self.por_codigo[codigo] = clave
+            self.por_nombre[clave_nombre] = clave
+            self.nombres_ambiguos[nombre_normalizado].append(clave)
+
+        if incompletas:
+            detalle = "; ".join(
+                f"fila {fila}: '{nombre}' (falta {que})"
+                for fila, nombre, que in incompletas[:15]
+            )
+            if len(incompletas) > 15:
+                detalle += f"; y {len(incompletas) - 15} mas"
+            self.error(
+                hoja, None,
+                f"{len(incompletas)} materias sin completar. Son las filas verdes, "
+                f"que vienen de la malla ya definida y solo necesitan el semestre "
+                f"del plan y los creditos: {detalle}",
+            )
 
         if not self.materias:
             self.error(hoja, None, "No hay ninguna materia cargada.")
+
+    def _mostrar(self, clave: str) -> str:
+        """Como nombrar una materia en un mensaje: codigo si tiene, si no nombre."""
+        datos = self.materias.get(clave, {})
+        return datos.get("codigo") or datos.get("nombre") or clave
 
     def validar_previaturas(self):
         hoja = HOJAS["previaturas"]
         vistas: Set[Tuple[str, str]] = set()
 
         for fila, datos in self._filas("previaturas"):
-            programa, codigo, codigo_previa, tipo, _ = (list(datos) + [None] * 5)[:5]
-            codigo = self._texto(codigo).upper()
-            codigo_previa = self._texto(codigo_previa).upper()
+            programa, entrada, entrada_previa, tipo, _ = (list(datos) + [None] * 5)[:5]
 
-            if not codigo or not codigo_previa:
-                self.error(hoja, fila, "Faltan los codigos de materia.")
+            if not self._texto(entrada) or not self._texto(entrada_previa):
+                self.error(hoja, fila, "Falta la materia o la materia previa.")
                 continue
+
+            texto_programa = self._texto(programa)
+            codigo, falla = self._resolver_materia(entrada, texto_programa)
+            if codigo is None:
+                self.error(hoja, fila, f"'{self._texto(entrada)}' {falla}.")
+            codigo_previa, falla_previa = self._resolver_materia(
+                entrada_previa, texto_programa
+            )
+            if codigo_previa is None:
+                self.error(hoja, fila, f"'{self._texto(entrada_previa)}' {falla_previa}.")
+            if codigo is None or codigo_previa is None:
+                continue
+
             if codigo == codigo_previa:
-                self.error(hoja, fila, f"'{codigo}' no puede ser previatura de si misma.")
-                continue
-
-            for valor in (codigo, codigo_previa):
-                if valor not in self.materias:
-                    self.error(
-                        hoja, fila,
-                        f"El codigo '{valor}' no esta en la hoja '{HOJAS['plan']}'.",
-                    )
-
-            if codigo not in self.materias or codigo_previa not in self.materias:
+                self.error(
+                    hoja, fila,
+                    f"'{self._mostrar(codigo)}' no puede ser previatura de si misma.",
+                )
                 continue
 
             if (self.materias[codigo]["programa"]
                     != self.materias[codigo_previa]["programa"]):
                 self.error(
                     hoja, fila,
-                    f"'{codigo}' y '{codigo_previa}' son de programas distintos. "
-                    f"Una previatura tiene que ser dentro de la misma carrera.",
+                    f"'{self._mostrar(codigo)}' y '{self._mostrar(codigo_previa)}' son "
+                    f"de programas distintos. Una previatura tiene que ser dentro de "
+                    f"la misma carrera.",
                 )
                 continue
 
             if (codigo, codigo_previa) in vistas:
-                self.aviso(hoja, fila, f"'{codigo} requiere {codigo_previa}' esta repetido.")
+                self.aviso(
+                    hoja, fila,
+                    f"'{self._mostrar(codigo)} requiere "
+                    f"{self._mostrar(codigo_previa)}' esta repetido.",
+                )
                 continue
             vistas.add((codigo, codigo_previa))
 
@@ -255,7 +369,7 @@ class Validador:
                         self.error(
                             hoja, None,
                             "Ciclo de previaturas: "
-                            + " requiere ".join(ciclo)
+                            + " requiere ".join(self._mostrar(c) for c in ciclo)
                             + ". Hay que sacar uno de esos requisitos.",
                         )
                         pila = []
@@ -387,10 +501,9 @@ class Validador:
             )[:8]
 
             documento = self._documento(documento)
-            codigo = self._texto(codigo).upper()
 
-            if not documento or not codigo:
-                self.error(hoja, fila, "Faltan el documento o el codigo de materia.")
+            if not documento or not self._texto(codigo):
+                self.error(hoja, fila, "Faltan el documento o la materia.")
                 continue
 
             if documento not in self.documentos_alumnos:
@@ -401,19 +514,19 @@ class Validador:
                 )
                 continue
 
-            if codigo not in self.materias:
-                self.error(
-                    hoja, fila,
-                    f"El codigo '{codigo}' no esta en la hoja '{HOJAS['plan']}'.",
-                )
+            resuelto, falla = self._resolver_materia(codigo, self._texto(programa))
+            if resuelto is None:
+                self.error(hoja, fila, f"'{self._texto(codigo)}' {falla}.")
                 continue
+            codigo = resuelto
 
             clave = (documento, codigo)
             if clave in vistas:
                 self.error(
                     hoja, fila,
-                    f"{documento} ya tiene una fila para '{codigo}' "
-                    f"(fila {vistas[clave]}). Una sola por alumno y materia.",
+                    f"{documento} ya tiene una fila para "
+                    f"'{self._mostrar(codigo)}' (fila {vistas[clave]}). "
+                    f"Una sola por alumno y materia.",
                 )
                 continue
             vistas[clave] = fila
@@ -423,8 +536,8 @@ class Validador:
             if programa_materia not in self.programas_de_alumno[documento]:
                 self.error(
                     hoja, fila,
-                    f"'{codigo}' es de '{programa_materia}', pero {documento} no "
-                    f"figura inscripto en esa carrera.",
+                    f"'{self._mostrar(codigo)}' es de '{programa_materia}', pero "
+                    f"{documento} no figura inscripto en esa carrera.",
                 )
                 continue
 
@@ -432,7 +545,7 @@ class Validador:
             if texto_programa and texto_programa != programa_materia:
                 self.aviso(
                     hoja, fila,
-                    f"Dice '{texto_programa}' pero '{codigo}' es de "
+                    f"Dice '{texto_programa}' pero '{self._mostrar(codigo)}' es de "
                     f"'{programa_materia}'. Se toma el de la materia.",
                 )
 
@@ -492,10 +605,10 @@ class Validador:
                     )
                     self.aviso(
                         hoja, None,
-                        f"{documento}: tiene '{codigo}' {estado} pero su previatura "
-                        f"'{previa}' {detalle}. Revisar: si es historial viejo que "
-                        f"falta, agregarlo; si el alumno la debe de verdad, va a "
-                        f"necesitar una excepcion de previatura.",
+                        f"{documento}: tiene '{self._mostrar(codigo)}' {estado} pero "
+                        f"su previatura '{self._mostrar(previa)}' {detalle}. Revisar: "
+                        f"si es historial viejo que falta, agregarlo; si el alumno la "
+                        f"debe de verdad, va a necesitar una excepcion de previatura.",
                     )
 
     def validar_dictado(self):
@@ -504,21 +617,19 @@ class Validador:
         vistos: Set[Tuple[str, int, int, str]] = set()
 
         for fila, datos in self._filas("dictado"):
-            (_programa, codigo, anio, semestre, documento, rol,
+            (programa, codigo, anio, semestre, documento, rol,
              _horario, _salon, cupo, _obs) = (list(datos) + [None] * 10)[:10]
 
-            codigo = self._texto(codigo).upper()
             documento = self._documento(documento)
 
-            if codigo and codigo not in self.materias:
-                self.error(
-                    hoja, fila,
-                    f"El codigo '{codigo}' no esta en la hoja '{HOJAS['plan']}'.",
-                )
+            if not self._texto(codigo):
+                self.error(hoja, fila, "Falta la materia.")
                 continue
-            if not codigo:
-                self.error(hoja, fila, "Falta el codigo de materia.")
+            resuelto, falla = self._resolver_materia(codigo, self._texto(programa))
+            if resuelto is None:
+                self.error(hoja, fila, f"'{self._texto(codigo)}' {falla}.")
                 continue
+            codigo = resuelto
 
             if documento and documento not in self.documentos_docentes:
                 self.error(
@@ -541,7 +652,7 @@ class Validador:
                 if clave in vistos:
                     self.aviso(
                         hoja, fila,
-                        f"{documento} ya figura en '{codigo}' "
+                        f"{documento} ya figura en '{self._mostrar(codigo)}' "
                         f"{valor_anio}/S{valor_semestre}.",
                     )
                 vistos.add(clave)

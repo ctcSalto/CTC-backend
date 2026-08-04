@@ -12,6 +12,7 @@ import pytest
 from openpyxl import load_workbook
 
 from v2.scripts.generar_planilla_migracion import generar
+from v2.scripts.malla_inicial import normalizar
 from v2.scripts.validar_planilla_migracion import HOJAS, Validador
 
 
@@ -37,6 +38,27 @@ def fixture_planilla_vacia(tmp_path, session, programa, materias_con_previaturas
         generar(ruta, anio=2026)
     finally:
         modulo.get_db_session = original
+    return completar_malla(ruta)
+
+
+def completar_malla(ruta):
+    """
+    Rellena semestre y creditos de las filas precargadas desde la malla.
+
+    Es lo primero que hace bedelia: la planilla llega con ~40 materias que solo
+    tienen el nombre. Sin esto, todo test que espere cero errores choca contra
+    esas filas incompletas, que es justamente lo que el validador debe pedir.
+    """
+    wb = load_workbook(ruta)
+    ws = wb[HOJAS["plan"]]
+    for fila in range(3, ws.max_row + 1):
+        if ws.cell(row=fila, column=3).value is None:
+            continue
+        if ws.cell(row=fila, column=4).value is None:
+            ws.cell(row=fila, column=4, value=1)
+        if ws.cell(row=fila, column=5).value is None:
+            ws.cell(row=fila, column=5, value=10)
+    wb.save(ruta)
     return ruta
 
 
@@ -93,6 +115,90 @@ class TestGeneracion:
         ws = wb[HOJAS["historial"]]
         formulas = [dv.formula1 for dv in ws.data_validations.dataValidation]
         assert any("APROBADA" in f and "A_EXAMEN" in f for f in formulas)
+
+
+class TestMallaPrecargada:
+    """
+    Las 44 previaturas ya estaban definidas en el repo desde mayo, en la
+    migracion seed_previaturas, pero esa migracion no inserto nada: resolvia las
+    materias por nombre exacto contra una tabla vacia. Se precargan en la
+    planilla para no pedirle a bedelia que las tipee de nuevo.
+    """
+
+    def test_las_materias_de_la_malla_estan_en_el_plan(self, planilla_vacia):
+        from v2.scripts.malla_inicial import materias_por_programa
+
+        wb = load_workbook(planilla_vacia)
+        ws = wb[HOJAS["plan"]]
+        nombres = {
+            normalizar(str(ws.cell(row=fila, column=3).value or ""))
+            for fila in range(3, ws.max_row + 1)
+        }
+
+        esperadas = materias_por_programa()["Analista Programador"]
+        faltantes = [n for n in esperadas if normalizar(n) not in nombres]
+        assert faltantes == [], faltantes
+
+    def test_las_previaturas_de_la_malla_estan_cargadas(self, planilla_vacia):
+        from v2.scripts.malla_inicial import previaturas_por_programa
+
+        wb = load_workbook(planilla_vacia)
+        ws = wb[HOJAS["previaturas"]]
+        pares = {
+            (normalizar(str(ws.cell(row=fila, column=2).value or "")),
+             normalizar(str(ws.cell(row=fila, column=3).value or "")))
+            for fila in range(3, ws.max_row + 1)
+        }
+
+        for programa, esperados in previaturas_por_programa().items():
+            for materia, previa in esperados:
+                assert (normalizar(materia), normalizar(previa)) in pares, \
+                    f"falta {materia} -> {previa} de {programa}"
+
+    def test_la_planilla_recien_generada_pide_semestre_y_creditos(
+        self, tmp_path, session, programa, materias_con_previaturas
+    ):
+        """Sin completar, el validador tiene que reclamar las filas de la malla."""
+        from contextlib import contextmanager
+        import v2.scripts.generar_planilla_migracion as modulo
+
+        @contextmanager
+        def sesion_de_test():
+            yield session
+
+        original = modulo.get_db_session
+        modulo.get_db_session = sesion_de_test
+        try:
+            ruta = str(tmp_path / "sin_completar.xlsx")
+            generar(ruta, anio=2026)
+        finally:
+            modulo.get_db_session = original
+
+        errores, _ = problemas_de(ruta)
+        reclamos = [e for e in errores if "sin completar" in str(e)]
+        assert len(reclamos) == 1, [str(e) for e in errores]
+        assert "semestre" in str(reclamos[0])
+
+    def test_previaturas_por_nombre_se_resuelven(self, planilla_vacia, programa):
+        """
+        La malla viene con nombres, no con codigos: los codigos se decidieron
+        despues. La hoja tiene que aceptar las dos formas.
+        """
+        errores, _ = problemas_de(planilla_vacia)
+        assert not [e for e in errores if "Previaturas" in str(e)], \
+            [str(e) for e in errores]
+
+    def test_historial_acepta_el_nombre_de_la_materia(self, planilla_vacia, programa):
+        escribir(planilla_vacia, HOJAS["alumnos"], [
+            ("41234567", "Perez", "Ana", None, None, None, None,
+             programa.nombre, 2023, "ACTIVA", None)
+        ])
+        escribir(planilla_vacia, HOJAS["historial"], [
+            ("41234567", programa.nombre, "Programacion 1", "APROBADA", 78, 2024, 1, None),
+        ])
+
+        errores, _ = problemas_de(planilla_vacia)
+        assert errores == [], [str(e) for e in errores]
 
 
 class TestValidacion:
