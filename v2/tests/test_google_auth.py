@@ -412,16 +412,90 @@ class TestOUMapeo:
         assert N8nOUClient.ou_to_rol("/Equipo Docente/Informática") == RolUsuario.DOCENTE
 
     def test_ou_desconocida(self):
-        """OU no reconocida defaultea a ESTUDIANTE."""
-        assert N8nOUClient.ou_to_rol("/Otra/OU") == RolUsuario.ESTUDIANTE
+        """OU no mapeada devuelve None: no se sabe que es."""
+        assert N8nOUClient.ou_to_rol("/Otra/OU") is None
 
     def test_ou_none(self):
-        """OU None defaultea a ESTUDIANTE."""
-        assert N8nOUClient.ou_to_rol(None) == RolUsuario.ESTUDIANTE
+        """
+        Sin OU no hay rol.
+
+        Devolver ESTUDIANTE aca era el bug: quien consume esto escribe el rol
+        en cada login, asi que con la consulta de OU caida todos los que
+        entraban quedaban como estudiantes.
+        """
+        assert N8nOUClient.ou_to_rol(None) is None
 
     def test_ou_vacia(self):
-        """OU vacía defaultea a ESTUDIANTE."""
-        assert N8nOUClient.ou_to_rol("") == RolUsuario.ESTUDIANTE
+        """OU vacía tampoco alcanza para decidir."""
+        assert N8nOUClient.ou_to_rol("") is None
+
+    def test_default_solo_al_crear(self):
+        """El minimo privilegio sigue existiendo, pero explicito."""
+        assert N8nOUClient.rol_o_default(None) == RolUsuario.ESTUDIANTE
+        assert N8nOUClient.rol_o_default(RolUsuario.DOCENTE) == RolUsuario.DOCENTE
+
+
+class TestRolNoSePierdeEnElLogin:
+    """
+    El rol se re-sincroniza desde la OU en cada login. Si la consulta de OU
+    falla, no se puede tomar eso como "es estudiante": a un administrativo lo
+    dejaria sin poder recuperar su rol, porque la pantalla que lo cambia pide
+    ser administrativo.
+    """
+
+    def test_no_degrada_al_administrativo(self, session, usuario_admin):
+        from v2.services.usuario_service import UsuarioService
+
+        UsuarioService().update_on_login(
+            usuario=usuario_admin,
+            nombre=usuario_admin.nombre,
+            apellido=usuario_admin.apellido,
+            foto_url=None,
+            ou_google=None,   # la consulta de OU fallo
+            rol=None,
+            moodle_id=None,
+            session=session,
+        )
+
+        assert usuario_admin.rol == RolUsuario.ADMINISTRATIVO
+
+    def test_no_borra_la_ou_conocida(self, session, usuario_admin):
+        from v2.services.usuario_service import UsuarioService
+
+        usuario_admin.ou_google = "/Administración y Ventas"
+        session.add(usuario_admin)
+        session.commit()
+
+        UsuarioService().update_on_login(
+            usuario=usuario_admin,
+            nombre=usuario_admin.nombre,
+            apellido=usuario_admin.apellido,
+            foto_url=None,
+            ou_google=None,
+            rol=None,
+            moodle_id=None,
+            session=session,
+        )
+
+        assert usuario_admin.ou_google == "/Administración y Ventas"
+
+    def test_si_la_ou_se_conoce_el_rol_si_cambia(self, session, usuario_admin):
+        """El re-sync tiene que seguir funcionando cuando hay dato."""
+        from v2.services.usuario_service import UsuarioService
+
+        UsuarioService().update_on_login(
+            usuario=usuario_admin,
+            nombre=usuario_admin.nombre,
+            apellido=usuario_admin.apellido,
+            foto_url=None,
+            ou_google="/Equipo Docente",
+            rol=RolUsuario.DOCENTE,
+            moodle_id=None,
+            session=session,
+        )
+
+        assert usuario_admin.rol == RolUsuario.DOCENTE
+        assert usuario_admin.ou_google == "/Equipo Docente"
 
 
 # ══════════════════════════════════════════════════════════════════════════════

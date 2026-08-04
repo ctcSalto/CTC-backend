@@ -109,6 +109,39 @@ importable sin interpretar nada a mano:
 con derecho a examen durante años, y si eso se pierde en la migración quedan
 como si nunca las hubieran cursado.
 
+### Paso 1b — Traer las personas de Google
+
+```bash
+python -m v2.scripts.traer_usuarios_google carga_inicial.xlsx
+```
+
+Va contra el mismo webhook de n8n que ya administra las cuentas, así que no
+necesita credenciales nuevas. **Hoy trae 142 cuentas** con apellido, nombre y
+correo institucional, y marca las suspendidas.
+
+Que el correo venga de Google y no tipeado importa más de lo que parece: es la
+identidad con la que la persona entra al portal. Una letra de más y queda afuera.
+
+Es idempotente — correrlo dos veces no duplica — y no pisa lo que bedelía ya
+escribió: saltea los correos que ya están en la planilla.
+
+**Lo que no trae, y hay que completar igual:**
+
+- **La cédula.** Google no la tiene cargada en estas cuentas (`externalIds` viene
+  vacío) y es la columna que une todas las hojas.
+- **El rol**, por ahora. Google clasifica a la gente por unidad organizativa
+  (`/Alumnos`, `/Equipo Docente`, `/Administración y Ventas`) y el código ya sabe
+  mapearlas, pero el workflow `getManyUsersGoogle` tiene activada la opción
+  **"Simplify"** del nodo de Google Workspace y no devuelve `orgUnitPath`. Sin
+  ese dato no se puede separar alumnos de docentes, y el script deja todo en
+  `1-Alumnos` marcado `VERIFICAR ROL` en Observaciones.
+
+  **Se arregla con un toggle:** en n8n, abrir el workflow `getManyUsersGoogle` y
+  desactivar "Simplify". Después volver a correr el script y sale clasificado
+  solo. El parámetro `query` tampoco se propaga (filtrar por
+  `orgUnitPath='/Alumnos'` devuelve el directorio entero), y el workflow
+  `google-user-ou` está **inactivo** y responde 404.
+
 ### Paso 2 — Validar lo que devuelvan
 
 ```bash
@@ -173,13 +206,32 @@ código, no trabajo de bedelía.
 El login de v2 es Google OAuth restringido a `@ctcsalto.edu.uy`. **Un alumno sin
 cuenta institucional no puede entrar**, por más que esté cargado en la base.
 
-`Usuario.email` es nullable justamente para esto: se puede cargar la persona sin
-cuenta y crearla después. Pero eso significa que la creación de cuentas (vía los
-webhooks de n8n) es un frente paralelo, y para una fecha de fin de mes es lo que
-más riesgo de calendario tiene: no depende de nosotros ni de bedelía.
+Buena noticia: ya hay **142 cuentas creadas**, así que este frente está mucho más
+avanzado de lo que parecía. Lo que falta es cruzarlas contra el padrón académico
+y ver a quién le falta cuenta.
 
-Conviene arrancarlo ya, con la lista de alumnos, sin esperar el resto de la
-planilla.
+`Usuario.email` es nullable justamente para esto: se puede cargar la persona sin
+cuenta y crearla después.
+
+### La consulta de OU está caída, y eso afecta los roles
+
+El workflow `google-user-ou` de n8n **está inactivo y responde 404**. Como
+consecuencia, `ou_google` está en `NULL` para los 12 usuarios de la base,
+incluidos los que ya iniciaron sesión: la consulta nunca funcionó.
+
+Eso destapó un problema más serio, ya corregido en el código. `update_on_login`
+re-sincroniza el rol desde la OU **en cada login**, y `ou_to_rol(None)` devolvía
+`ESTUDIANTE` como "default seguro". Con la consulta caída, el resultado era que
+**cualquiera que iniciara sesión quedaba como estudiante** — incluido un
+administrativo, que después no podía recuperar su rol porque la pantalla que lo
+cambia exige ser administrativo. Un lockout.
+
+Ahora `ou_to_rol` devuelve `None` cuando no sabe, y ni el rol ni la OU se tocan
+si la consulta falló. El default de mínimo privilegio quedó solo para usuarios
+nuevos, donde no hay nada que pisar.
+
+**Igual hay que reactivar el workflow**, o los roles nunca se sincronizan solos y
+todo alta nueva entra como estudiante hasta que alguien la corrija a mano.
 
 ### Usuarios de v1
 
@@ -203,6 +255,9 @@ Falta definir la política de examen de **Base de Datos 1**, que tiene
 - [ ] Migraciones 13, 14, 15 y `d2e3f4a5b6c7` aplicadas (ver
       [PENDIENTES_PRODUCCION.md](../PENDIENTES_PRODUCCION.md))
 - [ ] `V2_ENABLED=true`
+- [ ] Workflow `google-user-ou` **activo** en n8n, o los roles no se sincronizan
+- [ ] `getManyUsersGoogle` con "Simplify" desactivado, si se quiere que la
+      precarga de Google salga clasificada por rol
 - [ ] `python -m v2.scripts.verificar_ciclos_previaturas` en verde
 - [ ] Validador sin errores y con los avisos revisados uno por uno
 - [ ] Backup de la base **antes** de correr el importador

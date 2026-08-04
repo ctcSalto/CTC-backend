@@ -74,10 +74,22 @@ class N8nOUClient:
             return None
 
     @staticmethod
-    def ou_to_rol(ou_path: Optional[str]) -> RolUsuario:
-        """Mapea una OU de Google a un rol del sistema."""
+    def ou_to_rol(ou_path: Optional[str]) -> Optional[RolUsuario]:
+        """
+        Mapea una OU de Google a un rol del sistema.
+
+        Devuelve None cuando no se pudo determinar, que NO es lo mismo que
+        "es estudiante". Antes devolvia ESTUDIANTE como default seguro, pero
+        quien consume esto lo escribe en cada login: con la consulta de OU
+        caida, eso degrada a estudiante a todo el que entre, incluidos los
+        administrativos, y despues nadie puede devolverles el rol desde el
+        portal porque esa pantalla pide ser administrativo.
+
+        El default de minimo privilegio sigue existiendo, pero solo al crear
+        un usuario nuevo. Ver `rol_o_default`.
+        """
         if ou_path is None:
-            return RolUsuario.ESTUDIANTE  # default seguro
+            return None
 
         # Busqueda exacta primero
         if ou_path in OU_TO_ROL:
@@ -88,7 +100,13 @@ class N8nOUClient:
             if ou_path.startswith(ou_prefix):
                 return rol
 
-        return RolUsuario.ESTUDIANTE  # default seguro
+        # La OU existe pero no esta mapeada: tampoco se sabe que es
+        return None
+
+    @staticmethod
+    def rol_o_default(rol: Optional[RolUsuario]) -> RolUsuario:
+        """Para crear un usuario nuevo: sin OU conocida, el minimo privilegio."""
+        return rol if rol is not None else RolUsuario.ESTUDIANTE
 
 
 # Singleton

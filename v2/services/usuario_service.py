@@ -36,11 +36,19 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
         apellido: str,
         foto_url: Optional[str],
         ou_google: Optional[str],
-        rol: RolUsuario,
+        rol: Optional[RolUsuario],
         moodle_id: Optional[int],
         session: Session,
     ) -> Usuario:
-        """Crea un usuario nuevo desde el login de Google OAuth."""
+        """
+        Crea un usuario nuevo desde el login de Google OAuth.
+
+        Si la OU no se pudo consultar, entra como ESTUDIANTE: es el rol de
+        menor privilegio y un administrativo se lo corrige despues. Aca el
+        default si corresponde, porque no hay rol previo que pisar.
+        """
+        from v2.auth.n8n_ou_client import N8nOUClient
+
         usuario = Usuario(
             google_id=google_id,
             email=email,
@@ -48,7 +56,7 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
             apellido=apellido,
             foto_url=foto_url,
             ou_google=ou_google,
-            rol=rol,
+            rol=N8nOUClient.rol_o_default(rol),
             moodle_id=moodle_id,
             activo=True,
             google_activo=True,
@@ -146,7 +154,7 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
         apellido: str,
         foto_url: Optional[str],
         ou_google: Optional[str],
-        rol: RolUsuario,
+        rol: Optional[RolUsuario],
         moodle_id: Optional[int],
         session: Session,
         google_id: Optional[str] = None,
@@ -162,14 +170,22 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
 
         Un usuario que YA tenia google_id y esta inactivo fue desactivado a
         proposito por un administrador: no se reactiva.
+
+        `rol` y `ou_google` en None significan "no se pudo consultar la OU", y
+        en ese caso NO se tocan los que ya tiene. Antes se escribian igual: con
+        la consulta de OU caida, cada login degradaba al usuario a estudiante y
+        le borraba la OU. A un administrativo eso lo dejaba sin poder recuperar
+        su rol, porque la pantalla que lo cambia pide ser administrativo.
         """
         primer_vinculo_google = usuario.google_id is None
 
         usuario.nombre = nombre
         usuario.apellido = apellido
         usuario.foto_url = foto_url
-        usuario.ou_google = ou_google
-        usuario.rol = rol
+        if ou_google is not None:
+            usuario.ou_google = ou_google
+        if rol is not None:
+            usuario.rol = rol
         usuario.ultimo_acceso = datetime.now(get_uruguay_tz())
         usuario.google_activo = True
 

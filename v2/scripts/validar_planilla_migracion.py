@@ -381,6 +381,7 @@ class Validador:
         hoja = HOJAS["alumnos"]
         documentos_por_fila: Dict[Tuple[str, str], int] = {}
         nombres_por_documento: Dict[str, str] = {}
+        sin_documento: List[Tuple[int, str]] = []
         anio_actual = datetime.now().year
 
         for fila, datos in self._filas("alumnos"):
@@ -389,7 +390,9 @@ class Validador:
 
             documento = self._documento(documento)
             if not documento:
-                self.error(hoja, fila, "Falta el documento.")
+                # Las filas precargadas desde Google llegan sin cedula y son
+                # ciento y pico: se cuentan y se informan juntas al final.
+                sin_documento.append((fila, self._texto(email) or self._texto(apellido)))
                 continue
             if not RE_DOCUMENTO.match(documento):
                 self.error(
@@ -450,6 +453,20 @@ class Validador:
 
             self.documentos_alumnos.add(documento)
             self.programas_de_alumno[documento].add(programa)
+
+        if sin_documento:
+            muestra = "; ".join(
+                f"fila {fila}: {quien}" for fila, quien in sin_documento[:10]
+            )
+            if len(sin_documento) > 10:
+                muestra += f"; y {len(sin_documento) - 10} mas"
+            self.error(
+                hoja, None,
+                f"{len(sin_documento)} alumnos sin cedula. Es la columna que une "
+                f"todas las hojas, asi que sin eso no se puede importar ninguno. "
+                f"Suelen ser las filas que trajo el script de Google, que precarga "
+                f"nombre y correo pero no tiene la cedula: {muestra}",
+            )
 
         if not self.documentos_alumnos:
             self.error(hoja, None, "No hay ningun alumno cargado.")
