@@ -677,7 +677,7 @@ por semestre no discrimina nada.
 `sin_inscripcion` es un pseudo-estado que arman los endpoints de escolaridad;
 **no existe en la base**. No lo mandes de vuelta en ningun request.
 
-### Previaturas
+### Previaturas y excepciones
 
 Una previatura exige que la materia anterior este en cierto estado:
 
@@ -689,12 +689,91 @@ Una previatura exige que la materia anterior este en cierto estado:
 `revalidada` cumple ambos tipos. Con varias inscripciones en la materia previa
 (recursadas), alcanza con que **alguna** llegue al estado requerido.
 
-Si necesitas mostrar la malla con el estado del alumno en cada materia y sus
-previaturas, hay un endpoint dedicado:
+#### Regla 1: no alcanza con la previatura directa
+
+Para que una materia habilite a la siguiente, tiene que estar aprobada **y toda
+su propia cadena de previaturas tiene que estar cumplida**.
+
+Esto es lo unico contraintuitivo de todo el sistema, asi que vale la pena
+entenderlo antes de escribir la UI: **una materia puede estar bloqueada aunque su
+previatura directa figure como `aprobado`.**
+
+Pasa cuando esa previatura se aprobo por una excepcion de bedelia y la deuda
+original sigue abierta. Ejemplo real:
+
+1. El alumno no tiene Programacion 1.
+2. Bedelia le concede una excepcion y cursa Programacion 2.
+3. Aprueba Programacion 2. Reprueba Programacion 1.
+4. **Programacion 3 sigue bloqueada**, aunque su previatura (Programacion 2)
+   figure aprobada, porque Programacion 1 sigue sin aprobar.
+5. El dia que apruebe Programacion 1, Programacion 3 se habilita **sola**.
+
+El backend lo explica en texto, dentro de `motivos`:
+
+> `"Programacion 2 esta aprobada por excepcion: primero hay que regularizar sus
+> propias previaturas"`
+
+Mostralo tal cual. Si en vez de eso pones un generico *"no cumplis las
+previaturas"*, el alumno mira la malla, ve Programacion 2 en verde, y lo reporta
+como bug.
+
+#### Regla 2: la excepcion habilita a inscribirse, nada mas
+
+Bedelia puede permitirle a un alumno cursar una materia sin tener la previatura.
+Eso habilita **esa inscripcion puntual** y no convalida la materia adeudada — de
+ahi sale la regla 1.
+
+Alcance de cada excepcion:
+
+- **Por previatura puntual**, no por materia. Si una materia tiene dos
+  previaturas y se exceptua una, la otra se sigue exigiendo.
+- **Solo para el año lectivo** en que se otorgo. No se traslada al siguiente.
+
+Cuando una materia aparece habilitada gracias a una excepcion, viene en
+`excepciones_aplicadas`:
+
+```json
+"excepciones_aplicadas": [
+  {
+    "previatura_id": 7,
+    "materia_previa_id": 1,
+    "materia_previa": "Programacion 1",
+    "motivo": "Autorizado por direccion, ultimo semestre de carrera"
+  }
+]
+```
+
+Casi siempre viene vacio. Cuando no lo esta, mostralo (*"Cursas sin Programacion
+1 por excepcion de bedelia: {motivo}"*), o el alumno ve habilitada una materia
+que sabe que no le corresponde y desconfia del sistema.
+
+#### Que endpoint mirar
+
+**Para saber si el alumno puede inscribirse, solo `/materias-habilitadas`.**
+Aplica las mismas validaciones que el POST de inscripcion, asi que
+`puede_inscribirse` no deberia contradecir al alta.
+
+| Campo | Para que sirve |
+|---|---|
+| `puede_inscribirse` | el booleano; habilita o no el boton |
+| `motivos` | todo lo que lo bloquea, en texto para mostrar |
+| `previaturas_faltantes` | el subconjunto de `motivos` que son previaturas |
+| `excepciones_aplicadas` | por que puede, cuando debe una previatura |
+
+Para dibujar la malla con el estado del alumno en cada materia:
 
 ```http
 GET /v2/portal/estudiante/programa/{programa_id}/previaturas
 ```
+
+Ojo: ese endpoint devuelve **estructura y estado, sin veredicto**. Trae
+`previaturas` y `estado_alumno` de cada materia, pero no sabe nada de la regla 1
+ni de las excepciones. **No calcules "puede cursar" del lado del cliente
+cruzando esos datos**: te va a dar distinto que el backend en los casos de
+excepcion, que son justamente los que el alumno va a consultar.
+
+Sirve para pintar el arbol de la carrera. El veredicto lo da
+`/materias-habilitadas`.
 
 ### Fechas y zona horaria
 
