@@ -110,6 +110,26 @@ Los únicos problemas que golpean producción ahora mismo son de v1: el schedule
 # 3. alembic upgrade head
 ```
 
+### Lista completa de migraciones a aplicar
+
+Develop está en **`f4a5b6c7d8e9`** (head). Cada una de estas ya corrió y se
+verificó ahí. En orden de cadena:
+
+| # | Revisión | Qué hace | Alcance |
+|---|---|---|---|
+| 13 | `9a3f7c1e5b28` | FKs académicas apuntan a `alumno`/`profesor` | v2 |
+| 14 | `b7e2c9f14a30` | Índices de fecha para próximos eventos | v2 |
+| 15 | `c1d2e3f4a5b6` | `instancia_cursado.semestre` + `profesor.activo` | v2 |
+| 16 | `d2e3f4a5b6c7` | Tabla `excepcion_previatura` | v2 |
+| 17 | `e3f4a5b6c7d8` | Tabla `mesa_examen` + `instancia_examen.mesa_examen_id` | v2 |
+| 18 | `f4a5b6c7d8e9` | **`testimony.text` pasa a nullable** | **v1 — tabla que producción usa hoy** |
+
+> **Ojo con la 18.** Es la única que toca una tabla de **v1**, o sea del sitio
+> público que ya está en producción con datos reales. Las otras cinco son todas
+> de v2, que está apagado (`V2_ENABLED=false`), así que su riesgo es cero
+> mientras eso siga así. La 18 corrige un 500 real y solo relaja una
+> restricción — no cambia datos — pero merece leerse antes de aplicarla.
+
 ### 13. `9a3f7c1e5b28_refactor_alumno_profesor` — Sujeto académico: alumno/profesor
 
 > ✅ **Ya corrió y se verificó en develop** (Postgres real, sin pérdida de datos).
@@ -274,6 +294,73 @@ mesa a todos los exámenes.
 - [ ] `\d mesa_examen` existe
 - [ ] `instancia_examen.mesa_examen_id` existe y es nullable, con FK a `mesa_examen`
 - [ ] Cargar las mesas del año antes de crear exámenes, así heredan la ventana
+
+---
+
+### 18. `f4a5b6c7d8e9_testimony_text_nullable` — `testimony.text` acepta NULL
+
+> ✅ **Ya corrió y se verificó en develop** (`e3f4a5b6c7d8` → `f4a5b6c7d8e9`).
+>
+> ⚠️ **La única migración de esta tanda que toca una tabla de v1.** `testimony`
+> está en uso en producción, con datos reales.
+
+`ALTER TABLE testimony ALTER COLUMN text DROP NOT NULL`. Nada más: no toca datos.
+
+**Corrige un 500 real.** Un testimonio es texto **o** video, nunca los dos ni
+ninguno — lo exige el `model_validator` de `TestimonyCreate`. Por lo tanto un
+testimonio de video tiene `text = NULL`, y el modelo lo declara así. Pero la
+columna había quedado NOT NULL: la migración `e578594a9f4b`, la que reemplazó la
+tabla `testimony_video` por el campo `videoUrl`, nunca la relajó.
+
+Resultado: crear un testimonio de solo video —omitiendo `text`, que es la forma
+que el validador aprueba— fallaba con *"null value in column text violates
+not-null constraint"*. **Verificado contra la base con un INSERT en transacción
+revertida, antes y después.**
+
+No había explotado porque los clientes mandan `text: ""` en vez de omitirlo, y el
+validador trata el string vacío como ausente. Funcionaba por cómo pega el cliente,
+no porque el esquema lo permitiera. De los 28 testimonios de develop, 12 son de
+video y todos tienen `text = ''`.
+
+**Checklist:**
+- [ ] Contar los testimonios de producción antes y después: el número no debe cambiar
+- [ ] `\d testimony` → `text` sin `not null`
+- [ ] Probar el alta de un testimonio de solo video desde el frontend
+
+El `downgrade()` normaliza los NULL a `''` antes de volver a poner NOT NULL, así
+que es reversible sin perder filas.
+
+---
+
+## Cambios hechos a mano en develop (NO viajan por alembic)
+
+**Esto es lo que hay que replicar o decidir aparte**, porque ninguna migración lo
+lleva. Todo autorizado en su momento, listado acá para que quede el rastro.
+
+### Estructura
+
+| Qué | Cuándo | ¿Hace falta en producción? |
+|---|---|---|
+| `DROP TABLE periodo_examen` (huérfana) | 06/08/2026 | **A verificar.** Ver la sección de abajo |
+
+La huérfana se borró con `DROP TABLE` sin `CASCADE` y con respaldo previo del
+contenido (1 fila de prueba). No hay migración que lo haga: si en producción
+existe, hay que repetirlo a mano.
+
+### Datos de prueba (solo develop, NO replicar)
+
+Todo esto es data inventada para poder probar. **No tiene que ir a producción.**
+
+- Borradas evaluaciones duplicadas (ev 5–8), 3 calificaciones, 1 equipo y 1 miembro
+- Cargadas 4 instancias de evaluación para Programación 2 y 4 para Base de Datos 1
+  (25/25/30-grupal/20)
+- Reparado `snapshot_instancias` vacío en las inscripciones 55 y 56
+
+### Base temporal creada y borrada
+
+Para la verificación de esquema del 06/08/2026 se creó la base
+`verif_esquema_tmp` en el mismo servidor y se borró al terminar. **No queda
+nada**, pero conviene saberlo si aparece en algún backup o log de ese día.
 
 ---
 
