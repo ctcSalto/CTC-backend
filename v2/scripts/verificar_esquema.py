@@ -39,11 +39,9 @@ from sqlmodel import SQLModel
 from database.database import engine
 
 # Registrar todos los modelos en SQLModel.metadata, igual que alembic/env.py
-from database.models.example import Example              # noqa: F401
 from database.models.user import User                    # noqa: F401
 from database.models.career import Career                # noqa: F401
 from database.models.testimony import Testimony          # noqa: F401
-from database.models.testimony_video import TestimonyVideo  # noqa: F401
 from database.models.news import News                    # noqa: F401
 import v2.models                                          # noqa: F401
 

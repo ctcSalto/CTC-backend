@@ -354,21 +354,47 @@ Hoy no molesta porque las bases ya existen y `create_all` las completa.
 python -m v2.scripts.verificar_esquema
 ```
 
-Compara el esquema real contra lo que declaran los modelos. Al 06/08/2026 da **19
-diferencias, todas preexistentes y ninguna bloqueante**:
+Compara el esquema real contra lo que declaran los modelos. Al 06/08/2026, después
+de las correcciones de abajo, da **16 diferencias, todas preexistentes y ninguna
+bloqueante**:
 
 | Qué | Cuántas | Gravedad |
 |---|---|---|
 | `materia_id` / `anio_lectivo` sobrantes en 3 tablas | 6 | Peso muerto. Restos del refactor de FKs a `instancia_cursado_id`. Todas nullable sin default, así que no bloquean inserts |
-| `instancia_cursado_id` y flags nullable en la base, NOT NULL en el modelo | 5 | Bajo. Las migraciones las agregaron nullable para no romper filas y nunca las apretaron |
-| Tablas `author`, `post`, `profile` | 3 | Restos de plantilla, **0 filas**. Se pueden borrar |
-| Modelos `example` y `testimony_video` sin tabla | 2 | Modelos obsoletos. `testimony_video` lo reemplazó `videoUrl` en `bad9dad1cc40` y el modelo quedó. Conviene borrarlos, o `create_all` va a recrear esas tablas en el próximo arranque |
-| **`testimony.text`** | 1 | **El único con riesgo real.** La base es NOT NULL y el modelo dice nullable: el código cree que puede guardar un testimonio sin texto y la base lo rechaza. 28 filas cargadas |
+| `instancia_cursado_id` y flags nullable en la base, NOT NULL en el modelo | 7 | Bajo. Las migraciones las agregaron nullable para no romper filas y nunca las apretaron |
+| Tablas `author`, `post`, `profile` | 3 | Restos de plantilla, **0 filas**. Se pueden borrar cuando alguien quiera |
 
 - [ ] Correr el script antes de cada deploy. Lo que importa no es que la lista
       esté en cero, sino que **no crezca** sin que alguien lo decida
-- [ ] Resolver `testimony.text`: o el modelo pasa a NOT NULL, o la base pasa a
-      nullable. Hoy no coinciden y el que pierde es el usuario final
+
+#### Ya corregido: `testimony.text` era un bug real
+
+> ✅ Migración `f4a5b6c7d8e9`, aplicada y verificada en develop.
+
+Un testimonio es texto **o** video, nunca los dos ni ninguno: lo exige el
+`model_validator` de `TestimonyCreate`. Por lo tanto un testimonio de video tiene
+`text = NULL`, y el modelo lo declara así.
+
+Pero la columna había quedado **NOT NULL**: la migración `e578594a9f4b`, que
+reemplazó la tabla `testimony_video` por el campo `videoUrl`, nunca la relajó.
+Crear un testimonio de solo video —omitiendo `text`, que es la forma que el
+validador aprueba— fallaba con *"null value in column text violates not-null
+constraint"*. **Verificado contra la base antes y después del arreglo.**
+
+No había explotado porque los clientes mandan `text: ""` en vez de omitirlo, y el
+validador trata el string vacío como ausente. O sea que funcionaba por cómo pega
+el cliente, no porque el esquema lo permitiera. De los 28 testimonios cargados,
+12 son de video y todos tienen `text = ''`.
+
+- [ ] Aplicar `f4a5b6c7d8e9` en producción. Sin ella, un cliente que mande solo
+      `videoUrl` recibe un 500
+
+#### Ya corregido: modelos obsoletos borrados
+
+`example` y `testimony_video` eran modelos sin tabla, y `create_all` iba a
+recrearles la tabla en el próximo arranque. Se borraron el modelo, su servicio y
+—en el caso de `example`— la ruta, que no estaba montada en `main.py` y usaba un
+`services.exampleService` que no existe: habría dado 500 si alguien la montaba.
 
 ---
 
