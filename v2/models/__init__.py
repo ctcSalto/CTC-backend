@@ -23,11 +23,13 @@ from v2.models.materia import Materia
 from v2.models.instancia_cursado import InstanciaCursado
 from v2.models.materia_instancia_evaluacion import MateriaInstanciaEvaluacion
 from v2.models.previatura import Previatura
+from v2.models.excepcion_previatura import ExcepcionPreviatura
 from v2.models.docente_materia import DocenteMateria
 from v2.models.inscripcion_materia import InscripcionMateria
 from v2.models.calificacion import Calificacion
 from v2.models.equipo import Equipo, EquipoMiembro
 from v2.models.periodo_inscripcion_materia import PeriodoInscripcionMateria
+from v2.models.mesa_examen import MesaExamen
 from v2.models.instancia_examen import InstanciaExamen
 from v2.models.docente_instancia_examen import DocenteInstanciaExamen
 from v2.models.inscripcion_programa import InscripcionPrograma

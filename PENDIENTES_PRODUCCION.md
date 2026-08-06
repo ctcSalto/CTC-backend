@@ -308,23 +308,67 @@ aparecer: no hay modelo con ese `__tablename__`.
 
 ---
 
-### `create_all` en dev puede tapar migraciones faltantes
+### `create_all` y las migraciones divergieron
 
-Riesgo estructural que salió al investigar la huérfana, y que conviene tener
-presente en cada despliegue.
+Riesgo estructural que salió al investigar la huérfana. Verificado el 06/08/2026.
 
 [database/database.py:75](database/database.py:75) llama a
-`SQLModel.metadata.create_all(checkfirst=True)`. En dev eso crea todas las tablas
-de los modelos cargados, **incluidas las que una migración borró** y las que
-nunca tuvieron migración.
+`SQLModel.metadata.create_all(checkfirst=True)`, y [main.py:102](main.py:102) lo
+invoca en el arranque **sin guard de entorno**: corre en todos los entornos,
+producción incluida.
 
-La consecuencia práctica: **un modelo nuevo sin migración funciona perfecto en
-develop y falla al desplegar**, porque en producción `create_all` no corre. Es
-exactamente el tipo de error que aparece recién el día del despliegue.
+**Corrección de una nota anterior de este archivo:** decía que un modelo sin
+migración «funciona en develop y falla al desplegar porque en producción
+`create_all` no corre». Eso es incorrecto — sí corre. El modo de falla real es
+otro, y peor por ser silencioso:
 
-- [ ] Antes de cada deploy, `alembic upgrade head` sobre una base limpia y
-      comparar el esquema resultante con el de develop. Si aparece una tabla o
-      columna en develop que no está en la base migrada, falta una migración
+`create_all` **solo crea tablas que no existen. Nunca hace ALTER.** No agrega una
+columna a una tabla existente, no cambia un tipo, no borra nada. Entonces:
+
+- una **tabla** nueva sin migración aparece igual en todos los entornos, y el
+  problema es que la base y las migraciones divergen (así apareció la huérfana);
+- una **columna** nueva sin migración **no aparece en ningún entorno**, en
+  silencio. El modelo la declara, el código la usa, y la consulta explota en
+  runtime.
+
+#### Las migraciones no reconstruyen la base desde cero
+
+`alembic upgrade head` sobre una base vacía **falla**. La migración inicial
+`a736aaa18a0f_initial_migration_with_all_models` tiene `upgrade(): pass` — un
+stub autogenerado que no crea nada. Las tablas de v1 (`career`, `user`,
+`testimony`, `news`) no las crea ninguna migración: existen solo porque
+`create_all` las hizo. El primer `ALTER TABLE career` de `055950855a1a` revienta
+con *"relation career does not exist"*.
+
+Consecuencia: **no se puede levantar un entorno nuevo desde las migraciones.**
+Ni staging, ni una recuperación ante desastre, ni la máquina de alguien nuevo.
+Hoy no molesta porque las bases ya existen y `create_all` las completa.
+
+- [ ] Decidir si vale escribir una migración que cree las tablas de v1, para que
+      la cadena sea reconstruible. No es urgente, pero es lo que separa «tenemos
+      migraciones» de «tenemos migraciones que sirven»
+
+#### Chequeo periódico
+
+```bash
+python -m v2.scripts.verificar_esquema
+```
+
+Compara el esquema real contra lo que declaran los modelos. Al 06/08/2026 da **19
+diferencias, todas preexistentes y ninguna bloqueante**:
+
+| Qué | Cuántas | Gravedad |
+|---|---|---|
+| `materia_id` / `anio_lectivo` sobrantes en 3 tablas | 6 | Peso muerto. Restos del refactor de FKs a `instancia_cursado_id`. Todas nullable sin default, así que no bloquean inserts |
+| `instancia_cursado_id` y flags nullable en la base, NOT NULL en el modelo | 5 | Bajo. Las migraciones las agregaron nullable para no romper filas y nunca las apretaron |
+| Tablas `author`, `post`, `profile` | 3 | Restos de plantilla, **0 filas**. Se pueden borrar |
+| Modelos `example` y `testimony_video` sin tabla | 2 | Modelos obsoletos. `testimony_video` lo reemplazó `videoUrl` en `bad9dad1cc40` y el modelo quedó. Conviene borrarlos, o `create_all` va a recrear esas tablas en el próximo arranque |
+| **`testimony.text`** | 1 | **El único con riesgo real.** La base es NOT NULL y el modelo dice nullable: el código cree que puede guardar un testimonio sin texto y la base lo rechaza. 28 filas cargadas |
+
+- [ ] Correr el script antes de cada deploy. Lo que importa no es que la lista
+      esté en cero, sino que **no crezca** sin que alguien lo decida
+- [ ] Resolver `testimony.text`: o el modelo pasa a NOT NULL, o la base pasa a
+      nullable. Hoy no coinciden y el que pierde es el usuario final
 
 ---
 
