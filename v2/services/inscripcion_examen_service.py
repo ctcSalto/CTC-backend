@@ -45,13 +45,16 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
     # mismo dia. Las dos son DURAS: aplican tambien cuando inscribe bedelia, a
     # diferencia del plazo de inscripcion, que si tiene bypass.
     #
-    # El "periodo" es el mes calendario de fecha_examen. No existe una entidad
-    # mesa de examen en el modelo, asi que el mes es la aproximacion acordada.
-    # Tiene un limite conocido: si una mesa cruza fin de mes (examenes el 30/07 y
-    # el 02/08), sus examenes caen en periodos distintos y el tope se cuenta por
-    # separado. Si eso llega a molestar, lo que corresponde es modelar la mesa
-    # como tabla y cambiar _periodo_de por el id de mesa: el resto de la regla no
-    # se toca.
+    # El periodo es la MESA a la que pertenece el examen (mesa_examen_id).
+    # Antes era el mes calendario de fecha_examen, y eso fallaba de dos formas:
+    # una mesa que cruzaba fin de mes contaba doble, y dos mesas dentro de un
+    # mismo mes contaban como una. Con la mesa, dos examenes son del mismo
+    # periodo porque bedelia lo dijo.
+    #
+    # Los examenes sin mesa siguen agrupandose por mes: es lo que hay cargado de
+    # antes y no se puede adivinar a que mesa pertenecian. Ojo con la
+    # consecuencia: un examen con mesa y uno sin mesa NO cuentan juntos aunque
+    # caigan en el mismo mes. Se resuelve asignandole mesa a todos.
     MAX_EXAMENES_POR_PERIODO = 4
 
     # Una baja libera el lugar; todo lo demas ocupa, incluso lo ya rendido, para
@@ -62,47 +65,70 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
     )
 
     @staticmethod
-    def _periodo_de(fecha: datetime) -> tuple:
-        """Clave del periodo al que pertenece un examen: su mes calendario."""
-        return (fecha.year, fecha.month)
+    def _clave_periodo(mesa_examen_id: Optional[int], fecha: datetime) -> tuple:
+        """
+        Identifica el periodo de un examen.
+
+        Con mesa, la mesa. Sin mesa, el mes calendario. Las dos claves llevan un
+        discriminante distinto para que nunca se comparen entre si por accidente.
+        """
+        if mesa_examen_id is not None:
+            return ("mesa", mesa_examen_id)
+        return ("mes", fecha.year, fecha.month)
 
     @classmethod
-    def _evaluar_limites(cls, fecha_examen, fechas_ocupadas: List[datetime]) -> List[str]:
+    def _evaluar_limites(
+        cls,
+        fecha_examen: Optional[datetime],
+        ocupadas: List[tuple],
+        mesa_examen_id: Optional[int] = None,
+        max_examenes: Optional[int] = None,
+    ) -> List[str]:
         """
-        Regla pura, sin base: que impide anotarse a un examen en esta fecha.
+        Regla pura, sin base: que impide anotarse a este examen.
 
-        `fechas_ocupadas` son las fecha_examen de las inscripciones que el alumno
-        ya tiene y que no estan de baja. Se separo de la consulta para poder
-        evaluarla en lote en la pantalla de examenes habilitados.
+        `ocupadas` son tuplas (mesa_examen_id, fecha_examen) de las
+        inscripciones que el alumno ya tiene y que no estan de baja. Se separo de
+        la consulta para poder evaluarla en lote en la pantalla de examenes
+        habilitados.
+
+        `max_examenes` permite que una mesa tenga un tope propio; en None se usa
+        el general.
         """
         if fecha_examen is None:
             return []
 
+        tope = max_examenes if max_examenes is not None else cls.MAX_EXAMENES_POR_PERIODO
         motivos = []
 
-        mismo_dia = [f for f in fechas_ocupadas if f.date() == fecha_examen.date()]
-        if mismo_dia:
+        if any(fecha.date() == fecha_examen.date() for _, fecha in ocupadas):
             motivos.append(
                 f"Ya tenes un examen el {fecha_examen.strftime('%d/%m/%Y')}. "
                 "No se puede rendir mas de uno por dia."
             )
 
-        periodo = cls._periodo_de(fecha_examen)
-        del_periodo = [f for f in fechas_ocupadas if cls._periodo_de(f) == periodo]
-        if len(del_periodo) >= cls.MAX_EXAMENES_POR_PERIODO:
+        clave = cls._clave_periodo(mesa_examen_id, fecha_examen)
+        del_periodo = [
+            fecha for mesa_id, fecha in ocupadas
+            if cls._clave_periodo(mesa_id, fecha) == clave
+        ]
+        if len(del_periodo) >= tope:
             motivos.append(
-                f"Ya estas anotado a {len(del_periodo)} examenes en "
-                f"{fecha_examen.strftime('%m/%Y')}. El maximo es "
-                f"{cls.MAX_EXAMENES_POR_PERIODO} por periodo."
+                f"Ya estas anotado a {len(del_periodo)} examenes en este periodo. "
+                f"El maximo es {tope}."
             )
 
         return motivos
 
     @staticmethod
-    def _fechas_ocupadas(alumno_id: int, session: Session) -> List[datetime]:
-        """Fechas de examen que el alumno ya tiene tomadas, en una consulta."""
+    def _fechas_ocupadas(alumno_id: int, session: Session) -> List[tuple]:
+        """
+        Examenes que el alumno ya tiene tomados: (mesa_examen_id, fecha).
+
+        Una sola consulta, para poder evaluar la regla en lote.
+        """
         filas = session.exec(
-            select(InstanciaExamen.fecha_examen)
+            select(InstanciaExamen.mesa_examen_id, InstanciaExamen.fecha_examen)
             .join(
                 InscripcionExamen,
                 InscripcionExamen.instancia_examen_id == InstanciaExamen.id,
@@ -118,7 +144,23 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
                 ),
             )
         ).all()
-        return [fecha for fecha in filas if fecha is not None]
+        return [(mesa_id, fecha) for mesa_id, fecha in filas if fecha is not None]
+
+    @staticmethod
+    def _topes_por_mesa(mesa_ids: List[int], session: Session) -> dict:
+        """Tope propio de cada mesa, para no consultar una por examen."""
+        ids = [mid for mid in mesa_ids if mid is not None]
+        if not ids:
+            return {}
+
+        from v2.models.mesa_examen import MesaExamen
+
+        filas = session.exec(
+            select(MesaExamen.id, MesaExamen.max_examenes).where(
+                col(MesaExamen.id).in_(set(ids))
+            )
+        ).all()
+        return {mesa_id: maximo for mesa_id, maximo in filas}
 
     def inscribir_examen(
         self,
@@ -179,6 +221,10 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         motivos_limite = self._evaluar_limites(
             instancia.fecha_examen,
             self._fechas_ocupadas(inscripcion.alumno_id, session),
+            mesa_examen_id=instancia.mesa_examen_id,
+            max_examenes=self._topes_por_mesa(
+                [instancia.mesa_examen_id], session
+            ).get(instancia.mesa_examen_id),
         )
         if motivos_limite:
             raise ValueError(" ".join(motivos_limite))
@@ -589,6 +635,14 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         instancias_por_materia = self._instancias_abiertas(materia_ids, ahora, session)
         ya_inscripto_en = self._inscripciones_vigentes(inscripcion_ids, session)
         fechas_ocupadas = self._fechas_ocupadas(alumno_id, session)
+        topes = self._topes_por_mesa(
+            [
+                inst.mesa_examen_id
+                for instancias in instancias_por_materia.values()
+                for inst in instancias
+            ],
+            session,
+        )
 
         resultado = []
         for insc, materia in filas:
@@ -616,13 +670,16 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
                 # mismo: en ese caso el motivo relevante ya es "ya estas
                 # inscripto" y no hace falta evaluarlos.
                 if not ya_inscripto:
-                    motivos.extend(
-                        self._evaluar_limites(inst.fecha_examen, fechas_ocupadas)
-                    )
+                    motivos.extend(self._evaluar_limites(
+                        inst.fecha_examen, fechas_ocupadas,
+                        mesa_examen_id=inst.mesa_examen_id,
+                        max_examenes=topes.get(inst.mesa_examen_id),
+                    ))
 
                 resultado.append({
                     "instancia_examen_id": inst.id,
                     "inscripcion_materia_id": insc.id,
+                    "mesa_examen_id": inst.mesa_examen_id,
                     "materia_id": materia.id,
                     "materia_nombre": materia.nombre,
                     "materia_codigo": materia.codigo,

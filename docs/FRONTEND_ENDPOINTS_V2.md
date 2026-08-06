@@ -360,10 +360,18 @@ ausente. Las bajas y las inscripciones pendientes no cuentan. Cuando llega a
 
 #### Dos topes que hacen que un examen aparezca bloqueado
 
-**Maximo 4 examenes por periodo.** El periodo es el **mes calendario** de
-`fecha_examen`. El motivo que llega es:
+**Maximo 4 examenes por periodo.** El periodo es la **mesa** a la que pertenece
+el examen, que viene en `mesa_examen_id`. Dos examenes son del mismo periodo
+porque bedelia los puso en la misma mesa, no por la fecha: una mesa puede cruzar
+fin de mes y puede haber dos mesas en un mismo mes. El motivo que llega es:
 
-> `"Ya estas anotado a 4 examenes en 07/2026. El maximo es 4 por periodo."`
+> `"Ya estas anotado a 4 examenes en este periodo. El maximo es 4."`
+
+El tope puede ser distinto por mesa, asi que **no lo hardcodees en el front**: si
+una mesa tiene un tope propio, el numero del mensaje lo refleja.
+
+Un examen con `mesa_examen_id: null` es de antes de que existieran las mesas; para
+esos el periodo es el mes calendario.
 
 **No dos examenes el mismo dia.** Aunque sean a distinta hora:
 

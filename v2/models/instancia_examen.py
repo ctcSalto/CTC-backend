@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from v2.models.materia import Materia
     from v2.models.inscripcion_examen import InscripcionExamen
     from v2.models.docente_instancia_examen import DocenteInstanciaExamen
+    from v2.models.mesa_examen import MesaExamen
 
 
 # ── Modelo de tabla ──────────────────────────────────────────────────────────
@@ -18,6 +19,12 @@ class InstanciaExamen(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     materia_id: int = Field(foreign_key="materia.id", index=True, description="Materia del examen")
+    # Nullable a proposito: los examenes cargados antes de que existiera la mesa
+    # no tienen una, y para esos el periodo sigue siendo el mes calendario.
+    mesa_examen_id: Optional[int] = Field(
+        default=None, foreign_key="mesa_examen.id", index=True,
+        description="Mesa a la que pertenece. Define el periodo para el tope de examenes",
+    )
     nombre: str = Field(max_length=100, description="Ej: 'Febrero 2026 - Programación 1'")
     fecha_inicio_inscripcion: datetime = Field(index=True, description="Inicio inscripción al examen")
     fecha_fin_inscripcion: datetime = Field(index=True, description="Fin inscripción al examen")
@@ -45,6 +52,7 @@ class InstanciaExamen(SQLModel, table=True):
 
     # Relaciones
     materia: Optional["Materia"] = Relationship(back_populates="instancias_examen")
+    mesa: Optional["MesaExamen"] = Relationship(back_populates="instancias")
     inscripciones: List["InscripcionExamen"] = Relationship(back_populates="instancia_examen")
     profesores: List["DocenteInstanciaExamen"] = Relationship(back_populates="instancia_examen")
 
@@ -54,8 +62,11 @@ class InstanciaExamen(SQLModel, table=True):
 class InstanciaExamenCreate(SQLModel):
     materia_id: int
     nombre: str = Field(max_length=100)
-    fecha_inicio_inscripcion: datetime
-    fecha_fin_inscripcion: datetime
+    mesa_examen_id: Optional[int] = None
+    # Opcionales solo si se manda mesa_examen_id: en ese caso se copian de la
+    # mesa. Sin mesa son obligatorias y el servicio las reclama.
+    fecha_inicio_inscripcion: Optional[datetime] = None
+    fecha_fin_inscripcion: Optional[datetime] = None
     fecha_examen: datetime
     hora: Optional[str] = None
     salon: Optional[str] = None
@@ -66,6 +77,7 @@ class InstanciaExamenCreate(SQLModel):
 
 class InstanciaExamenUpdate(SQLModel):
     nombre: Optional[str] = Field(default=None, max_length=100)
+    mesa_examen_id: Optional[int] = None
     fecha_inicio_inscripcion: Optional[datetime] = None
     fecha_fin_inscripcion: Optional[datetime] = None
     fecha_examen: Optional[datetime] = None
@@ -80,6 +92,7 @@ class InstanciaExamenUpdate(SQLModel):
 class InstanciaExamenRead(SQLModel):
     id: int
     materia_id: int
+    mesa_examen_id: Optional[int] = None
     nombre: str
     fecha_inicio_inscripcion: datetime
     fecha_fin_inscripcion: datetime

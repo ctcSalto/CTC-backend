@@ -20,6 +20,52 @@ class InstanciaExamenService(BaseServiceWithFilters[InstanciaExamen]):
     def __init__(self):
         super().__init__(InstanciaExamen)
 
+    def crear(self, data, session: Session) -> InstanciaExamen:
+        """
+        Crea la instancia completando la ventana de inscripcion desde la mesa.
+
+        Si viene con `mesa_examen_id` y sin fechas, se copian de la mesa: es
+        el dato que antes habia que repetir en cada examen, con el riesgo de que
+        dos examenes de la misma mesa terminaran con ventanas distintas.
+
+        Es una copia al crear, no una herencia viva. Editar la mesa despues no
+        reescribe los examenes ya cargados, y a proposito: la ventana efectiva
+        sigue siendo la de la instancia, que es la que leen el chequeo de plazo,
+        las notificaciones y los proximos eventos. Un solo lugar de lectura.
+        """
+        from v2.models.mesa_examen import MesaExamen
+
+        valores = data.model_dump(exclude_unset=True)
+        mesa_id = valores.get("mesa_examen_id")
+
+        mesa = None
+        if mesa_id is not None:
+            mesa = session.get(MesaExamen, mesa_id)
+            if not mesa:
+                raise ValueError(f"Mesa de examen {mesa_id} no encontrada")
+            if not mesa.activo:
+                raise ValueError(f"La mesa '{mesa.nombre}' esta inactiva")
+
+        for campo in ("fecha_inicio_inscripcion", "fecha_fin_inscripcion"):
+            if valores.get(campo) is None:
+                if mesa is None:
+                    raise ValueError(
+                        f"Falta {campo}. Se puede omitir solo si se indica una "
+                        f"mesa de examen, para copiarla de ahi."
+                    )
+                valores[campo] = getattr(mesa, campo)
+
+        if valores["fecha_inicio_inscripcion"] > valores["fecha_fin_inscripcion"]:
+            raise ValueError(
+                "La inscripcion no puede cerrar antes de abrir"
+            )
+
+        instancia = InstanciaExamen(**valores)
+        session.add(instancia)
+        session.flush()
+        session.refresh(instancia)
+        return instancia
+
     def get_instancias_materia(
         self, materia_id: int, session: Session
     ) -> List[InstanciaExamen]:

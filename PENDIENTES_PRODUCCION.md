@@ -252,6 +252,60 @@ Alcance de cada excepción, según lo definido con administración:
 
 ---
 
+### 17. `e3f4a5b6c7d8_mesa_examen` — Mesas de examen
+
+> ✅ **Ya corrió y se verificó en develop** (`d2e3f4a5b6c7` → `e3f4a5b6c7d8`).
+
+Tabla nueva `mesa_examen` + columna nullable `instancia_examen.mesa_examen_id`.
+**Sin backfill y sin impacto en datos existentes.**
+
+La mesa define el período contra el que se cuenta el tope de exámenes de un
+alumno (máximo 4, y no dos el mismo día). Antes el período se inferí­a del mes
+calendario de `fecha_examen`, lo que contaba mal en dos casos: una mesa que cruza
+fin de mes contaba doble, y dos mesas en un mismo mes contaban como una — este
+último bloquea al alumno sin corresponder.
+
+`mesa_examen_id` es nullable a propósito: los exámenes sin mesa se siguen
+agrupando por mes. **Consecuencia a tener en cuenta:** un examen con mesa y uno
+sin mesa no cuentan juntos aunque caigan en el mismo mes. Se resuelve asignándole
+mesa a todos los exámenes.
+
+**Checklist:**
+- [ ] `\d mesa_examen` existe
+- [ ] `instancia_examen.mesa_examen_id` existe y es nullable, con FK a `mesa_examen`
+- [ ] Cargar las mesas del año antes de crear exámenes, así heredan la ventana
+
+---
+
+### Tabla huérfana `periodo_examen` — limpieza pendiente
+
+**No es bloqueante, pero conviene resolverlo.**
+
+`periodo_examen` fue el concepto original de v2: la creó la migración
+`c80c0cfd30d6` y la **borró** `d1a2b3c4d5e6` al reemplazarla por
+`instancia_examen`. Sin embargo **sigue existiendo en la base de develop**, con
+una fila de prueba (`"Febrero 2026 - Actualizado"`), ningún modelo que la
+respalde y ninguna FK que la referencie.
+
+La resucitó el `SQLModel.metadata.create_all(checkfirst=True)` de
+[database/database.py:75](database/database.py:75), que en dev crea todas las
+tablas de los modelos cargados. Cuando después se borró el modelo del código, la
+tabla quedó.
+
+Por eso la mesa nueva se llama `mesa_examen` y no `periodo_examen`: reusar el
+nombre para un concepto distinto haría ilegible la historia de migraciones, y
+además chocaba con la huérfana.
+
+**Qué hacer:**
+- [ ] Verificar si en producción también existe (`SELECT to_regclass('public.periodo_examen')`)
+- [ ] Si existe y está vacía o con basura, borrarla a mano — no hay código que la use
+- [ ] Tener presente que `create_all` en dev puede recrear tablas que una
+      migración borró. Es el mismo mecanismo que puede enmascarar migraciones
+      faltantes: en producción no corre, así que un modelo sin migración funciona
+      en dev y falla al desplegar
+
+---
+
 ## Verificación general post-deploy
 
 - [ ] `alembic current` ANTES de `upgrade head` (confirmar revisión de partida)

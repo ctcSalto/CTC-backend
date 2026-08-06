@@ -129,45 +129,83 @@ def inscribir(session, mesa, indice, **kwargs):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestReglaPura:
+    """
+    Sin mesa asignada, que es el caso de estos tests, el periodo es el mes
+    calendario. `ocupadas` son tuplas (mesa_examen_id, fecha).
+    """
+
+    @staticmethod
+    def sin_mesa(*fechas):
+        return [(None, fecha) for fecha in fechas]
+
     def test_sin_examenes_previos_no_hay_motivos(self):
         assert SERVICIO._evaluar_limites(datetime(2026, 7, 10), []) == []
 
     def test_mismo_dia_bloquea(self):
         motivos = SERVICIO._evaluar_limites(
-            datetime(2026, 7, 10, 14, 0), [datetime(2026, 7, 10, 9, 0)]
+            datetime(2026, 7, 10, 14, 0), self.sin_mesa(datetime(2026, 7, 10, 9, 0))
         )
         assert any("mas de uno por dia" in m for m in motivos)
 
     def test_el_dia_anterior_no_molesta(self):
         assert SERVICIO._evaluar_limites(
-            datetime(2026, 7, 10), [datetime(2026, 7, 9)]
+            datetime(2026, 7, 10), self.sin_mesa(datetime(2026, 7, 9))
         ) == []
 
     def test_tres_en_el_mes_permiten_el_cuarto(self):
-        ocupadas = [datetime(2026, 7, d) for d in (1, 2, 3)]
+        ocupadas = self.sin_mesa(*[datetime(2026, 7, d) for d in (1, 2, 3)])
         assert SERVICIO._evaluar_limites(datetime(2026, 7, 20), ocupadas) == []
 
     def test_cuatro_en_el_mes_bloquean_el_quinto(self):
-        ocupadas = [datetime(2026, 7, d) for d in (1, 2, 3, 4)]
+        ocupadas = self.sin_mesa(*[datetime(2026, 7, d) for d in (1, 2, 3, 4)])
         motivos = SERVICIO._evaluar_limites(datetime(2026, 7, 20), ocupadas)
         assert any("maximo es 4" in m for m in motivos)
 
     def test_los_de_otro_mes_no_cuentan(self):
-        ocupadas = [datetime(2026, 6, d) for d in (1, 2, 3, 4)]
+        ocupadas = self.sin_mesa(*[datetime(2026, 6, d) for d in (1, 2, 3, 4)])
         assert SERVICIO._evaluar_limites(datetime(2026, 7, 20), ocupadas) == []
 
     def test_los_del_mismo_mes_de_otro_anio_no_cuentan(self):
-        ocupadas = [datetime(2025, 7, d) for d in (1, 2, 3, 4)]
+        ocupadas = self.sin_mesa(*[datetime(2025, 7, d) for d in (1, 2, 3, 4)])
         assert SERVICIO._evaluar_limites(datetime(2026, 7, 20), ocupadas) == []
 
     def test_puede_chocar_por_las_dos_reglas_a_la_vez(self):
-        ocupadas = [datetime(2026, 7, d) for d in (1, 2, 3, 20)]
+        ocupadas = self.sin_mesa(*[datetime(2026, 7, d) for d in (1, 2, 3, 20)])
         motivos = SERVICIO._evaluar_limites(datetime(2026, 7, 20), ocupadas)
         assert len(motivos) == 2
 
     def test_sin_fecha_de_examen_no_opina(self):
         """Una instancia sin fecha no puede evaluarse; no se inventa un bloqueo."""
-        assert SERVICIO._evaluar_limites(None, [datetime(2026, 7, 10)]) == []
+        assert SERVICIO._evaluar_limites(
+            None, self.sin_mesa(datetime(2026, 7, 10))
+        ) == []
+
+    def test_una_mesa_ignora_el_mes(self):
+        """
+        Con mesa, el mes no interviene: cuatro de la misma mesa bloquean aunque
+        esten repartidos en meses distintos.
+        """
+        ocupadas = [
+            (7, datetime(2026, 7, 28)), (7, datetime(2026, 7, 29)),
+            (7, datetime(2026, 7, 30)), (7, datetime(2026, 8, 1)),
+        ]
+        motivos = SERVICIO._evaluar_limites(
+            datetime(2026, 8, 3), ocupadas, mesa_examen_id=7
+        )
+        assert any("maximo es 4" in m for m in motivos)
+
+    def test_mesas_distintas_no_se_suman(self):
+        ocupadas = [(7, datetime(2026, 7, d)) for d in (6, 7, 8, 9)]
+        assert SERVICIO._evaluar_limites(
+            datetime(2026, 7, 27), ocupadas, mesa_examen_id=8
+        ) == []
+
+    def test_el_tope_de_la_mesa_pisa_al_general(self):
+        ocupadas = [(7, datetime(2026, 7, 6)), (7, datetime(2026, 7, 7))]
+        motivos = SERVICIO._evaluar_limites(
+            datetime(2026, 7, 20), ocupadas, mesa_examen_id=7, max_examenes=2
+        )
+        assert any("maximo es 2" in m for m in motivos)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -222,11 +260,12 @@ class TestTopeDelPeriodo:
         mover_examen(session, mesa["instancias"][5], datetime(2026, 8, 12))
         assert inscribir(session, mesa, 5) is not None
 
-    def test_una_mesa_que_cruza_fin_de_mes_cuenta_aparte(self, session, mesa):
+    def test_sin_mesa_una_que_cruza_fin_de_mes_cuenta_aparte(self, session, mesa):
         """
-        Limite conocido de usar el mes como periodo: examenes del 30/07 y del
-        02/08 pertenecen a la misma mesa real pero a periodos distintos, asi que
-        el tope se cuenta por separado. Queda documentado a proposito.
+        El limite de agrupar por mes, que es lo que se hace cuando el examen no
+        tiene mesa asignada: 30/07 y 02/08 caen en periodos distintos.
+
+        Con mesa esto no pasa; lo cubre TestMesaDeExamen.
         """
         for indice, dia in zip(range(1, 5), (27, 28, 29, 30)):
             mover_examen(session, mesa["instancias"][indice], datetime(2026, 7, dia))

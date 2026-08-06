@@ -16,6 +16,7 @@
 6. [Admin - Instancias de Cursado](#6-admin---instancias-de-cursado)
 7. [Admin - Instancias de Evaluacion](#7-admin---instancias-de-evaluacion)
 8. [Admin - Instancias de Examen](#8-admin---instancias-de-examen)
+    - [8.b Admin - Mesas de Examen](#8b-admin---mesas-de-examen)
 9. [Admin - Politicas de Calificacion](#9-admin---politicas-de-calificacion)
 10. [Admin - Politicas de Examen](#10-admin---politicas-de-examen)
 11. [Admin - Previaturas](#11-admin---previaturas)
@@ -400,12 +401,17 @@ Calificaciones del alumno en una inscripcion.
 Inscribirse a un examen. Valida estado A_EXAMEN, periodo de inscripcion abierto, y que no se hayan agotado las oportunidades (`max_oportunidades` de la politica de examen). Asigna `numero_rendicion` automaticamente.
 
 Ademas aplica dos topes de la institucion, **sin bypass ni para admin**:
-- **Maximo 4 examenes por periodo**, donde el periodo es el mes calendario de
-  `fecha_examen` (constante `InscripcionExamenService.MAX_EXAMENES_POR_PERIODO`).
-- **No dos examenes el mismo dia**, aunque sean a distinta hora.
+- **Maximo N examenes por periodo**, donde el periodo es la **mesa**
+  (`instancia_examen.mesa_examen_id`). N sale de `mesa_examen.max_examenes`, y en
+  null usa `InscripcionExamenService.MAX_EXAMENES_POR_PERIODO` (4). Los examenes
+  sin mesa se agrupan por mes calendario.
+- **No dos examenes el mismo dia**, aunque sean a distinta hora y de mesas
+  distintas.
 
 Cuentan las inscripciones vigentes del alumno: una `baja` libera el lugar, una ya
 rendida (`aprobado`, `reprobado`, `ausente`) lo sigue ocupando.
+
+Ver [§8.b Admin - Mesas de Examen](#8b-admin---mesas-de-examen).
 - **Body:**
 ```json
 {
@@ -426,7 +432,7 @@ rendida (`aprobado`, `reprobado`, `ausente`) lo sigue ocupando.
 }
 ```
 - **Error 400:** `"Se agotaron las N oportunidades de examen para esta materia"` /
-  `"Ya estas anotado a 4 examenes en 07/2026. El maximo es 4 por periodo."` /
+  `"Ya estas anotado a 4 examenes en este periodo. El maximo es 4."` /
   `"Ya tenes un examen el 10/07/2026. No se puede rendir mas de uno por dia."`
 
 ### GET `/mis-examenes/{inscripcion_id}`
@@ -1025,6 +1031,92 @@ Crear instancia de examen. **Body:**
 ### DELETE `/{instancia_id}` - Eliminar
 ### POST `/{instancia_id}/profesores` - Asignar profesor (`{ "docente_id": 3 }`)
 ### GET `/{instancia_id}/inscriptos` - Lista de inscriptos al examen
+
+---
+
+## 8.b Admin - Mesas de Examen
+
+**Prefijo:** `/v2/admin/mesas-examen`
+**Auth:** Bearer Token (rol `administrativo`)
+
+La mesa agrupa los examenes de un mismo periodo y define contra que se cuenta el
+tope de examenes de un alumno.
+
+Existe porque inferir el periodo de la fecha contaba mal en dos casos: una mesa
+que cruza fin de mes (examenes el 30/07 y el 02/08) se contaba como dos periodos,
+y dos mesas dentro de un mismo mes se contaban como uno. El segundo es el peor,
+porque bloquea al alumno sin corresponder.
+
+`instancia_examen.mesa_examen_id` es **nullable**: los examenes sin mesa se siguen
+agrupando por mes calendario. Ojo con la consecuencia — un examen con mesa y uno
+sin mesa **no cuentan juntos** aunque caigan en el mismo mes. Se resuelve
+asignandole mesa a todos.
+
+### POST ``
+Crear una mesa.
+- **Body:**
+```json
+{
+  "nombre": "Julio 2026 - Ordinaria",
+  "anio_lectivo": 2026,
+  "fecha_inicio_inscripcion": "2026-06-20T00:00:00",
+  "fecha_fin_inscripcion": "2026-07-05T23:59:00",
+  "max_examenes": null
+}
+```
+- `max_examenes` en null usa el tope general (4). Sirve para acotar una mesa
+  puntual sin tocar codigo.
+- La ventana que se cargue aca **se copia** a los examenes que se creen dentro de
+  la mesa, para no repetirla en cada uno. Es una copia al crear, no una herencia
+  viva: editar la mesa despues no reescribe los examenes ya cargados.
+- **Response 201:** `MesaExamenRead`
+- **Error 400:** `"La inscripcion no puede cerrar antes de abrir"` /
+  `"El maximo de examenes tiene que ser al menos 1"`
+
+### GET `?anio_lectivo={anio}&incluir_inactivas=false`
+Mesas con la cantidad de examenes asignados a cada una.
+```json
+[
+  {
+    "id": 3,
+    "nombre": "Julio 2026 - Ordinaria",
+    "anio_lectivo": 2026,
+    "fecha_inicio_inscripcion": "2026-06-20T00:00:00",
+    "fecha_fin_inscripcion": "2026-07-05T23:59:00",
+    "max_examenes": null,
+    "activo": true,
+    "examenes": 12,
+    "id_rastreo": null
+  }
+]
+```
+
+### GET `/{mesa_id}` - Obtener por ID
+### PUT `/{mesa_id}` - Actualizar (body parcial)
+### DELETE `/{mesa_id}` - Borrar (204)
+
+El borrado **solo funciona si la mesa no tiene examenes**: si los tuviera,
+borrarla los dejaria sin periodo y volverian a contarse por mes sin que nadie se
+entere. Para dar de baja una mesa vieja, `activo: false`.
+- **Error 400:** `"La mesa tiene N examenes asignados..."`
+
+### Crear un examen dentro de una mesa
+
+En `POST /v2/admin/instancias-examen` se puede mandar `mesa_examen_id` y **omitir
+las fechas de inscripcion**: se copian de la mesa.
+
+```json
+{
+  "materia_id": 2,
+  "nombre": "Julio 2026 - Programacion 2",
+  "mesa_examen_id": 3,
+  "fecha_examen": "2026-07-15T09:00:00"
+}
+```
+
+- **Error 400:** `"Mesa de examen N no encontrada"` /
+  `"La mesa 'X' esta inactiva"` / `"Falta fecha_inicio_inscripcion..."` (cuando no
+  se manda mesa ni fechas)
 
 ---
 
