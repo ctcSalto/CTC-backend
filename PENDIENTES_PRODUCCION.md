@@ -277,15 +277,15 @@ mesa a todos los exámenes.
 
 ---
 
-### Tabla huérfana `periodo_examen` — limpieza pendiente
+### Tabla huérfana `periodo_examen`
 
-**No es bloqueante, pero conviene resolverlo.**
+> ✅ **Borrada de develop** el 06/08/2026. Falta chequear producción.
 
 `periodo_examen` fue el concepto original de v2: la creó la migración
 `c80c0cfd30d6` y la **borró** `d1a2b3c4d5e6` al reemplazarla por
-`instancia_examen`. Sin embargo **sigue existiendo en la base de develop**, con
-una fila de prueba (`"Febrero 2026 - Actualizado"`), ningún modelo que la
-respalde y ninguna FK que la referencie.
+`instancia_examen`. Pero seguía existiendo en develop, con una fila de prueba
+(`"Febrero 2026 - Actualizado"`), ningún modelo que la respaldara y ninguna FK que
+la referenciara.
 
 La resucitó el `SQLModel.metadata.create_all(checkfirst=True)` de
 [database/database.py:75](database/database.py:75), que en dev crea todas las
@@ -296,13 +296,35 @@ Por eso la mesa nueva se llama `mesa_examen` y no `periodo_examen`: reusar el
 nombre para un concepto distinto haría ilegible la historia de migraciones, y
 además chocaba con la huérfana.
 
-**Qué hacer:**
-- [ ] Verificar si en producción también existe (`SELECT to_regclass('public.periodo_examen')`)
-- [ ] Si existe y está vacía o con basura, borrarla a mano — no hay código que la use
-- [ ] Tener presente que `create_all` en dev puede recrear tablas que una
-      migración borró. Es el mismo mecanismo que puede enmascarar migraciones
-      faltantes: en producción no corre, así que un modelo sin migración funciona
-      en dev y falla al desplegar
+En develop se borró con `DROP TABLE` sin `CASCADE` (para que fallara si algo la
+referenciaba) y con respaldo previo del contenido. Ya no puede volver a
+aparecer: no hay modelo con ese `__tablename__`.
+
+**Qué falta:**
+- [ ] Chequear si en producción también existe:
+      `SELECT to_regclass('public.periodo_examen');`
+- [ ] Si existe, revisar el contenido antes de borrarla y usar `DROP TABLE` sin
+      `CASCADE`
+
+---
+
+### `create_all` en dev puede tapar migraciones faltantes
+
+Riesgo estructural que salió al investigar la huérfana, y que conviene tener
+presente en cada despliegue.
+
+[database/database.py:75](database/database.py:75) llama a
+`SQLModel.metadata.create_all(checkfirst=True)`. En dev eso crea todas las tablas
+de los modelos cargados, **incluidas las que una migración borró** y las que
+nunca tuvieron migración.
+
+La consecuencia práctica: **un modelo nuevo sin migración funciona perfecto en
+develop y falla al desplegar**, porque en producción `create_all` no corre. Es
+exactamente el tipo de error que aparece recién el día del despliegue.
+
+- [ ] Antes de cada deploy, `alembic upgrade head` sobre una base limpia y
+      comparar el esquema resultante con el de develop. Si aparece una tabla o
+      columna en develop que no está en la base migrada, falta una migración
 
 ---
 
