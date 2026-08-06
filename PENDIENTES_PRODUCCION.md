@@ -449,10 +449,44 @@ bloqueante**:
 |---|---|---|
 | `materia_id` / `anio_lectivo` sobrantes en 3 tablas | 6 | Peso muerto. Restos del refactor de FKs a `instancia_cursado_id`. Todas nullable sin default, así que no bloquean inserts |
 | `instancia_cursado_id` y flags nullable en la base, NOT NULL en el modelo | 7 | Bajo. Las migraciones las agregaron nullable para no romper filas y nunca las apretaron |
-| Tablas `author`, `post`, `profile` | 3 | Restos de plantilla, **0 filas**. Se pueden borrar cuando alguien quiera |
+| Tablas `author`, `post`, `profile` | 3 | Restos de plantilla, **0 filas**. **Decidido: se dejan como están** (ver abajo) |
 
 - [ ] Correr el script antes de cada deploy. Lo que importa no es que la lista
       esté en cero, sino que **no crezca** sin que alguien lo decida
+
+#### `author`, `post`, `profile`: se dejan (decidido el 06/08/2026)
+
+No se borran. Están vacías, nadie las consulta y no molestan a nada. El beneficio
+de borrarlas es cosmético —una lista de drift más corta— y no paga el riesgo de
+un `DROP TABLE` sobre algo cuyo origen nadie recuerda con certeza.
+
+Quedan como **resto conocido**: van a seguir apareciendo en el chequeo y eso está
+bien. No son un pendiente.
+
+---
+
+## ⛔ Regla: no se toca la estructura de la base
+
+**Instrucción vigente desde el 06/08/2026.**
+
+No agregar, modificar ni borrar tablas, columnas, índices ni restricciones **sin
+pedirlo antes**, más allá de lo que ya está aplicado y listado en este archivo.
+
+Esto incluye:
+- migraciones nuevas de Alembic
+- `ALTER` / `DROP` a mano
+- relajar o endurecer restricciones, aunque sea "solo" un `NOT NULL`
+
+Lo que ya está aplicado en develop y listado arriba (migraciones 13 a 18) queda
+como está; la regla es hacia adelante.
+
+**Por qué:** el esquema de v1 sostiene el sitio público, que ya está en
+producción con datos reales. Y aunque v2 esté apagado, cada cambio de estructura
+es una migración más que hay que aplicar y verificar el día del despliegue. Que
+la lista de este archivo crezca sola es exactamente lo que no queremos.
+
+Si aparece algo que parece necesitar un cambio de esquema: documentarlo acá como
+propuesta, con el motivo y el impacto, y esperar la decisión.
 
 #### Ya corregido: `testimony.text` era un bug real
 
