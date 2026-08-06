@@ -351,11 +351,39 @@ POST, no solo el plazo.
 
 Solo aparecen materias en estado `a_examen` con instancias habilitadas y dentro
 del plazo. `motivos` explica por que no se puede inscribir: oportunidades
-agotadas, materia sin politica de examen configurada, o ya inscripto.
+agotadas, materia sin politica de examen configurada, ya inscripto, o alguno de
+los dos topes de abajo.
 
 `rendiciones_previas` cuenta las rendiciones consumidas — aprobado, reprobado o
 ausente. Las bajas y las inscripciones pendientes no cuentan. Cuando llega a
 `max_oportunidades`, el alumno tiene que recursar la materia.
+
+#### Dos topes que hacen que un examen aparezca bloqueado
+
+**Maximo 4 examenes por periodo.** El periodo es el **mes calendario** de
+`fecha_examen`. El motivo que llega es:
+
+> `"Ya estas anotado a 4 examenes en 07/2026. El maximo es 4 por periodo."`
+
+**No dos examenes el mismo dia.** Aunque sean a distinta hora:
+
+> `"Ya tenes un examen el 10/07/2026. No se puede rendir mas de uno por dia."`
+
+Las dos cuentan las inscripciones que el alumno **ya tiene** y que no estan de
+baja. Una baja libera el lugar; una rendida —aprobada, reprobada o ausente— lo
+sigue ocupando, para que no se pueda pasar el tope rindiendo y volviendo a
+anotarse dentro del mismo mes.
+
+Dos consecuencias para la UI:
+
+- Un examen puede pasar de habilitado a bloqueado **sin que el alumno toque esa
+  fila**: le alcanza con anotarse a otro el mismo dia o completar el cuarto del
+  mes. Si la pantalla muestra varios examenes a la vez, **recarga la lista
+  despues de cada inscripcion exitosa** en vez de solo marcar la fila que se
+  inscribio.
+- Estos dos topes **no tienen excepcion**: ni bedelia los puede saltear. Es
+  distinto del plazo de inscripcion, que admin si puede pasar por alto. No
+  ofrezcas un "solicitar excepcion" para estos casos.
 
 **Las previaturas no se validan aca, y es correcto:** para llegar a `a_examen` el
 alumno tuvo que cursar la materia, y esa inscripcion ya las valido. No las

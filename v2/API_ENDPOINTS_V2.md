@@ -398,6 +398,14 @@ Calificaciones del alumno en una inscripcion.
 
 ### POST `/inscribirse-examen`
 Inscribirse a un examen. Valida estado A_EXAMEN, periodo de inscripcion abierto, y que no se hayan agotado las oportunidades (`max_oportunidades` de la politica de examen). Asigna `numero_rendicion` automaticamente.
+
+Ademas aplica dos topes de la institucion, **sin bypass ni para admin**:
+- **Maximo 4 examenes por periodo**, donde el periodo es el mes calendario de
+  `fecha_examen` (constante `InscripcionExamenService.MAX_EXAMENES_POR_PERIODO`).
+- **No dos examenes el mismo dia**, aunque sean a distinta hora.
+
+Cuentan las inscripciones vigentes del alumno: una `baja` libera el lugar, una ya
+rendida (`aprobado`, `reprobado`, `ausente`) lo sigue ocupando.
 - **Body:**
 ```json
 {
@@ -417,7 +425,9 @@ Inscribirse a un examen. Valida estado A_EXAMEN, periodo de inscripcion abierto,
   "numero_rendicion": 1
 }
 ```
-- **Error 400:** `"Se agotaron las N oportunidades de examen para esta materia"`
+- **Error 400:** `"Se agotaron las N oportunidades de examen para esta materia"` /
+  `"Ya estas anotado a 4 examenes en 07/2026. El maximo es 4 por periodo."` /
+  `"Ya tenes un examen el 10/07/2026. No se puede rendir mas de uno por dia."`
 
 ### GET `/mis-examenes/{inscripcion_id}`
 Historial de examenes de una inscripcion a materia.

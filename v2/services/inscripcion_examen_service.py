@@ -39,6 +39,87 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
 
     # -- Inscribir a examen ---------------------------------------------------
 
+    # ── Limites del periodo de examen ─────────────────────────────────────────
+    #
+    # Dos reglas de la institucion: no mas de 4 examenes por periodo y no dos el
+    # mismo dia. Las dos son DURAS: aplican tambien cuando inscribe bedelia, a
+    # diferencia del plazo de inscripcion, que si tiene bypass.
+    #
+    # El "periodo" es el mes calendario de fecha_examen. No existe una entidad
+    # mesa de examen en el modelo, asi que el mes es la aproximacion acordada.
+    # Tiene un limite conocido: si una mesa cruza fin de mes (examenes el 30/07 y
+    # el 02/08), sus examenes caen en periodos distintos y el tope se cuenta por
+    # separado. Si eso llega a molestar, lo que corresponde es modelar la mesa
+    # como tabla y cambiar _periodo_de por el id de mesa: el resto de la regla no
+    # se toca.
+    MAX_EXAMENES_POR_PERIODO = 4
+
+    # Una baja libera el lugar; todo lo demas ocupa, incluso lo ya rendido, para
+    # que no se pueda pasar el tope rindiendo y volviendo a anotarse en el mes.
+    _ESTADOS_QUE_OCUPAN_LUGAR = tuple(
+        estado for estado in EstadoInscripcionExamen
+        if estado != EstadoInscripcionExamen.BAJA
+    )
+
+    @staticmethod
+    def _periodo_de(fecha: datetime) -> tuple:
+        """Clave del periodo al que pertenece un examen: su mes calendario."""
+        return (fecha.year, fecha.month)
+
+    @classmethod
+    def _evaluar_limites(cls, fecha_examen, fechas_ocupadas: List[datetime]) -> List[str]:
+        """
+        Regla pura, sin base: que impide anotarse a un examen en esta fecha.
+
+        `fechas_ocupadas` son las fecha_examen de las inscripciones que el alumno
+        ya tiene y que no estan de baja. Se separo de la consulta para poder
+        evaluarla en lote en la pantalla de examenes habilitados.
+        """
+        if fecha_examen is None:
+            return []
+
+        motivos = []
+
+        mismo_dia = [f for f in fechas_ocupadas if f.date() == fecha_examen.date()]
+        if mismo_dia:
+            motivos.append(
+                f"Ya tenes un examen el {fecha_examen.strftime('%d/%m/%Y')}. "
+                "No se puede rendir mas de uno por dia."
+            )
+
+        periodo = cls._periodo_de(fecha_examen)
+        del_periodo = [f for f in fechas_ocupadas if cls._periodo_de(f) == periodo]
+        if len(del_periodo) >= cls.MAX_EXAMENES_POR_PERIODO:
+            motivos.append(
+                f"Ya estas anotado a {len(del_periodo)} examenes en "
+                f"{fecha_examen.strftime('%m/%Y')}. El maximo es "
+                f"{cls.MAX_EXAMENES_POR_PERIODO} por periodo."
+            )
+
+        return motivos
+
+    @staticmethod
+    def _fechas_ocupadas(alumno_id: int, session: Session) -> List[datetime]:
+        """Fechas de examen que el alumno ya tiene tomadas, en una consulta."""
+        filas = session.exec(
+            select(InstanciaExamen.fecha_examen)
+            .join(
+                InscripcionExamen,
+                InscripcionExamen.instancia_examen_id == InstanciaExamen.id,
+            )
+            .join(
+                InscripcionMateria,
+                InscripcionExamen.inscripcion_materia_id == InscripcionMateria.id,
+            )
+            .where(
+                InscripcionMateria.alumno_id == alumno_id,
+                col(InscripcionExamen.estado).in_(
+                    InscripcionExamenService._ESTADOS_QUE_OCUPAN_LUGAR
+                ),
+            )
+        ).all()
+        return [fecha for fecha in filas if fecha is not None]
+
     def inscribir_examen(
         self,
         inscripcion_materia_id: int,
@@ -53,6 +134,8 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
           - No debe tener otra inscripcion INSCRIPTO en la misma instancia
           - La instancia debe estar activa (salvo bypass_periodo para admin)
           - La materia debe tener politica_examen_id
+          - No mas de MAX_EXAMENES_POR_PERIODO en el mismo periodo, y no dos
+            examenes el mismo dia. Estas dos NO tienen bypass.
         """
         # 1. Validar inscripcion materia
         inscripcion = session.exec(
@@ -89,6 +172,16 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         ).first()
         if duplicado:
             raise ValueError("Ya existe una inscripcion pendiente a examen en esta instancia")
+
+        # 3b. Limites del periodo. Van sin bypass a proposito: son reglas de la
+        # institucion sobre cuanto puede rendir un alumno, no sobre plazos
+        # administrativos, asi que tampoco las puede saltear bedelia.
+        motivos_limite = self._evaluar_limites(
+            instancia.fecha_examen,
+            self._fechas_ocupadas(inscripcion.alumno_id, session),
+        )
+        if motivos_limite:
+            raise ValueError(" ".join(motivos_limite))
 
         # 4. Obtener materia via instancia_cursado y validar política de examen
         ic = session.get(InstanciaCursado, inscripcion.instancia_cursado_id)
@@ -459,6 +552,7 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
           - no tener ya una inscripcion INSCRIPTO en esa instancia
           - la materia debe tener politica de examen configurada
           - no haber agotado las oportunidades de rendicion
+          - no superar el tope de examenes del periodo ni tener otro el mismo dia
 
         Las previaturas no se validan aca a proposito: para llegar a A_EXAMEN el
         alumno tuvo que cursar la materia, y esa inscripcion ya las valido.
@@ -494,6 +588,7 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         )
         instancias_por_materia = self._instancias_abiertas(materia_ids, ahora, session)
         ya_inscripto_en = self._inscripciones_vigentes(inscripcion_ids, session)
+        fechas_ocupadas = self._fechas_ocupadas(alumno_id, session)
 
         resultado = []
         for insc, materia in filas:
@@ -515,6 +610,15 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
                     )
                 if ya_inscripto:
                     motivos.append("Ya estas inscripto a este examen")
+
+                # Limites del periodo. Si ya esta inscripto a ESTA instancia, su
+                # propia fecha figura entre las ocupadas y se chocaria consigo
+                # mismo: en ese caso el motivo relevante ya es "ya estas
+                # inscripto" y no hace falta evaluarlos.
+                if not ya_inscripto:
+                    motivos.extend(
+                        self._evaluar_limites(inst.fecha_examen, fechas_ocupadas)
+                    )
 
                 resultado.append({
                     "instancia_examen_id": inst.id,
