@@ -44,13 +44,29 @@ contra nuestra propia base y log de todo lo recibido.
 
 | Pregunta | Por qué importa |
 |---|---|
-| IPs de origen de los webhooks | Permite filtrar en el proxy y es la mitigación más efectiva si no hay firma |
+| IPs de origen de los webhooks | **Solo si no hay firma ni consulta.** Ver abajo |
 | ¿Reintentan ante error nuestro? ¿Cuántas veces? | Define si podemos responder 500 ante un fallo transitorio o tenemos que aceptar siempre y procesar después |
 | `merchant-secret-key` de producción | Sin esto no se puede salir a producción |
 | ¿`InvoiceNumber` tiene que ser único? | Define si lo generamos nosotros o lo puede repetir |
 | Rubro asignado a CTC | Determina si quedan habilitados Amex y Passcard (Ley 19.210) o Edenred (Ley 17.934) |
-| Plazos de acreditación y comisiones por medio de pago | Es información para administración, no técnica |
-| ¿Se puede personalizar la página con la marca de CTC? | Afecta la experiencia del alumno |
+
+### Por qué igual conviene pedir las IPs
+
+Puede que no las den, y es una pregunta que se hace igual. El motivo es que
+**si no hay firma ni endpoint de consulta, la lista de IPs es lo único que
+autentica de verdad.**
+
+Las otras mitigaciones —URL con segmento secreto, exigir que el
+`TransactionExternalId` exista en nuestra base— son *seguridad por oscuridad*:
+suben el costo del ataque, pero cualquiera que consiga la URL y un identificador
+válido entra igual. Filtrar por IP en el proxy sí bloquea.
+
+Queda planteada como condicional: si contestan que sí a la 1 o a la 2, la 3 deja
+de importar y no insistimos.
+
+**No se pregunta** por comisiones ni plazos de acreditación: eso se negoció
+directo con dirección. Tampoco por personalizar la página de pago — es una página
+hospedada por ellos, como la de MercadoPago, y queda como está.
 
 **Nota sobre el ambiente de pruebas:** el `merchant-secret-key` de testing viene
 publicado en el propio manual (`c80c2dca-ee4f-4cec-ace0-850747a5dcfa`), o sea que
@@ -95,8 +111,9 @@ SOBRE LAS NOTIFICACIONES (webhook)
    consulta. Nos sería muy útil para confirmar el estado contra Handy en
    lugar de depender únicamente de la notificación recibida.
 
-3. ¿Desde qué direcciones IP se emiten los webhooks? Nos permitiría
-   restringirlas a nivel de infraestructura.
+3. En caso de que no exista ninguna de las dos opciones anteriores:
+   ¿desde qué direcciones IP se emiten los webhooks? Nos permitiría
+   restringirlas a nivel de infraestructura como alternativa.
 
 4. Si nuestro endpoint responde con un error (por ejemplo un 500 por una
    caída momentánea), ¿reintentan el envío? ¿Cuántas veces y con qué
@@ -113,12 +130,6 @@ SOBRE LA PUESTA EN PRODUCCIÓN
 7. ¿Qué rubro tenemos asignado? Lo consultamos porque de eso depende si
    quedan habilitados Amex y Passcard (Ley 19.210) o Edenred
    (Ley 17.934).
-
-8. ¿Cuáles son los plazos de acreditación y las comisiones vigentes por
-   medio de pago?
-
-9. ¿Es posible personalizar la página de pago con la identidad visual de
-   CTC?
 
 Quedamos atentos. Cualquier consulta, respondemos por este medio.
 
