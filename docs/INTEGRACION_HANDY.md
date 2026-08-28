@@ -168,30 +168,85 @@ Mitigaciones que sí podemos aplicar:
 
 ---
 
-## Lo que hace falta decidir antes de escribir código
+## Decidido: conviven las dos pasarelas
 
-### Persistencia
+**MercadoPago se queda**, aunque no se use para cursos, y a futuro puede sumarse
+alguna más para vender al exterior.
+
+Eso cambia el diseño, y conviene tenerlo en cuenta ahora: no estamos integrando
+Handy, estamos **agregando el primer proveedor a un modelo de pagos que va a
+tener varios**. La diferencia se paga barata hoy y cara después.
+
+### Dónde sí abstraer y dónde no
+
+**Los datos, sí.** La tabla de pagos tiene que ser agnóstica del proveedor desde
+el día uno: agregarle una columna `proveedor` ahora no cuesta nada, y migrar
+después una tabla llena de pagos reales de `pago_handy` a un modelo genérico es
+un trabajo que nadie quiere hacer.
+
+**El código, no.** Nada de armar una interfaz de pasarelas ni un registry de
+proveedores con un solo proveedor real funcionando. Cada uno vive en su módulo
+bajo `external_services/`, con su cliente y su webhook, y el patrón común aparece
+solo cuando haya dos integraciones andando de verdad y se vea cuál es. Abstraer
+antes de eso es adivinar.
+
+Lo que sí conviene desde el principio es que los dos converjan en **el mismo
+estado interno**, para que el resto del sistema no tenga que saber quién cobró.
+
+### El identificador es lo que hace fácil la convivencia
+
+Handy usa `TransactionExternalId`, un GUID **que generamos nosotros**.
+MercadoPago tiene `external_reference`, que cumple exactamente el mismo rol.
+
+O sea que la clave de conciliación es nuestra en los dos casos: una fila en
+nuestra tabla, un identificador propio, y cada proveedor guarda además el suyo.
+Cualquier pasarela que sumemos después va a tener su equivalente.
+
+### Estados internos, no los del proveedor
+
+Handy maneja `0/1/2/3`; MercadoPago tiene los suyos. Guardar el código crudo del
+proveedor y además un estado normalizado nuestro:
+
+| Interno | Handy | Qué significa |
+|---|---|---|
+| `INICIADO` | 0 | Se creó el link, nadie pagó todavía |
+| `PENDIENTE` | 3 | Esperando pago offline (Redpagos, con vencimiento) |
+| `PAGADO` | 1 | Acreditado |
+| `FALLIDO` | 2 | Rechazado |
+| `DEVUELTO` | — | Llega por el webhook de devolución |
+
+Así, el día que se venda al exterior con otra pasarela, quien consulta si un
+curso está pago no cambia.
+
+---
+
+## Lo que falta decidir
+
+### Persistencia — propuesta
 
 Hoy **no hay ninguna tabla de pagos**: MercadoPago vive entero en
 `external_services/` y no persiste nada. Para Handy eso no alcanza — sin registro
 propio no hay forma de validar el webhook (mitigación 2) ni de conciliar.
 
-Hace falta al menos una tabla de intentos de pago con `TransactionExternalId`,
-monto, moneda, estado, qué se está comprando, a quién, y las marcas de tiempo.
-Más un log crudo de webhooks recibidos.
+Propuesta, a grandes rasgos:
 
-> **Esto es una propuesta, no está aplicado.** Según la regla vigente en
+- **Tabla de intentos de pago**, agnóstica del proveedor: identificador propio,
+  `proveedor`, id del proveedor, monto, moneda, estado interno, estado crudo del
+  proveedor, qué se compra, quién compra, marcas de tiempo.
+- **Log crudo de webhooks recibidos**, aceptados y rechazados. Sin endpoint de
+  consulta en Handy, ese log es la única pista para conciliar cuando algo no
+  cierre.
+
+MercadoPago **no se toca ahora**. El día que se quiera, entra en la misma tabla
+sin cambiar el esquema — que es justamente el punto de hacerla agnóstica.
+
+> **Es una propuesta, no está aplicado.** Según la regla vigente en
 > [PENDIENTES_PRODUCCION.md](../PENDIENTES_PRODUCCION.md) no se toca el esquema
-> sin pedirlo antes. Cuando definamos el alcance lo escribo como migración y va a
-> la lista de pendientes.
-
-### Convivencia con MercadoPago
-
-Quedan las dos pasarelas. Hay que definir si el alumno elige, si se decide por
-tipo de producto, o si Handy reemplaza a MercadoPago para cursos y MercadoPago
-sigue para lo demás. Cambia el diseño de las rutas.
+> sin pedirlo antes. Cuando esté definido el alcance lo escribo como migración y
+> va a la lista de pendientes.
 
 ### Qué se vende
 
 El flujo actual de MercadoPago no está atado a `v2`. Si el pago tiene que
 habilitar una inscripción del Portal Académico, hay que definir ese vínculo.
+Es lo único que queda abierto.
