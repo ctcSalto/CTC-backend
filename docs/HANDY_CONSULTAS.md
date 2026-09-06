@@ -1,4 +1,8 @@
-# Handy — consultas para el lunes
+# Handy — consultas
+
+> **Estado al 06/09/2026:** el mail se envio. Nos derivaron al area de
+> integraciones y **todavia no hay respuesta**. Las preguntas 1 y 2 siguen
+> abiertas y son las que condicionan el diseño de seguridad.
 
 **Contacto:** `integraciones@handy.uy`
 (figura en el pie de las 18 páginas del manual del Botón de Pago y es el que la
