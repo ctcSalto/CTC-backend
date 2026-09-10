@@ -1,7 +1,11 @@
 # Integración con Handy — análisis previo
 
-Estado: **análisis, sin código**. Falta pedir credenciales de producción y
-decidir el modelo de datos. Escrito el 28/08/2026 sobre los manuales oficiales.
+Estado al 10/09/2026: **sin código todavía, pero sin bloqueos externos.**
+Handy respondió las consultas ([HANDY_RESPUESTAS.md](HANDY_RESPUESTAS.md)) y el
+ambiente de testing está disponible. Queda definir el modelo de datos.
+
+Escrito el 28/08/2026 sobre los manuales oficiales, actualizado con las
+respuestas.
 
 Fuentes leídas (los PDF, no la página):
 - Botón de Pago, manual de integración **v2.0** (30/09/2025)
@@ -119,6 +123,12 @@ por venta, solo con tarjeta (Redpagos y transferencias no admiten), tope UYU
 
 ## ⚠️ El problema de seguridad
 
+> **Actualizado 10/09/2026 — Handy respondió y confirmó el peor escenario.**
+> No hay firma, no hay endpoint de consulta, no publican IPs y **tampoco hay
+> reintentos**. Este último punto no estaba previsto y es el que más condiciona
+> el diseño: un webhook perdido no se recupera de ninguna forma.
+> Ver [HANDY_RESPUESTAS.md](HANDY_RESPUESTAS.md).
+
 **El webhook no viene firmado.** El manual v2.0 no menciona HMAC, firma, token ni
 ninguna validación de origen. Cualquiera que descubra la URL puede mandar un
 `Status: 1` y hacernos creer que un curso está pago.
@@ -137,27 +147,32 @@ Mitigaciones que sí podemos aplicar:
 3. **Idempotencia**: el mismo `TransactionExternalId` no puede acreditar dos veces.
 4. **Registrar todos los webhooks recibidos** en crudo, aceptados y rechazados.
    Sin poder consultar el estado, ese log es la única pista para conciliar.
-5. **Allowlist de IPs**, si Handy publica las suyas — hay que preguntar.
+5. ~~Allowlist de IPs~~ — **descartado:** Handy no publica un rango fijo.
+
+6. **El endpoint no puede devolver 500 nunca, ni ante un error nuestro.** Como no
+   hay reintentos, un error de nuestro lado cuesta el aviso de pago. Hay que
+   recibir, persistir en crudo, responder 200 y procesar después.
+
+7. **Informe de pagos pendientes** para bedelía: sin endpoint de consulta ni
+   reintentos, cotejar a mano contra el panel de Handy es el único mecanismo de
+   recuperación cuando se pierde un aviso.
 
 ---
 
-## Para preguntarle a Handy el lunes
+## Respuestas de Handy — recibidas
 
-**Seguridad (lo importante):**
-- [ ] ¿El webhook se puede firmar? ¿HMAC, header con secreto, mTLS, algo?
-- [ ] ¿Hay endpoint para **consultar el estado** de un pago por
-      `TransactionExternalId`? Sin eso no podemos verificar nada.
-- [ ] ¿Desde qué **IPs** salen los webhooks, para poder filtrar?
-- [ ] ¿Reintentan si respondemos 500? ¿Cuántas veces, con qué espera?
+Las consultas se enviaron y **Handy respondió el 10/09/2026**. El detalle
+completo, con el impacto de cada respuesta sobre el diseño, está en
+[HANDY_RESPUESTAS.md](HANDY_RESPUESTAS.md).
 
-**Operativo:**
-- [ ] `merchant-secret-key` de **producción** (la de testing está publicada en el
-      manual: `c80c2dca-ee4f-4cec-ace0-850747a5dcfa` — jamás reusarla)
-- [ ] ¿El `InvoiceNumber` tiene que ser único? ¿Lo validan?
-- [ ] ¿Rubro asignado a CTC? Define si quedan habilitados Amex y Passcard
-      (Ley 19.210) o Edenred (Ley 17.934)
-- [ ] ¿Cuándo se acredita la plata y con qué comisión por medio de pago?
-- [ ] ¿Se puede personalizar la página de pago con la marca de CTC?
+Lo que quedó definido:
+
+- **Sin firma de webhook.** La validación es contra nuestro propio registro.
+- **Sin endpoint de consulta.** Todo por callbacks.
+- **Sin IPs publicadas.**
+- **Sin reintentos** ante fallo de entrega. Lo más determinante del diseño.
+- Rubro: **escuela y servicios educativos** → Amex y Passcard sí, Edenred no.
+- El secret de producción se pide **después** de validar la integración en testing.
 
 **Ambiente de pruebas:**
 - Base testing: `https://api.payments.arriba.uy/api/v2`
