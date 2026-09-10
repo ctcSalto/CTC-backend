@@ -112,7 +112,7 @@ Los únicos problemas que golpean producción ahora mismo son de v1: el schedule
 
 ### Lista completa de migraciones a aplicar
 
-Develop está en **`f4a5b6c7d8e9`** (head). Cada una de estas ya corrió y se
+Develop está en **`a6b7c8d9e0f1`** (head). Cada una de estas ya corrió y se
 verificó ahí. En orden de cadena:
 
 | # | Revisión | Qué hace | Alcance |
@@ -123,6 +123,7 @@ verificó ahí. En orden de cadena:
 | 16 | `d2e3f4a5b6c7` | Tabla `excepcion_previatura` | v2 |
 | 17 | `e3f4a5b6c7d8` | Tabla `mesa_examen` + `instancia_examen.mesa_examen_id` | v2 |
 | 18 | `f4a5b6c7d8e9` | **`testimony.text` pasa a nullable** | **v1 — tabla que producción usa hoy** |
+| 19 | `a6b7c8d9e0f1` | Tablas `pago` y `pago_notificacion` | v2 |
 
 > **Ojo con la 18.** Es la única que toca una tabla de **v1**, o sea del sitio
 > público que ya está en producción con datos reales. Las otras cinco son todas
@@ -490,10 +491,10 @@ propuesta, con el motivo y el impacto, y esperar la decisión.
 
 ---
 
-## 📋 PROPUESTA — Tablas de pagos (Handy)
+## 19. `a6b7c8d9e0f1_pagos` — Tablas de pagos
 
-> **Estado: propuesta, sin migración escrita y sin aplicar.** Esperando el visto
-> bueno según la regla de arriba.
+> ✅ **Aprobada, escrita y aplicada en develop** (`f4a5b6c7d8e9` → `a6b7c8d9e0f1`).
+> Dos tablas nuevas, ninguna columna sobre tablas existentes. Sin backfill.
 
 ### Por qué es necesaria
 
@@ -575,10 +576,23 @@ para el informe de pendientes, `pago.alumno_id`,
 - `alumno_id` es la única FK a algo existente, y es nullable.
 - No toca v1 ni el esquema de v2 actual.
 
-**Pendiente de decisión:** si el pago debe habilitar automáticamente una
-inscripción del Portal Académico. Si la respuesta es sí, se agrega
-`inscripcion_programa_id` (nullable) a `pago`; si no, las dos tablas quedan
-desacopladas y el vínculo se resuelve a mano.
+**Decidido:** el pago **habilita la inscripción**. Se incluyó
+`pago.inscripcion_programa_id` (nullable, FK a `inscripcion_programa`). Es
+nullable porque al crear el cobro la inscripción todavía no existe: se completa
+cuando el pago se acredita.
+
+También se incluyó `pago.programa_id` (nullable): es lo que el comprador está
+comprando, y es lo que permite crear la inscripción automáticamente al acreditar.
+
+**Checklist:**
+- [ ] `\d pago` y `\d pago_notificacion` existen
+- [ ] `ix_pago_referencia_externa` es **unique** — es lo que sostiene la idempotencia
+- [ ] Los tipos `proveedorpago` y `estadopago` existen con sus labels en mayúscula
+
+> **Nota para quien aplique esta migración:** los enums usan
+> `postgresql.ENUM(..., create_type=False)` a propósito. Sin eso, `create_table`
+> intenta crear el tipo además del `.create()` explícito y la migración falla con
+> *"type proveedorpago already exists"*. Pasó al escribirla.
 
 #### Ya corregido: `testimony.text` era un bug real
 

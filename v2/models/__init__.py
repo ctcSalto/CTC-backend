@@ -36,3 +36,4 @@ from v2.models.inscripcion_programa import InscripcionPrograma
 from v2.models.inscripcion_examen import InscripcionExamen
 from v2.models.documento_usuario import DocumentoUsuario
 from v2.models.notificacion import NotificacionLog
+from v2.models.pago import Pago, PagoNotificacion

@@ -151,3 +151,26 @@ class TipoEventoProximo(str, Enum):
 class EstadoNotificacion(str, Enum):
     ENVIADA = "enviada"
     ERROR = "error"
+
+
+# ── Pagos ─────────────────────────────────────────────────────────────────────
+
+class ProveedorPago(str, Enum):
+    HANDY = "handy"
+    MERCADOPAGO = "mercadopago"
+
+
+class EstadoPago(str, Enum):
+    """
+    Estado interno, normalizado. Cada proveedor tiene su propio codigo y se
+    guarda aparte en `estado_proveedor`: asi el resto del sistema pregunta
+    "esta pago?" sin saber quien cobro.
+
+    Mapeo con Handy: 0 -> INICIADO, 3 -> PENDIENTE, 1 -> PAGADO, 2 -> FALLIDO.
+    DEVUELTO llega por el webhook de devolucion.
+    """
+    INICIADO = "iniciado"
+    PENDIENTE = "pendiente"
+    PAGADO = "pagado"
+    FALLIDO = "fallido"
+    DEVUELTO = "devuelto"
