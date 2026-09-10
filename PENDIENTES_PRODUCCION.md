@@ -488,6 +488,98 @@ la lista de este archivo crezca sola es exactamente lo que no queremos.
 Si aparece algo que parece necesitar un cambio de esquema: documentarlo acá como
 propuesta, con el motivo y el impacto, y esperar la decisión.
 
+---
+
+## 📋 PROPUESTA — Tablas de pagos (Handy)
+
+> **Estado: propuesta, sin migración escrita y sin aplicar.** Esperando el visto
+> bueno según la regla de arriba.
+
+### Por qué es necesaria
+
+Hoy no existe ninguna tabla de pagos: MercadoPago vive en `external_services/` y
+no persiste nada. Para Handy eso **no alcanza**, y no por prolijidad:
+
+- Handy **no firma** sus notificaciones. La única forma de validarlas es
+  contrastar contra un registro propio: que la operación exista, esté pendiente,
+  y el monto y la moneda coincidan.
+- Handy **no reintenta** si la entrega falla, y **no tiene endpoint de consulta**.
+  Sin registro propio, un aviso perdido no deja **ningún** rastro y el pago se
+  vuelve irrecuperable.
+
+Ver [docs/HANDY_RESPUESTAS.md](docs/HANDY_RESPUESTAS.md).
+
+### Diseño propuesto
+
+Dos tablas, **agnósticas del proveedor** desde el día uno — MercadoPago no se
+toca ahora, pero el día que se quiera entra en la misma tabla sin cambiar el
+esquema.
+
+**`pago`** — un intento de cobro
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int PK | |
+| `referencia_externa` | uuid, **unique** | El identificador que generamos nosotros. Es el `TransactionExternalId` de Handy y el `external_reference` de MercadoPago |
+| `proveedor` | enum | `HANDY`, `MERCADOPAGO` |
+| `proveedor_id` | str, null | Identificador del lado del proveedor, si lo devuelve |
+| `estado` | enum | `INICIADO`, `PENDIENTE`, `PAGADO`, `FALLIDO`, `DEVUELTO` |
+| `estado_proveedor` | str, null | El código crudo, sin interpretar |
+| `moneda` | int | ISO 4217: 858 UYU, 840 USD |
+| `monto_total` | Decimal | Con IVA |
+| `monto_gravado` | Decimal | Sin IVA |
+| `concepto` | str | Qué se está comprando |
+| `alumno_id` | int FK, **null** | Nullable a propósito: puede comprar alguien que todavía no es alumno |
+| `email_comprador` | str, null | Para poder contactar ante un problema |
+| `url_pago` | str, null | La que devuelve Handy |
+| `numero_factura` | int, null | `InvoiceNumber` |
+| `fecha_creacion` | datetime | |
+| `fecha_actualizacion` | datetime | |
+| `fecha_pago` | datetime, null | Cuándo se acreditó |
+| `fecha_vencimiento` | datetime, null | Solo Redpagos |
+| `medio_pago` | str, null | `IssuerName` |
+| `id_rastreo` | str, unique | Consistente con el resto de v2 |
+
+**`pago_notificacion`** — log crudo de todo lo recibido
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int PK | |
+| `pago_id` | int FK, **null** | Nullable: un aviso rechazado puede no corresponder a ningún pago nuestro |
+| `referencia_externa` | str | Lo que vino, sin validar |
+| `proveedor` | enum | |
+| `cuerpo` | JSON | El payload tal cual llegó |
+| `aceptada` | bool | |
+| `motivo_rechazo` | str, null | |
+| `ip_origen` | str, null | Para investigar patrones |
+| `fecha_recepcion` | datetime | |
+
+**Índices:** `pago.referencia_externa` (unique), `pago(estado, fecha_creacion)`
+para el informe de pendientes, `pago.alumno_id`,
+`pago_notificacion.referencia_externa` y `pago_notificacion.fecha_recepcion`.
+
+### Cómo sostiene las medidas de seguridad
+
+| Medida | Qué del diseño la sostiene |
+|---|---|
+| Validar el aviso | `referencia_externa` unique + `estado` + `monto_total` + `moneda` |
+| No acreditar dos veces | `estado` como máquina de estados: solo se acredita si está `INICIADO` o `PENDIENTE` |
+| Un solo cobro abierto por compra | Se busca un `pago` `INICIADO` vigente antes de crear uno nuevo. Resuelve el caso de los veinte clics |
+| Evidencia ante reclamos | `pago_notificacion` con el cuerpo crudo |
+| Informe de pendientes | Índice `(estado, fecha_creacion)` |
+| Alertas | Conteo de `aceptada = false` por ventana de tiempo |
+
+### Impacto
+
+- **Dos tablas nuevas, ninguna columna sobre tablas existentes.** Sin backfill.
+- `alumno_id` es la única FK a algo existente, y es nullable.
+- No toca v1 ni el esquema de v2 actual.
+
+**Pendiente de decisión:** si el pago debe habilitar automáticamente una
+inscripción del Portal Académico. Si la respuesta es sí, se agrega
+`inscripcion_programa_id` (nullable) a `pago`; si no, las dos tablas quedan
+desacopladas y el vínculo se resuelve a mano.
+
 #### Ya corregido: `testimony.text` era un bug real
 
 > ✅ Migración `f4a5b6c7d8e9`, aplicada y verificada en develop.
