@@ -599,6 +599,13 @@ Verificar progreso de egreso en un programa.
 
 ---
 
+### GET `/mi-historico`
+Legajo historico del estudiante: lo que bedelia tenia en la planilla de
+escolaridades antes del portal (2004-2026). Se busca por `usuario.documento`.
+No requiere perfil de alumno. Ver `docs/HISTORICO_ESCOLARIDADES.md`.
+- **Response 200:** misma forma que `GET /v2/admin/historico/alumnos/{cedula}` (seccion 17.b)
+- **Response 404:** el usuario no tiene documento cargado, o no figura en el historico
+
 ## 3. Portal Docente
 
 **Prefijo:** `/v2/portal/docente`
@@ -1592,6 +1599,75 @@ Historico de examenes tomados por cualquier docente. Misma respuesta que
 
 ---
 
+## 17.b Admin - Historico de escolaridades (legajo)
+
+**Prefijo:** `/v2/admin/historico`
+**Auth:** Bearer Token (rol `administrativo`)
+
+Consulta de la planilla de escolaridades que bedelia llevaba antes del portal:
+39 planes, 2.941 personas, 13.624 actas (2004-2026), en tablas propias sin FK
+al resto del esquema. **Solo lectura**: no hay POST/PATCH/DELETE. Los datos se
+cargan con `v2/scripts/importar_historico.py`. Detalle completo, con las reglas
+del resumen y ejemplos de respuesta, en `docs/HISTORICO_ESCOLARIDADES.md`.
+
+### GET `/alumnos`
+Buscar personas.
+- **Query params:** `q` (cedula con o sin puntos, o parte del nombre sin distinguir acentos; min. 2), `plan` (codigo exacto, ej. `AP 2011`), `solo_con_resultados` (bool, default false), `limit` (1-200, default 50), `offset`
+- **Response 200:** `{total, limit, offset, items: [{id, cedula, nombre, plan_declarado, planes: [str], cantidad_resultados, primera_fecha, ultima_fecha}]}`
+
+### GET `/alumnos/{cedula}`
+El legajo: datos de la persona, resumen por plan y todas las actas ordenadas por fecha.
+- **Path:** `cedula` (con o sin puntos y guion)
+- **Response 200:**
+```json
+{
+  "alumno": {"id": 812, "cedula": "41234567", "nombre": "PEREZ GOMEZ JUAN", "plan_declarado": "AP 2011",
+             "zona": "11AP", "direccion": "...", "localidad": "SALTO", "departamento": "15",
+             "telefono": "...", "celular": "...", "email": "...", "observaciones": null},
+  "planes": [
+    {"plan": "AP 2011", "carrera": "Analista Programador", "creditos_requeridos": 15,
+     "creditos_aprobados": 12, "creditos_revalidados": 0, "promedio": 78.5,
+     "cantidad_resultados": 18, "por_resultado": {"APR": 10, "EXO": 3, "ELI": 5},
+     "materias_aprobadas": ["BASES DE DATOS 1", "PROGRAMACION 1"],
+     "primera_fecha": "2011-07-15", "ultima_fecha": "2014-12-15"}
+  ],
+  "resultados": [
+    {"id": 5012, "plan": "AP 2011", "carrera": "Analista Programador",
+     "materia": "PROGRAMACION 1", "docente": "APELLIDO, NOMBRE",
+     "fecha": "2011-07-15", "fecha_texto": null,
+     "tipo_evaluacion": "CUR", "tipo_evaluacion_descripcion": "Cursada",
+     "resultado": "EXO", "resultado_descripcion": "Exonerado",
+     "puntaje": 90, "puntaje_promedio": 90, "credito": "T",
+     "acta": "2376", "proyecto": null, "observaciones": null, "otorga_credito": true}
+  ],
+  "codigos": {"tipo_evaluacion": {"CUR": "Cursada", "...": "..."},
+              "resultado": {"APR": "Aprobado", "...": "..."},
+              "credito": {"T": "Credito total", "P": "..."}}
+}
+```
+- **Response 404:** no hay legajo para esa cedula
+
+El resumen por plan reproduce el certificado de escolaridad que emitia bedelia
+(credito = examen o taller con >= 70, cursada exonerada o revalida; el promedio
+cuenta los eliminados con 0 y no cuenta las cursadas aprobadas que esperan
+examen). `otorga_credito` viene calculado por fila.
+
+### GET `/planes`
+Catalogo de planes con conteos, para el filtro.
+- **Response 200:** `[{id, codigo, carrera, creditos_requeridos, cantidad_alumnos, cantidad_resultados, primera_fecha, ultima_fecha}]`
+
+### GET `/materias`
+Nombres de materia distintos, para el filtro.
+- **Query params:** `plan` (opcional, codigo exacto)
+- **Response 200:** `[{materia, cantidad}]`
+
+### GET `/resultados`
+Buscar actas sin pasar por el alumno ("quienes rindieron X en tal fecha", "que hay en el acta 2961").
+- **Query params:** `cedula`, `plan`, `materia` (parte del nombre), `tipo_evaluacion`, `resultado`, `acta`, `desde`, `hasta` (YYYY-MM-DD), `limit` (1-500, default 100), `offset`
+- **Response 200:** `{total, limit, offset, items}`; cada item es una fila como las del legajo mas `alumno: {id, cedula, nombre}`. De la mas reciente a la mas vieja.
+
+---
+
 ## 18. Enums y valores posibles
 
 ### RolUsuario
@@ -1657,6 +1733,11 @@ Con varias inscripciones en la materia previa (recursadas) alcanza con que
 `"formula_69a"` | `"escolaridad"` | `"constancia_convenio"` | `"cedula"` | `"titulo"` | `"otro"`
 
 ---
+
+### Codigos del historico de escolaridades (texto, no enum)
+- `tipo_evaluacion`: `CUR` (cursada), `EXA` (examen), `TALLER`, `REV` (revalida), `DIP` (diploma)
+- `resultado`: `APR`, `EXO`, `ELI` (eliminado), `NSP` (no se presento), `REV`, `EXA` (a examen), `PEND`
+- `credito`: `T` (total), `P` (parcial: cursada aprobada con examen pendiente)
 
 ## Errores comunes
 

@@ -14,6 +14,7 @@ from v2.models.calificacion import CalificacionRead
 from v2.models.inscripcion_examen import InscripcionExamenRead
 from v2.models.documento_usuario import DocumentoUsuarioRead
 from v2.models.enums import TipoDocumento
+from v2.models.historico import LegajoHistoricoRead
 
 router = APIRouter(
     prefix="/v2/portal/estudiante",
@@ -182,6 +183,31 @@ async def mi_escolaridad(
     return v2_services.inscripcionService.get_escolaridad(
         alumno.id, programa_id, session
     )
+
+
+@router.get(
+    "/mi-historico",
+    response_model=LegajoHistoricoRead,
+    summary="Legajo historico del estudiante",
+    description="Lo que bedelia tenia en la planilla de escolaridades antes del "
+                "portal, buscado por el documento del usuario. 404 si el usuario no "
+                "tiene documento cargado o no figura en el historico. No requiere "
+                "perfil de alumno: un egresado de hace 15 años tampoco lo tiene.",
+)
+async def mi_historico(
+    current_usuario: UsuarioRead = Depends(require_estudiante),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    if not current_usuario.documento:
+        raise HTTPException(
+            status_code=404,
+            detail="No tenes documento cargado en tu usuario. Pedile a bedelia que lo agregue.",
+        )
+    legajo = v2_services.historicoService.legajo_por_documento(session, current_usuario.documento)
+    if not legajo:
+        raise HTTPException(status_code=404, detail="No hay legajo historico para tu documento")
+    return legajo
 
 
 @router.get("/materias-disponibles")

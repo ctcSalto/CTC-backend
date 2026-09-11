@@ -480,6 +480,17 @@ materias pendientes.
 
 ---
 
+### GET `/mi-historico`
+
+El legajo de antes del portal: la planilla de escolaridades que bedelia llevaba
+desde 2004. Se resuelve por el documento del usuario, y **no necesita perfil de
+alumno**: un egresado de hace 15 años que entra con su cuenta institucional
+puede verlo.
+
+Misma respuesta que `GET /v2/admin/historico/alumnos/{cedula}` (seccion 4).
+`404` si el usuario no tiene documento cargado o no figura en el historico; en
+los dos casos el `detail` dice cual fue.
+
 ## 3. Portal Docente
 
 **Prefijo:** `/v2/portal/docente` · **Rol:** `docente` o `administrativo`
@@ -599,6 +610,40 @@ mismo schema. Los tipos y los componentes se reusan tal cual.
 
 Ese `{alumno_id}` es el id del **perfil de alumno**, no el de usuario. Sale de
 `GET /v2/admin/usuarios/alumnos` (campo `id` del item; `usuario_id` es el otro).
+
+### Historico de escolaridades (legajo)
+
+Una pestaña nueva, **de solo consulta**, con lo que bedelia llevaba en la
+planilla de escolaridades antes del portal: 2.941 personas y 13.624 actas
+entre 2004 y 2026, en planes que ya no existen. Va aparte de programas y
+materias vigentes a proposito.
+
+```http
+GET /v2/admin/historico/alumnos?q=&plan=&solo_con_resultados=&limit=&offset=   -> listado
+GET /v2/admin/historico/alumnos/{cedula}                                          -> legajo
+GET /v2/admin/historico/planes                                                    -> filtro de plan
+GET /v2/admin/historico/materias?plan=                                            -> filtro de materia
+GET /v2/admin/historico/resultados?materia=&acta=&desde=&hasta=&...               -> buscar actas
+```
+
+Lo que conviene saber antes de armar la pantalla:
+
+- **La cedula es el identificador estable.** Los `id` cambian si se reimporta
+  la planilla; no guardarlos.
+- **El legajo trae todo junto**: persona, un resumen por plan (creditos
+  aprobados / requeridos, promedio, desglose por resultado) y las actas
+  ordenadas por fecha. Una sola llamada para la pantalla.
+- `otorga_credito` viene calculado por fila: marcar esas en la tabla.
+- `codigos` trae los diccionarios para mostrar `CUR` como "Cursada", etc. No
+  hardcodearlos.
+- Los datos de contacto son del sistema viejo y pueden estar desactualizados.
+  `zona` es un codigo que parece ser año de ingreso + carrera; mostrarlo como
+  secundario o no mostrarlo.
+- No hay edicion ni la va a haber: un error se corrige en la planilla y se
+  reimporta.
+
+Formas de respuesta, reglas del resumen y una propuesta de pantalla en
+`docs/HISTORICO_ESCOLARIDADES.md`.
 
 ### GET `/v2/admin/usuarios/docentes`
 

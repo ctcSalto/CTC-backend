@@ -112,8 +112,9 @@ Los únicos problemas que golpean producción ahora mismo son de v1: el schedule
 
 ### Lista completa de migraciones a aplicar
 
-Develop está en **`f4a5b6c7d8e9`** (head). Cada una de estas ya corrió y se
-verificó ahí. En orden de cadena:
+Develop está en **`a7b8c9d0e1f2`** (head de la rama `develop`; ver la nota
+sobre la rama `Handy` más abajo). Cada una de estas ya corrió y se verificó
+ahí. En orden de cadena:
 
 | # | Revisión | Qué hace | Alcance |
 |---|---|---|---|
@@ -123,9 +124,10 @@ verificó ahí. En orden de cadena:
 | 16 | `d2e3f4a5b6c7` | Tabla `excepcion_previatura` | v2 |
 | 17 | `e3f4a5b6c7d8` | Tabla `mesa_examen` + `instancia_examen.mesa_examen_id` | v2 |
 | 18 | `f4a5b6c7d8e9` | **`testimony.text` pasa a nullable** | **v1 — tabla que producción usa hoy** |
+| 19 | `a7b8c9d0e1f2` | Tablas `historico_plan`, `historico_alumno`, `historico_resultado` (legajo de la planilla de escolaridades) | v2 |
 
 > **Ojo con la 18.** Es la única que toca una tabla de **v1**, o sea del sitio
-> público que ya está en producción con datos reales. Las otras cinco son todas
+> público que ya está en producción con datos reales. Las otras seis son todas
 > de v2, que está apagado (`V2_ENABLED=false`), así que su riesgo es cero
 > mientras eso siga así. La 18 corrige un 500 real y solo relaja una
 > restricción — no cambia datos — pero merece leerse antes de aplicarla.
@@ -332,6 +334,60 @@ que es reversible sin perder filas.
 
 ---
 
+### 19. `a7b8c9d0e1f2_historico` — Histórico de escolaridades (legajo)
+
+> ✅ **Ya corrió y se verificó en develop** (`f4a5b6c7d8e9` → `a7b8c9d0e1f2`),
+> y los datos ya están cargados ahí. Pedida el 11/09/2026.
+
+Tres tablas nuevas, **sin FK hacia ninguna tabla existente**: `historico_plan`,
+`historico_alumno`, `historico_resultado`. Guardan la planilla
+`Escolaridades ver 2023.xlsm` que bedelía llevaba antes del portal (39 planes,
+2.941 personas, 13.624 actas, 2004–2026). Son de solo lectura y se consultan
+desde `/v2/admin/historico/*` y `/v2/portal/estudiante/mi-historico`. Los
+códigos son `VARCHAR`, no enum: son los códigos históricos de bedelía y no se van
+a extender. Todo el detalle en `docs/HISTORICO_ESCOLARIDADES.md`.
+
+Solo tablas nuevas: sin impacto en datos existentes.
+
+**La migración crea las tablas vacías. Los datos se cargan aparte**, con la
+planilla guardada sin contraseña (no está en el repo: tiene datos personales y
+está cifrada; pedírsela a bedelía o a Ezequiel):
+
+```bash
+python -m v2.scripts.importar_historico "ruta/Escolaridades.xlsx" --dry-run   # informa, no escribe
+python -m v2.scripts.importar_historico "ruta/Escolaridades.xlsx"             # carga
+```
+
+**Checklist:**
+- [ ] `alembic upgrade head` crea las tres tablas
+- [ ] Correr el importador con `--dry-run` y comparar con develop: 13.624 actas, 2.941 personas, 39 planes, 0 planes sin catálogo
+- [ ] Correr sin `--dry-run`
+- [ ] `GET /v2/admin/historico/planes` devuelve 39 filas
+- [ ] Si la planilla se actualizó desde el 11/09/2026, los números van a ser otros: el informe del script dice qué descartó y por qué
+
+#### La rama `Handy` y los dos heads de Alembic
+
+La rama `Handy` tiene su propia migración, `a6b7c8d9e0f1_pagos`, que **también
+sale de `f4a5b6c7d8e9`**. O sea que `develop` y `Handy` tienen cada una un head
+distinto, y al mergear Handy en develop van a quedar **dos heads**. Hace falta
+una revisión de merge antes de que `alembic upgrade head` vuelva a funcionar:
+
+```bash
+alembic merge -m "merge historico y pagos" a7b8c9d0e1f2 a6b7c8d9e0f1
+```
+
+Mientras tanto, **la base de develop ya tiene las dos aplicadas** (la de pagos
+se corrió desde la rama Handy el 10/09/2026, la del histórico desde develop el
+11/09/2026, trayendo temporalmente el archivo de pagos para que Alembic
+reconociera la versión). `alembic current` desde `develop` va a fallar con
+*"Can't locate revision a6b7c8d9e0f1"* hasta que se haga el merge: es esperable,
+no es un problema de la base.
+
+Producción no tiene ninguna de las dos todavía, así que ahí no hay nada que
+destrabar: se aplica la cadena completa después del merge.
+
+---
+
 ## Cambios hechos a mano en develop (NO viajan por alembic)
 
 **Esto es lo que hay que replicar o decidir aparte**, porque ninguna migración lo
@@ -477,8 +533,10 @@ Esto incluye:
 - `ALTER` / `DROP` a mano
 - relajar o endurecer restricciones, aunque sea "solo" un `NOT NULL`
 
-Lo que ya está aplicado en develop y listado arriba (migraciones 13 a 18) queda
-como está; la regla es hacia adelante.
+Lo que ya está aplicado en develop y listado arriba (migraciones 13 a 19) queda
+como está; la regla es hacia adelante. La 19 (histórico) se hizo a pedido
+expreso del 11/09/2026 — *"me parece mejor guardarlos en una o unas tablas
+aparte"* — y no toca ninguna tabla existente.
 
 **Por qué:** el esquema de v1 sostiene el sitio público, que ya está en
 producción con datos reales. Y aunque v2 esté apagado, cada cambio de estructura
