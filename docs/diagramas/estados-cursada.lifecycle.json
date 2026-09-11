@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Estados de una cursada",
+    "subtitle": "Como cierra una materia segun la nota de curso",
+    "output": "docs/diagramas/estados-cursada.html",
+    "viewBox": [
+      1030,
+      760
+    ],
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "Cursada"
+    },
+    {
+      "id": "cierre",
+      "label": "Cierre por nota"
+    },
+    {
+      "id": "terminal",
+      "label": "Cierre administrativo"
+    }
+  ],
+  "states": [
+    {
+      "id": "cursando",
+      "type": "start",
+      "label": "Cursando",
+      "sublabel": "acumula notas",
+      "lane": "main",
+      "col": 0,
+      "step": "01",
+      "tag": "entrada"
+    },
+    {
+      "id": "a_examen",
+      "type": "waiting",
+      "label": "A examen",
+      "sublabel": "70 a 85",
+      "lane": "main",
+      "col": 2,
+      "step": "02"
+    },
+    {
+      "id": "aprobado",
+      "type": "success",
+      "label": "Aprobado",
+      "sublabel": "rindio y aprobo",
+      "lane": "main",
+      "col": 4,
+      "step": "03"
+    },
+    {
+      "id": "exonerado",
+      "type": "success",
+      "label": "Exonerado",
+      "sublabel": "86 o mas, sin examen",
+      "lane": "cierre",
+      "col": 0,
+      "step": "04"
+    },
+    {
+      "id": "reprobado",
+      "type": "failure",
+      "label": "Reprobado",
+      "sublabel": "menos de 70",
+      "lane": "cierre",
+      "col": 2,
+      "step": "05"
+    },
+    {
+      "id": "cierre_admin",
+      "type": "neutral",
+      "label": "Cierre de bedelia",
+      "sublabel": "baja o inasistencia",
+      "lane": "terminal",
+      "col": 1,
+      "step": "06"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "t-examen",
+      "from": "cursando",
+      "to": "a_examen",
+      "label": "70 a 85",
+      "variant": "emphasis"
+    },
+    {
+      "id": "t-aprueba",
+      "from": "a_examen",
+      "to": "aprobado",
+      "label": "aprueba",
+      "variant": "emphasis"
+    },
+    {
+      "id": "t-exonera",
+      "from": "cursando",
+      "to": "exonerado",
+      "label": "86 o mas",
+      "variant": "emphasis",
+      "route": "drop"
+    },
+    {
+      "id": "t-reprueba-examen",
+      "from": "a_examen",
+      "to": "reprobado",
+      "label": "agota oportunidades",
+      "variant": "default",
+      "route": "drop"
+    },
+    {
+      "id": "t-admin",
+      "from": "cursando",
+      "to": "cierre_admin",
+      "label": "faltas / baja",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "left",
+      "via": [
+        [
+          40,
+          157
+        ],
+        [
+          40,
+          479
+        ]
+      ],
+      "labelAt": [
+        118,
+        330
+      ]
+    }
+  ]
+}
