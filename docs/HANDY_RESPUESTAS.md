@@ -139,3 +139,27 @@ O sea que el orden es: integrar contra testing → confirmarles → recibir el s
 
 **No quedan bloqueos externos para empezar.** El ambiente de testing está
 disponible y documentado, y el alcance de la validación ya está definido.
+
+---
+
+## Hallazgo de la primera llamada real (11/09/2026)
+
+Se probo `POST /payments` contra el ambiente de testing con el secret publico
+del manual. **Handy acepto el payload y devolvio el link de pago**, asi que el
+contrato del cliente esta validado.
+
+Pero aparecio algo que el manual no dice:
+
+| Header enviado | Content-Type de respuesta | `r.json()` devuelve |
+|---|---|---|
+| sin `Accept` | `text/plain` | un dict, JSON limpio |
+| `Accept: application/json` | `application/json` | **un string** que a su vez es JSON |
+
+Con `Accept: application/json` Handy responde el JSON **doblemente codificado**
+(comportamiento tipico de .NET Web API con negociacion de contenido). El cliente
+ya no manda ese header, y ademas tolera la doble codificacion por si vuelve a
+aparecer. Los dos casos tienen test.
+
+Es exactamente el tipo de cosa que solo se descubre contra la API real, y la
+razon por la que el paso siguiente —el webhook de entrada— tambien hay que
+probarlo de verdad y no solo con el doble.

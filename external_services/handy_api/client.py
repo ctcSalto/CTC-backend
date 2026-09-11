@@ -17,6 +17,7 @@ validada la integracion en testing.
 Sin SDK: Handy no publica uno para Python. Se usa `requests` directo, como el
 cliente de n8n.
 """
+import json
 import os
 from dataclasses import dataclass
 from decimal import Decimal
@@ -64,10 +65,13 @@ class HandyClient:
         return bool(self.base_url and self.merchant_secret)
 
     def _headers(self) -> dict:
+        # Sin Accept a proposito. Probado contra el ambiente de testing el
+        # 11/09/2026: con "Accept: application/json" Handy responde el JSON
+        # doblemente codificado (un string JSON adentro de un JSON), y sin el
+        # responde text/plain con el JSON limpio. El manual no lo menciona.
         return {
             "merchant-secret-key": self.merchant_secret,
             "Content-Type": "application/json",
-            "Accept": "application/json",
         }
 
     def crear_pago(
@@ -176,9 +180,22 @@ class HandyClient:
             )
 
         try:
-            return r.json()
+            datos = r.json()
         except ValueError:
             raise HandyError(
                 f"Handy respondio algo que no es JSON en {metodo} {ruta}",
                 status_code=r.status_code, cuerpo=r.text[:500],
             )
+
+        # Handy a veces devuelve el JSON doblemente codificado: r.json() da un
+        # string que a su vez es JSON. Se tolera por si vuelve a pasar aunque
+        # ya no se mande el header Accept que lo disparaba.
+        if isinstance(datos, str):
+            try:
+                datos = json.loads(datos)
+            except ValueError:
+                raise HandyError(
+                    f"Handy respondio un string que no es JSON en {metodo} {ruta}",
+                    status_code=r.status_code, cuerpo=r.text[:500],
+                )
+        return datos

@@ -70,6 +70,14 @@ class TestContratoConHandy:
         crear(cliente)
         assert capturar["headers"]["merchant-secret-key"] == "secreto-de-testing"
 
+    def test_no_manda_accept(self, cliente, capturar):
+        """
+        Probado contra testing el 11/09/2026: con Accept: application/json,
+        Handy devuelve el JSON doblemente codificado. Sin el header, JSON limpio.
+        """
+        crear(cliente)
+        assert "Accept" not in capturar["headers"]
+
     def test_la_forma_del_cart(self, cliente, capturar):
         """Los nombres de campo son los del manual, con su capitalizacion."""
         crear(cliente)
@@ -141,6 +149,24 @@ class TestErroresDeHandy:
     def test_respuesta_sin_url(self, cliente, capturar):
         capturar["_responder"] = RespuestaFalsa(200, {"message": True})
         with pytest.raises(HandyError, match="sin la URL"):
+            crear(cliente)
+
+    def test_json_doblemente_codificado_se_tolera(self, cliente, capturar):
+        """
+        Lo que Handy devuelve si se le manda Accept: un string JSON adentro de
+        un JSON. Se parsea dos veces. Es el bug que aparecio en la primera
+        llamada real.
+        """
+        import json as _json
+        doble = _json.dumps(_json.dumps({"url": "https://pago.arriba.uy?sessionId=M_doble"}))
+        capturar["_responder"] = RespuestaFalsa(200, _json.loads(doble), text=doble)
+
+        link = crear(cliente)
+        assert link.url == "https://pago.arriba.uy?sessionId=M_doble"
+
+    def test_string_que_no_es_json(self, cliente, capturar):
+        capturar["_responder"] = RespuestaFalsa(200, "esto no es json", text='"esto no es json"')
+        with pytest.raises(HandyError, match="string que no es JSON"):
             crear(cliente)
 
     def test_respuesta_que_no_es_json(self, cliente, capturar):
