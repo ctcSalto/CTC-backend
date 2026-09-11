@@ -1,8 +1,16 @@
 # Integración con Handy — análisis previo
 
-Estado al 10/09/2026: **sin código todavía, pero sin bloqueos externos.**
-Handy respondió las consultas ([HANDY_RESPUESTAS.md](HANDY_RESPUESTAS.md)) y el
-ambiente de testing está disponible. Queda definir el modelo de datos.
+Estado al 10/09/2026: **integración implementada, pendiente de probar contra
+el ambiente de testing de Handy.**
+
+Hecho: tablas (`pago`, `pago_notificacion`), cliente HTTP, servicio con la
+máquina de estados y las validaciones, webhook, endpoints de alumno y admin,
+informes, 53 tests. Detalle de endpoints en
+[v2/API_ENDPOINTS_V2.md §16.b](../v2/API_ENDPOINTS_V2.md). Variables de entorno
+en [PENDIENTES_PRODUCCION.md](../PENDIENTES_PRODUCCION.md).
+
+Falta: correr un cobro real contra testing con las tarjetas del manual, y con
+eso pedirle a Handy el secret de producción.
 
 Escrito el 28/08/2026 sobre los manuales oficiales, actualizado con las
 respuestas.

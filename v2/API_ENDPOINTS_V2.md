@@ -26,6 +26,7 @@
 14. [Admin - Inscripciones](#14-admin---inscripciones)
 15. [Admin - Examenes](#15-admin---examenes)
 16. [Admin - Documentos](#16-admin---documentos)
+    - [16.b Pagos (Handy)](#16b-pagos-handy)
 17. [Admin - Usuarios](#17-admin---usuarios)
 18. [Enums y valores posibles](#18-enums-y-valores-posibles)
 
@@ -1493,6 +1494,119 @@ Eliminar documento (soft delete). **Response 204**
 - Correccion de rotacion EXIF
 - Redimensionado a max 2000px
 - PDFs se guardan sin modificar
+
+---
+
+## 16.b Pagos (Handy)
+
+Cobro de programas con el Botón de Pago de Handy. Hoy es el único proveedor
+implementado; el modelo es agnóstico y MercadoPago puede entrar después sin
+cambiar el esquema.
+
+**Contexto que condiciona todo:** Handy no firma las notificaciones, no reintenta
+si la entrega falla y no tiene endpoint para consultar el estado de un pago. Ver
+[docs/HANDY_RESPUESTAS.md](../docs/HANDY_RESPUESTAS.md).
+
+### Estados de un pago
+
+| `estado` | Significado |
+|---|---|
+| `iniciado` | Se generó el link, nadie pagó todavía |
+| `pendiente` | Esperando pago offline (Redpagos, con `fecha_vencimiento`) |
+| `pagado` | Acreditado. Si tenía alumno y programa, la inscripción ya está creada |
+| `fallido` | Rechazado, o no se pudo generar el link |
+| `devuelto` | Devolución confirmada por Handy |
+
+`estado_proveedor` guarda el código crudo de Handy (`0`/`1`/`2`/`3`), sin
+interpretar.
+
+### POST `/v2/portal/estudiante/pagos`
+**Auth:** rol `estudiante`. Inicia el pago de un programa para el alumno
+logueado. `alumno_id` y `email_comprador` salen del token: el alumno no puede
+elegir a quién se le cobra.
+
+- **Body:**
+```json
+{
+  "moneda": 858,
+  "monto_total": 5000.00,
+  "monto_gravado": 4098.36,
+  "concepto": "Curso de Analista Programador",
+  "programa_id": 3
+}
+```
+- `moneda` es ISO 4217 numérico: `858` UYU, `840` USD. `monto_total` es con IVA;
+  `monto_gravado` sin IVA (0 si está exento).
+- **Response 201:** `PagoRead`, con `url_pago` cargada. **Redirigir al alumno a
+  esa URL.** El link sirve una sola vez.
+- **Un solo cobro abierto por compra:** si ya hay un intento `iniciado` de menos
+  de 30 minutos para el mismo alumno y programa, devuelve ese en vez de crear
+  otro. Veinte clics no generan veinte links.
+- **Error 400:** programa inexistente, o Handy no respondió (queda un pago
+  `fallido` con `estado_proveedor: "error_creacion"`).
+
+### GET `/v2/portal/estudiante/pagos`
+**Auth:** rol `estudiante`. Los pagos del alumno logueado, más recientes primero.
+
+### POST `/v2/admin/pagos`
+**Auth:** rol `administrativo`. Igual que el del alumno pero eligiendo a quién
+se le cobra. Para ventas que no arrancan en el portal —por ejemplo, alguien que
+llega desde el CRM y todavía no es alumno.
+
+- `alumno_id` es **opcional**. Sin él, al acreditarse el pago queda `pagado`
+  **sin inscripción** y aparece en el informe correspondiente para vincularlo a
+  mano cuando exista el alumno.
+- `email_comprador` conviene mandarlo si no hay alumno: es la única forma de
+  contactar ante un problema, y es lo que se usa para no duplicar cobros.
+
+### GET `/v2/admin/pagos/{pago_id}` — Detalle
+### GET `/v2/admin/pagos/{pago_id}/notificaciones` — Avisos recibidos
+
+Todo lo que Handy mandó sobre ese pago, aceptado o rechazado, con el cuerpo
+crudo. Es la evidencia ante un reclamo.
+
+### GET `/v2/admin/pagos/informes/pendientes?horas=2`
+Cobros `iniciado` o `pendiente` hace más de N horas. **Es el insumo del único
+mecanismo de recuperación que existe:** Handy no reintenta ni permite consultar,
+así que un aviso perdido solo se descubre cotejando esta lista contra el panel
+de Handy.
+
+### GET `/v2/admin/pagos/informes/sin-inscripcion`
+Pagos `pagado` de un programa que no tienen alumno asociado. Hay que crear el
+alumno y vincular la inscripción a mano.
+
+### GET `/v2/admin/pagos/informes/rechazos?horas=24`
+`{ "horas": 24, "rechazos": 3 }`. Un número alto es la señal de que alguien
+está probando la ruta del webhook.
+
+### POST `/v2/pagos/handy/webhook/{secreto}` — Webhook
+
+**Público, sin auth.** Handy no manda credenciales. No figura en `/docs`.
+
+- El `{secreto}` tiene que coincidir con `HANDY_WEBHOOK_SECRETO`; si no, `404`
+  sin más información.
+- **Siempre responde `200`**, incluso ante un error interno. Como Handy no
+  reintenta, un `500` nuestro costaría el aviso. El cuerpo se persiste **antes**
+  de procesar; si el procesamiento falla, queda registrado con el motivo y lo
+  encuentra el informe de pendientes.
+- Un aviso se **acepta** solo si el `TransactionExternalId` existe en nuestra
+  base, la transición de estado es válida, y `TotalAmount` y `Currency` coinciden
+  con lo que originamos. Cualquier otra cosa se **rechaza y se registra** con
+  `pago_id` nulo si la referencia no es nuestra.
+- **Idempotente:** el mismo aviso dos veces se acepta sin efecto. Una
+  transición inválida (`pagado` → `iniciado`) se rechaza.
+- Al pasar a `pagado` con alumno y programa, crea la `InscripcionPrograma` (o
+  vincula la activa existente, sin duplicar) y guarda su id en
+  `inscripcion_programa_id`.
+
+Transiciones válidas:
+
+```
+iniciado  → pendiente | pagado | fallido
+pendiente → pagado | fallido
+pagado    → devuelto
+fallido, devuelto: terminales
+```
 
 ---
 

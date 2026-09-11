@@ -679,6 +679,38 @@ FIRST_ADMIN_DOCUMENT=    # opcional
 FIRST_ADMIN_PHONE=       # opcional
 ```
 
+### Handy — Botón de Pago (nuevas)
+
+```bash
+# Testing: https://api.payments.arriba.uy/api/v2 con el secret publicado en el
+# manual (c80c2dca-ee4f-4cec-ace0-850747a5dcfa), que es compartido y publico.
+# Produccion: https://api.payments.handy.uy/api/v2 con el secret que entrega
+# Handy DESPUES de validar la integracion en testing. Nunca reusar el de testing.
+HANDY_BASE_URL=https://api.payments.handy.uy/api/v2
+HANDY_MERCHANT_SECRET=
+
+# Segmento secreto de la ruta del webhook. Handy no firma los avisos ni publica
+# IPs: esto es lo unico que separa la ruta de un scanner. Generar con
+#   openssl rand -hex 32
+# y usar uno DISTINTO en cada ambiente. Sin esta variable el webhook rechaza
+# todo (cerrado por defecto).
+HANDY_WEBHOOK_SECRETO=
+
+# A donde vuelve el comprador al terminar, y el nombre del comercio en la
+# pagina de pago. Si HANDY_SITE_URL no esta, se usa BASE_URL.
+HANDY_SITE_URL=https://ctcsalto.edu.uy
+HANDY_COMMERCE_NAME=CTC Salto
+HANDY_TIMEOUT=30
+```
+
+La URL de callback que se le manda a Handy en cada cobro es
+`{BASE_URL}/v2/pagos/handy/webhook/{HANDY_WEBHOOK_SECRETO}`. **`BASE_URL` tiene
+que ser la pública**, la que Handy puede alcanzar desde afuera.
+
+> **`V2_ENABLED` tiene que estar en `true`** para que exista la ruta del webhook:
+> vive bajo `/v2` porque el pago habilita una inscripción de v2. Sin eso, Handy
+> manda el aviso, recibe 404, y **no reintenta**.
+
 ### Google OAuth 2.0
 ```bash
 GOOGLE_CLIENT_ID=
