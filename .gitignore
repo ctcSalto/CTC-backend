@@ -40,6 +40,8 @@ SKILL.md
 # Excel / VBA (datos locales)
 *.xlsx
 *.vba
+# Salvo la planilla de carga inicial que se le mando a bedelia (referencia)
+!docs/carga_inicial/*.xlsx
 
 # Frontend
 frontend/node_modules/
