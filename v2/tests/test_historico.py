@@ -91,17 +91,24 @@ class TestResumirPlan:
         assert r.por_resultado == {"APR": 9, "EXO": 1, "ELI": 10}
         assert r.creditos_requeridos == 15
 
-    def test_las_revalidas_no_mueven_el_promedio(self):
+    def test_el_divisor_es_el_de_la_hoja_aunque_de_cero(self):
         """
-        La hoja hacia SUM(K)/(SUM(I)-SUM(J)) y restaba dos veces las revalidas
-        de tipo REV (I ya no las contaba): con estas tres filas daba #DIV/0!.
-        Aca la revalida ni suma ni resta: el promedio es el del examen.
+        F11 = SUM(K)/(SUM(I)-SUM(J)). J resta TODA fila con resultado REV,
+        incluso la de tipo REV que I ya no contaba. Con estas tres filas la
+        hoja da #DIV/0!; aca, None. Se dejo asi a pedido de bedelia (11/09/2026):
+        el numero tiene que ser el mismo que el del Excel.
         """
         filas = [fila("EXA", "APR", 80), fila("CUR", "REV", 0), fila("REV", "REV", 0)]
         r = resumir_plan(filas, HistoricoPlan(codigo="P"))
-        assert r.promedio == 80.0
+        assert r.promedio is None
         assert r.creditos_revalidados == 2
         assert r.creditos_aprobados == 2  # el EXA y la fila de tipo REV; la CUR+REV no
+
+    def test_una_revalida_de_cursada_sale_del_divisor(self):
+        """El caso normal: la CUR+REV cuenta en I y se resta en J. El promedio es el del examen."""
+        filas = [fila("EXA", "APR", 80), fila("CUR", "REV", 0)]
+        r = resumir_plan(filas, HistoricoPlan(codigo="P"))
+        assert r.promedio == 80.0
 
     def test_sin_filas_que_promedien(self):
         r = resumir_plan([fila("CUR", "APR", 80)], HistoricoPlan(codigo="P"))

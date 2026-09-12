@@ -136,12 +136,13 @@ antes:
 | Revalidado | Resultado `REV` | |
 | Promedio | `Σ nota / (filas que cuentan − revalidadas)` | |
 
-**Una corrección respecto de la hoja:** al restar las revalidadas del divisor,
-la hoja restaba *todas* las filas con resultado `REV`, incluso las de tipo `REV`
-que ya no había contado. El divisor quedaba chico y el promedio, inflado: pasaba
-en 27 de 1.457 pares alumno-plan, y en uno daba `#DIV/0!`. Acá se restan solo
-las revalidadas que sí se habían contado. Si bedelía prefiere reproducir el
-número viejo tal cual, es un cambio de una línea en `resumir_plan`.
+**Es la fórmula de la hoja tal cual, con su rareza incluida:** al restar las
+revalidadas del divisor, la hoja resta *todas* las filas con resultado `REV`,
+incluso las de tipo `REV` que ya no había contado. En 27 de 1.457 pares
+alumno-plan eso deja el divisor más chico de lo que "debería", y en uno lo
+deja en 0 (`#DIV/0!` en la hoja; `promedio: null` acá). **Se decidió dejarlo
+así el 11/09/2026**: el número tiene que ser el mismo que bedelía tiene en su
+Excel y en los certificados que ya emitió.
 
 Verificado contra el certificado que estaba armado en la planilla (una
 alumna de AP 2022): 6 créditos, 0 revalidados, promedio 30,375. Da lo

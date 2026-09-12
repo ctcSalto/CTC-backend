@@ -70,11 +70,13 @@ def resumir_plan(filas: List[HistoricoResultado], plan: HistoricoPlan) -> Resume
     """
     Los totales del certificado para un plan: creditos, revalidas y promedio.
 
-    El promedio es SUM(Ctrol4) / (SUM(Ctrl2) - revalidas), como en la hoja, con
-    una correccion: la hoja restaba TODAS las filas con resultado REV, incluso
-    las de tipo REV que Ctrl2 ya no contaba, y asi el divisor quedaba chico y
-    el promedio inflado (27 de 1457 pares alumno-plan de la planilla; en uno
-    daba #DIV/0!). Aca se restan solo las revalidas que si se habian contado.
+    El promedio es la formula F11 de la hoja, tal cual:
+    SUM(Ctrol4) / (SUM(Ctrl2) - SUM(Ctrol3)). Se resta toda fila con resultado
+    REV, incluso las de tipo REV que Ctrl2 ya no contaba: eso achica el divisor
+    en 27 de los 1457 pares alumno-plan de la planilla y en uno lo deja en 0
+    (#DIV/0! en la hoja, None aca). Se decidio dejarlo asi el 11/09/2026 para
+    que el numero sea el mismo que bedelia tiene en su Excel y en los
+    certificados que ya emitio.
     """
     creditos = revalidados = numerador = denominador = 0
     por_resultado: Dict[str, int] = defaultdict(int)
@@ -85,14 +87,14 @@ def resumir_plan(filas: List[HistoricoResultado], plan: HistoricoPlan) -> Resume
         e = evaluar_fila(f.tipo_evaluacion, f.resultado, f.puntaje_promedio)
         creditos += e["otorga_credito"]
         revalidados += e["revalidado"]
+        denominador += e["cuenta_promedio"]
         numerador += e["nota_promedio"]
-        if e["cuenta_promedio"] and not e["revalidado"]:
-            denominador += 1
         por_resultado[f.resultado or "SIN_RESULTADO"] += 1
         if e["otorga_credito"] and f.materia not in materias_aprobadas:
             materias_aprobadas.append(f.materia)
 
-    promedio = round(numerador / denominador, 2) if denominador > 0 else None
+    divisor = denominador - revalidados
+    promedio = round(numerador / divisor, 2) if divisor > 0 else None
 
     return ResumenPlanRead(
         plan=plan.codigo,
