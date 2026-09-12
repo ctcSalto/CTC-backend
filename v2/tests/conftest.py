@@ -29,6 +29,7 @@ from v2.models.calificacion import Calificacion
 from v2.models.previatura import Previatura
 from v2.models.excepcion_previatura import ExcepcionPreviatura
 from v2.models.mesa_examen import MesaExamen
+from v2.models.pago import Pago, PagoNotificacion
 from v2.models.docente_materia import DocenteMateria
 from v2.models.periodo_inscripcion_materia import PeriodoInscripcionMateria
 from v2.models.enums import (

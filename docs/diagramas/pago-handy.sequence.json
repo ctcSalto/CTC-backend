@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Cobro de un curso con Handy",
+    "subtitle": "Desde que el alumno paga hasta que queda inscripto",
+    "output": "docs/diagramas/pago-handy.html",
+    "viewBox": [900, 800],
+    "quality_profile": "standard"
+  },
+  "participants": [
+    { "id": "alumno", "type": "external", "label": "Alumno", "sublabel": "navegador" },
+    { "id": "api", "type": "backend", "label": "Backend CTC", "sublabel": "FastAPI" },
+    { "id": "db", "type": "database", "label": "Base de datos", "sublabel": "pago / inscripcion" },
+    { "id": "handy", "type": "cloud", "label": "Handy", "sublabel": "Boton de Pago" }
+  ],
+  "segments": [
+    { "from": 150, "to": 410, "label": "1. Iniciar el cobro" },
+    { "from": 430, "to": 475, "label": "2. El alumno paga en Handy" },
+    { "from": 495, "to": 730, "label": "3. Aviso, validacion e inscripcion" }
+  ],
+  "messages": [
+    { "from": "alumno", "to": "api", "y": 180, "label": "POST /portal/estudiante/pagos", "variant": "emphasis" },
+    { "from": "api", "to": "db", "y": 222, "label": "pago INICIADO, referencia propia", "variant": "default" },
+    { "from": "api", "to": "handy", "y": 264, "label": "POST /payments", "variant": "emphasis" },
+    { "from": "handy", "to": "api", "y": 306, "label": "url del link de pago", "variant": "return" },
+    { "from": "api", "to": "db", "y": 348, "label": "guarda url_pago", "variant": "default" },
+    { "from": "api", "to": "alumno", "y": 390, "label": "201 + url_pago", "variant": "return" },
+
+    { "from": "alumno", "to": "handy", "y": 452, "label": "redirect: paga con tarjeta o Redpagos", "variant": "emphasis" },
+
+    { "from": "handy", "to": "api", "y": 520, "label": "POST webhook, Status = 1 (sin firma)", "variant": "dashed" },
+    { "from": "api", "to": "db", "y": 562, "label": "guarda el aviso crudo, commit", "variant": "emphasis" },
+    { "from": "api", "to": "db", "y": 604, "label": "valida referencia, monto y moneda; PAGADO", "variant": "default" },
+    { "from": "api", "to": "db", "y": 646, "label": "crea InscripcionPrograma y la vincula", "variant": "emphasis" },
+    { "from": "api", "to": "handy", "y": 688, "label": "200 (siempre, Handy no reintenta)", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "api", "from": 174, "to": 396, "type": "backend" },
+    { "participant": "handy", "from": 258, "to": 312, "type": "cloud" },
+    { "participant": "handy", "from": 446, "to": 526, "type": "cloud" },
+    { "participant": "api", "from": 514, "to": 694, "type": "backend" }
+  ]
+}

@@ -112,9 +112,9 @@ Los únicos problemas que golpean producción ahora mismo son de v1: el schedule
 
 ### Lista completa de migraciones a aplicar
 
-Develop está en **`a7b8c9d0e1f2`** (head de la rama `develop`; ver la nota
-sobre la rama `Handy` más abajo). Cada una de estas ya corrió y se verificó
-ahí. En orden de cadena:
+Develop está en **`b8c9d0e1f2a3`** (head único, la revisión de merge que junta
+`develop` y `Handy`; ver la nota más abajo). Cada una de estas ya corrió y se
+verificó ahí. En orden de cadena:
 
 | # | Revisión | Qué hace | Alcance |
 |---|---|---|---|
@@ -125,9 +125,11 @@ ahí. En orden de cadena:
 | 17 | `e3f4a5b6c7d8` | Tabla `mesa_examen` + `instancia_examen.mesa_examen_id` | v2 |
 | 18 | `f4a5b6c7d8e9` | **`testimony.text` pasa a nullable** | **v1 — tabla que producción usa hoy** |
 | 19 | `a7b8c9d0e1f2` | Tablas `historico_plan`, `historico_alumno`, `historico_resultado` (legajo de la planilla de escolaridades) | v2 |
+| 20 | `a6b7c8d9e0f1` | Tablas `pago` y `pago_notificacion` (Handy) | v2 |
+| 21 | `b8c9d0e1f2a3` | Revisión de merge de 19 y 20. **No-op**: no toca nada | — |
 
 > **Ojo con la 18.** Es la única que toca una tabla de **v1**, o sea del sitio
-> público que ya está en producción con datos reales. Las otras seis son todas
+> público que ya está en producción con datos reales. Las demás son todas
 > de v2, que está apagado (`V2_ENABLED=false`), así que su riesgo es cero
 > mientras eso siga así. La 18 corrige un 500 real y solo relaja una
 > restricción — no cambia datos — pero merece leerse antes de aplicarla.
@@ -365,26 +367,17 @@ python -m v2.scripts.importar_historico "ruta/Escolaridades.xlsx"             # 
 - [ ] `GET /v2/admin/historico/planes` devuelve 39 filas
 - [ ] Si la planilla se actualizó desde el 11/09/2026, los números van a ser otros: el informe del script dice qué descartó y por qué
 
-#### La rama `Handy` y los dos heads de Alembic
+#### 21. `b8c9d0e1f2a3_merge_historico_y_pagos` — Revisión de merge (no-op)
 
-La rama `Handy` tiene su propia migración, `a6b7c8d9e0f1_pagos`, que **también
-sale de `f4a5b6c7d8e9`**. O sea que `develop` y `Handy` tienen cada una un head
-distinto, y al mergear Handy en develop van a quedar **dos heads**. Hace falta
-una revisión de merge antes de que `alembic upgrade head` vuelva a funcionar:
+> ✅ **Ya aplicada en develop** el 11/09/2026, al mergear la rama `Handy`.
 
-```bash
-alembic merge -m "merge historico y pagos" a7b8c9d0e1f2 a6b7c8d9e0f1
-```
+La 19 (histórico) y la 20 (pagos) se escribieron en ramas distintas y las dos
+salen de `f4a5b6c7d8e9`, así que al juntar las ramas Alembic quedó con dos
+heads. Esta revisión los une y **no toca el esquema**: `upgrade()` y
+`downgrade()` están vacíos.
 
-Mientras tanto, **la base de develop ya tiene las dos aplicadas** (la de pagos
-se corrió desde la rama Handy el 10/09/2026, la del histórico desde develop el
-11/09/2026, trayendo temporalmente el archivo de pagos para que Alembic
-reconociera la versión). `alembic current` desde `develop` va a fallar con
-*"Can't locate revision a6b7c8d9e0f1"* hasta que se haga el merge: es esperable,
-no es un problema de la base.
-
-Producción no tiene ninguna de las dos todavía, así que ahí no hay nada que
-destrabar: se aplica la cadena completa después del merge.
+En producción no requiere nada especial: `alembic upgrade head` aplica la 19,
+la 20 y después esta, en ese orden o en el inverso, da igual.
 
 ---
 
@@ -546,6 +539,111 @@ la lista de este archivo crezca sola es exactamente lo que no queremos.
 Si aparece algo que parece necesitar un cambio de esquema: documentarlo acá como
 propuesta, con el motivo y el impacto, y esperar la decisión.
 
+---
+
+### 20. `a6b7c8d9e0f1_pagos` — Tablas de pagos
+
+> ✅ **Aprobada, escrita y aplicada en develop** (`f4a5b6c7d8e9` → `a6b7c8d9e0f1`).
+> Dos tablas nuevas, ninguna columna sobre tablas existentes. Sin backfill.
+
+### Por qué es necesaria
+
+Hoy no existe ninguna tabla de pagos: MercadoPago vive en `external_services/` y
+no persiste nada. Para Handy eso **no alcanza**, y no por prolijidad:
+
+- Handy **no firma** sus notificaciones. La única forma de validarlas es
+  contrastar contra un registro propio: que la operación exista, esté pendiente,
+  y el monto y la moneda coincidan.
+- Handy **no reintenta** si la entrega falla, y **no tiene endpoint de consulta**.
+  Sin registro propio, un aviso perdido no deja **ningún** rastro y el pago se
+  vuelve irrecuperable.
+
+Ver [docs/HANDY_RESPUESTAS.md](docs/HANDY_RESPUESTAS.md).
+
+### Diseño propuesto
+
+Dos tablas, **agnósticas del proveedor** desde el día uno — MercadoPago no se
+toca ahora, pero el día que se quiera entra en la misma tabla sin cambiar el
+esquema.
+
+**`pago`** — un intento de cobro
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int PK | |
+| `referencia_externa` | uuid, **unique** | El identificador que generamos nosotros. Es el `TransactionExternalId` de Handy y el `external_reference` de MercadoPago |
+| `proveedor` | enum | `HANDY`, `MERCADOPAGO` |
+| `proveedor_id` | str, null | Identificador del lado del proveedor, si lo devuelve |
+| `estado` | enum | `INICIADO`, `PENDIENTE`, `PAGADO`, `FALLIDO`, `DEVUELTO` |
+| `estado_proveedor` | str, null | El código crudo, sin interpretar |
+| `moneda` | int | ISO 4217: 858 UYU, 840 USD |
+| `monto_total` | Decimal | Con IVA |
+| `monto_gravado` | Decimal | Sin IVA |
+| `concepto` | str | Qué se está comprando |
+| `alumno_id` | int FK, **null** | Nullable a propósito: puede comprar alguien que todavía no es alumno |
+| `email_comprador` | str, null | Para poder contactar ante un problema |
+| `url_pago` | str, null | La que devuelve Handy |
+| `numero_factura` | int, null | `InvoiceNumber` |
+| `fecha_creacion` | datetime | |
+| `fecha_actualizacion` | datetime | |
+| `fecha_pago` | datetime, null | Cuándo se acreditó |
+| `fecha_vencimiento` | datetime, null | Solo Redpagos |
+| `medio_pago` | str, null | `IssuerName` |
+| `id_rastreo` | str, unique | Consistente con el resto de v2 |
+
+**`pago_notificacion`** — log crudo de todo lo recibido
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int PK | |
+| `pago_id` | int FK, **null** | Nullable: un aviso rechazado puede no corresponder a ningún pago nuestro |
+| `referencia_externa` | str | Lo que vino, sin validar |
+| `proveedor` | enum | |
+| `cuerpo` | JSON | El payload tal cual llegó |
+| `aceptada` | bool | |
+| `motivo_rechazo` | str, null | |
+| `ip_origen` | str, null | Para investigar patrones |
+| `fecha_recepcion` | datetime | |
+
+**Índices:** `pago.referencia_externa` (unique), `pago(estado, fecha_creacion)`
+para el informe de pendientes, `pago.alumno_id`,
+`pago_notificacion.referencia_externa` y `pago_notificacion.fecha_recepcion`.
+
+### Cómo sostiene las medidas de seguridad
+
+| Medida | Qué del diseño la sostiene |
+|---|---|
+| Validar el aviso | `referencia_externa` unique + `estado` + `monto_total` + `moneda` |
+| No acreditar dos veces | `estado` como máquina de estados: solo se acredita si está `INICIADO` o `PENDIENTE` |
+| Un solo cobro abierto por compra | Se busca un `pago` `INICIADO` vigente antes de crear uno nuevo. Resuelve el caso de los veinte clics |
+| Evidencia ante reclamos | `pago_notificacion` con el cuerpo crudo |
+| Informe de pendientes | Índice `(estado, fecha_creacion)` |
+| Alertas | Conteo de `aceptada = false` por ventana de tiempo |
+
+### Impacto
+
+- **Dos tablas nuevas, ninguna columna sobre tablas existentes.** Sin backfill.
+- `alumno_id` es la única FK a algo existente, y es nullable.
+- No toca v1 ni el esquema de v2 actual.
+
+**Decidido:** el pago **habilita la inscripción**. Se incluyó
+`pago.inscripcion_programa_id` (nullable, FK a `inscripcion_programa`). Es
+nullable porque al crear el cobro la inscripción todavía no existe: se completa
+cuando el pago se acredita.
+
+También se incluyó `pago.programa_id` (nullable): es lo que el comprador está
+comprando, y es lo que permite crear la inscripción automáticamente al acreditar.
+
+**Checklist:**
+- [ ] `\d pago` y `\d pago_notificacion` existen
+- [ ] `ix_pago_referencia_externa` es **unique** — es lo que sostiene la idempotencia
+- [ ] Los tipos `proveedorpago` y `estadopago` existen con sus labels en mayúscula
+
+> **Nota para quien aplique esta migración:** los enums usan
+> `postgresql.ENUM(..., create_type=False)` a propósito. Sin eso, `create_table`
+> intenta crear el tipo además del `.create()` explícito y la migración falla con
+> *"type proveedorpago already exists"*. Pasó al escribirla.
+
 #### Ya corregido: `testimony.text` era un bug real
 
 > ✅ Migración `f4a5b6c7d8e9`, aplicada y verificada en develop.
@@ -630,6 +728,38 @@ FIRST_ADMIN_PASSWORD=
 FIRST_ADMIN_DOCUMENT=    # opcional
 FIRST_ADMIN_PHONE=       # opcional
 ```
+
+### Handy — Botón de Pago (nuevas)
+
+```bash
+# Testing: https://api.payments.arriba.uy/api/v2 con el secret publicado en el
+# manual (c80c2dca-ee4f-4cec-ace0-850747a5dcfa), que es compartido y publico.
+# Produccion: https://api.payments.handy.uy/api/v2 con el secret que entrega
+# Handy DESPUES de validar la integracion en testing. Nunca reusar el de testing.
+HANDY_BASE_URL=https://api.payments.handy.uy/api/v2
+HANDY_MERCHANT_SECRET=
+
+# Segmento secreto de la ruta del webhook. Handy no firma los avisos ni publica
+# IPs: esto es lo unico que separa la ruta de un scanner. Generar con
+#   openssl rand -hex 32
+# y usar uno DISTINTO en cada ambiente. Sin esta variable el webhook rechaza
+# todo (cerrado por defecto).
+HANDY_WEBHOOK_SECRETO=
+
+# A donde vuelve el comprador al terminar, y el nombre del comercio en la
+# pagina de pago. Si HANDY_SITE_URL no esta, se usa BASE_URL.
+HANDY_SITE_URL=https://ctcsalto.edu.uy
+HANDY_COMMERCE_NAME=CTC Salto
+HANDY_TIMEOUT=30
+```
+
+La URL de callback que se le manda a Handy en cada cobro es
+`{BASE_URL}/v2/pagos/handy/webhook/{HANDY_WEBHOOK_SECRETO}`. **`BASE_URL` tiene
+que ser la pública**, la que Handy puede alcanzar desde afuera.
+
+> **`V2_ENABLED` tiene que estar en `true`** para que exista la ruta del webhook:
+> vive bajo `/v2` porque el pago habilita una inscripción de v2. Sin eso, Handy
+> manda el aviso, recibe 404, y **no reintenta**.
 
 ### Google OAuth 2.0
 ```bash

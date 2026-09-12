@@ -20,6 +20,8 @@ venv/
 credentials/
 *.json
 !package.json
+# Fuentes de los diagramas: no son credenciales
+!docs/diagramas/*.json
 
 # OS files
 .DS_Store

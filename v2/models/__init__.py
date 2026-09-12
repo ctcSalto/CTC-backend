@@ -37,3 +37,4 @@ from v2.models.inscripcion_examen import InscripcionExamen
 from v2.models.documento_usuario import DocumentoUsuario
 from v2.models.notificacion import NotificacionLog
 from v2.models.historico import HistoricoPlan, HistoricoAlumno, HistoricoResultado
+from v2.models.pago import Pago, PagoNotificacion

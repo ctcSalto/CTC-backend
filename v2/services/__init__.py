@@ -22,6 +22,7 @@ from v2.services.proximos_eventos_service import ProximosEventosService
 from v2.services.excepcion_previatura_service import ExcepcionPreviaturaService
 from v2.services.mesa_examen_service import MesaExamenService
 from v2.services.historico_service import HistoricoService
+from v2.services.pago_service import PagoService
 
 
 class V2Services:
@@ -35,6 +36,7 @@ class V2Services:
         self.excepcionPreviaturaService = ExcepcionPreviaturaService()
         self.mesaExamenService = MesaExamenService()
         self.historicoService = HistoricoService()
+        self.pagoService = PagoService()
         self.instanciaEvaluacionService = InstanciaEvaluacionService()
         self.docenteMateriaService = DocenteMateriaService()
         self.periodoInscripcionService = PeriodoInscripcionService()

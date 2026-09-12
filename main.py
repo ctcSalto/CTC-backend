@@ -39,6 +39,7 @@ if V2_ENABLED:
         admin_excepciones as v2_admin_excepciones,
         admin_mesas_examen as v2_admin_mesas_examen,
         admin_historico as v2_admin_historico,
+        pagos as v2_pagos,
         inicio as v2_inicio,
     )
 
@@ -312,6 +313,7 @@ if V2_ENABLED:
     app.include_router(v2_admin_excepciones.router)
     app.include_router(v2_admin_mesas_examen.router)
     app.include_router(v2_admin_historico.router)
+    app.include_router(v2_pagos.router)
     app.include_router(v2_inicio.router)
 
 # CORS
