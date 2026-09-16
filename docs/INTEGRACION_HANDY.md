@@ -243,33 +243,103 @@ curso está pago no cambia.
 
 ---
 
-## Lo que falta decidir
+## Estado de la implementación (16/09/2026)
 
-### Persistencia — propuesta
+Todo lo de arriba está implementado y mergeado en `develop`:
 
-Hoy **no hay ninguna tabla de pagos**: MercadoPago vive entero en
-`external_services/` y no persiste nada. Para Handy eso no alcanza — sin registro
-propio no hay forma de validar el webhook (mitigación 2) ni de conciliar.
+| Qué | Dónde |
+|---|---|
+| Tablas `pago` y `pago_notificacion` | migración `a6b7c8d9e0f1`, aplicada en develop |
+| Cliente HTTP (crear link, devolver) | `external_services/handy_api/client.py` |
+| Máquina de estados, webhook, inscripción al pagar | `v2/services/pago_service.py` |
+| Endpoints de alumno, admin, informes y acciones | `v2/routes/pagos.py` |
+| Contrato de salida probado contra testing real | 11/09/2026 (ver `HANDY_RESPUESTAS.md`) |
+| Webhook de entrada probado de punta a punta | **pendiente** — ver abajo cómo |
 
-Propuesta, a grandes rasgos:
+MercadoPago sigue como estaba, en `external_services/`, sin tocar.
 
-- **Tabla de intentos de pago**, agnóstica del proveedor: identificador propio,
-  `proveedor`, id del proveedor, monto, moneda, estado interno, estado crudo del
-  proveedor, qué se compra, quién compra, marcas de tiempo.
-- **Log crudo de webhooks recibidos**, aceptados y rechazados. Sin endpoint de
-  consulta en Handy, ese log es la única pista para conciliar cuando algo no
-  cierre.
+---
 
-MercadoPago **no se toca ahora**. El día que se quiera, entra en la misma tabla
-sin cambiar el esquema — que es justamente el punto de hacerla agnóstica.
+## Operación: lo que hace bedelía
 
-> **Es una propuesta, no está aplicado.** Según la regla vigente en
-> [PENDIENTES_PRODUCCION.md](../PENDIENTES_PRODUCCION.md) no se toca el esquema
-> sin pedirlo antes. Cuando esté definido el alcance lo escribo como migración y
-> va a la lista de pendientes.
+Handy no reintenta ni permite consultar, así que hay tres situaciones que
+**no se resuelven solas** y para las que existe una acción en el panel de admin.
 
-### Qué se vende
+### Un cobro que quedó en `iniciado`
 
-El flujo actual de MercadoPago no está atado a `v2`. Si el pago tiene que
-habilitar una inscripción del Portal Académico, hay que definir ese vínculo.
-Es lo único que queda abierto.
+El alumno dice que pagó y en el portal figura iniciado. Causas posibles: no
+terminó de pagar, o pagó y el aviso se perdió (el servidor estaba reiniciando,
+un corte de red, etc.).
+
+1. `GET /v2/admin/pagos/informes/pendientes` lo lista.
+2. Se busca en el **panel de Handy** por fecha y monto (o por la referencia,
+   que Handy guarda como `TransactionExternalId`).
+3. Si en Handy está cobrado: `POST /v2/admin/pagos/{id}/conciliar` con
+   `{"estado": "pagado", "motivo": "…", "proveedor_id": "…"}`. Eso pasa el cobro
+   por la misma máquina de estados que un aviso real, **habilita la
+   inscripción**, y deja registrado quién lo hizo y por qué.
+4. Si en Handy no existe o figura rechazado: lo mismo con `"estado": "fallido"`.
+   El alumno vuelve a intentar y se genera otro link.
+
+Si el aviso de Handy llega después de conciliar, cae en "mismo estado, sin
+efecto": no duplica nada.
+
+### Una devolución
+
+`POST /v2/admin/pagos/{id}/devolver`. Solo para cobros en `pagado`. Handy
+acepta el pedido en el momento y **responde el resultado después por
+webhook**: el cobro pasa a `devuelto` recién cuando llega ese aviso. Mientras
+tanto queda `estado_proveedor = devolucion_solicitada` y no se puede pedir dos
+veces.
+
+Restricciones de Handy que el backend chequea antes de llamar: tope UYU
+10.000 / USD 250. Las que no puede chequear (una sola vez por venta, solo
+tarjeta) las rechaza Handy con un 400 que se devuelve tal cual.
+
+Si el aviso de la devolución se pierde, se concilia igual que un pago:
+`conciliar` con `"estado": "devuelto"`.
+
+### Un pago sin alumno
+
+Venta desde el CRM a alguien que todavía no tiene usuario. Queda `pagado` sin
+inscripción; `GET /v2/admin/pagos/informes/sin-inscripcion` lo lista. Se crea
+el alumno y se vincula a mano (no hay endpoint para eso todavía: se decide
+cuando esté el CRM).
+
+---
+
+## Cómo probar de punta a punta (testing)
+
+Lo único que no se puede probar con dobles es que **Handy alcance nuestro
+webhook**. Hace falta un backend con URL pública configurado con:
+
+```
+HANDY_BASE_URL=https://api.payments.arriba.uy/api/v2
+HANDY_MERCHANT_SECRET=<el de testing del manual>
+HANDY_WEBHOOK_SECRETO=<openssl rand -hex 32>
+BASE_URL=<URL pública del backend>
+V2_ENABLED=true
+```
+
+Y en la máquina desde la que se corre la prueba, las mismas cinco variables
+en el `.env` (`DATABASE_URL` apuntando a la **misma base** que ese backend, y
+el **mismo** `HANDY_WEBHOOK_SECRETO`: el callback lo lleva en la ruta).
+
+```bash
+# 1. Crea un cobro de $100 en la base y muestra el link de Handy
+python -m v2.scripts.probar_pago_handy
+
+# 2. Abrir el link y pagar con la tarjeta de prueba del manual de Handy
+#    (Mastercard de testing; el número está en el manual, no acá)
+
+# 3. Ver si el aviso llegó al backend público y qué hizo
+python -m v2.scripts.probar_pago_handy --estado <referencia>
+```
+
+Lo que tiene que pasar: el cobro queda `pagado`, con `medio_pago` cargado y un
+aviso `ACEPTADO` con `Status=1`. Si no llega nada en un minuto, lo primero que
+se revisa es `BASE_URL` (tiene que ser la pública, con `https://`) y que el
+secreto del webhook sea el mismo en los dos lados.
+
+Cuando eso funciona, se le confirma a Handy (`integraciones@handy.uy`) y se
+pide el secret de producción.

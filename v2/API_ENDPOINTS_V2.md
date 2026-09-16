@@ -1572,6 +1572,24 @@ llega desde el CRM y todavía no es alumno.
 Todo lo que Handy mandó sobre ese pago, aceptado o rechazado, con el cuerpo
 crudo. Es la evidencia ante un reclamo.
 
+### POST `/v2/admin/pagos/{pago_id}/conciliar` — Cerrar a mano un cobro cuyo aviso se perdió
+- **Body:** `{ "estado": "pagado" | "fallido" | "devuelto", "motivo": "…" (mín. 10), "proveedor_id": "…" (opcional) }`
+- **Response 200:** el pago actualizado (`PagoRead`)
+- **Response 400:** transición inválida, ya está en ese estado, o estado no conciliable
+- **Response 404:** el pago no existe
+
+Bedelía lo verifica en el panel de Handy y lo cierra acá. Pasa por la misma
+máquina de estados que un aviso real: `fallido` no vuelve a `pagado`, y a
+`pagado` **habilita la inscripción** igual que el webhook. Queda registrado en
+`/notificaciones` con `origen: conciliacion_manual`, el usuario y el motivo.
+
+### POST `/v2/admin/pagos/{pago_id}/devolver` — Pedir la devolución a Handy
+- **Response 200:** el pago, todavía en `pagado` con `estado_proveedor: devolucion_solicitada`
+- **Response 400:** no está en `pagado`, ya se pidió, supera el tope (UYU 10.000 / USD 250), o Handy la rechazó (el motivo viene en `detail`)
+
+El resultado llega **después por webhook**, que es el que pasa el cobro a
+`devuelto`. Una sola vez por venta y solo tarjeta (lo controla Handy).
+
 ### GET `/v2/admin/pagos/informes/pendientes?horas=2`
 Cobros `iniciado` o `pendiente` hace más de N horas. **Es el insumo del único
 mecanismo de recuperación que existe:** Handy no reintenta ni permite consultar,

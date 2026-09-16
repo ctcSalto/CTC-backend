@@ -194,6 +194,20 @@ class PagoCreate(SQLModel):
     email_comprador: Optional[str] = Field(default=None, max_length=255)
 
 
+class PagoConciliacion(SQLModel):
+    """
+    Lo que bedelia carga cuando un aviso de Handy se perdio y el estado real se
+    verifico a mano en el panel de Handy. El motivo es obligatorio: es el
+    registro de por que se toco el estado sin aviso del proveedor.
+    """
+    estado: EstadoPago = Field(description="PAGADO, FALLIDO o DEVUELTO, segun el panel de Handy")
+    motivo: str = Field(min_length=10, max_length=255, description="Que se verifico y donde")
+    proveedor_id: Optional[str] = Field(
+        default=None, max_length=100,
+        description="Id de la transaccion en el panel de Handy, si se tiene",
+    )
+
+
 class PagoRead(SQLModel):
     id: int
     referencia_externa: str

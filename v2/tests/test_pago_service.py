@@ -20,7 +20,8 @@ import os
 
 from sqlmodel import select
 
-from v2.models.pago import Pago, PagoNotificacion, PagoCreate
+from v2.models.pago import Pago, PagoNotificacion, PagoCreate, PagoConciliacion
+from v2.models.usuario import UsuarioRead
 from v2.models.inscripcion_programa import InscripcionPrograma
 from v2.models.enums import ProveedorPago, EstadoPago, EstadoInscripcionPrograma
 from v2.services.pago_service import PagoService, VENTANA_REUSO
@@ -48,7 +49,11 @@ class HandyFalso:
         return LinkDePago(url=f"https://pago.arriba.uy?sessionId=M_{kwargs['referencia_externa'][:8]}")
 
     def devolver_pago(self, referencia_externa, callback_url):
-        return {"IsSuccess": True}
+        self.devoluciones = getattr(self, "devoluciones", [])
+        self.devoluciones.append((referencia_externa, callback_url))
+        if self.fallar:
+            raise HandyError("Handy respondio 400: no se puede devolver", status_code=400)
+        return {"IsSuccess": True, "StatusCode": 200}
 
 
 @pytest.fixture(autouse=True)
@@ -440,6 +445,167 @@ class TestDevolucion:
 
         assert not resultado.aceptada
         assert "Transicion invalida" in resultado.motivo
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Conciliacion manual: lo que Handy no avisa lo cierra bedelia, con registro
+# ══════════════════════════════════════════════════════════════════════════════
+
+def como_admin(usuario_admin):
+    return UsuarioRead.model_validate(usuario_admin)
+
+
+def conciliacion(estado=EstadoPago.PAGADO, motivo="Verificado en el panel de Handy el 16/09", **extra):
+    return PagoConciliacion(estado=estado, motivo=motivo, **extra)
+
+
+class TestConciliacionManual:
+    """
+    El aviso se perdio (Handy no reintenta). Bedelia lo ve en pendientes, lo
+    verifica en el panel de Handy y lo cierra a mano. Tiene que comportarse
+    igual que si el aviso hubiera llegado, y dejar rastro de quien y por que.
+    """
+
+    def test_pagado_a_mano_habilita_la_inscripcion(self, session, servicio, programa, alumno, usuario_admin):
+        pago = servicio.iniciar_pago(pedido(programa, alumno), session)
+
+        pago = servicio.conciliar_manual(pago.id, conciliacion(), como_admin(usuario_admin), session)
+
+        assert pago.estado == EstadoPago.PAGADO
+        assert pago.estado_proveedor == "conciliacion_manual"
+        assert pago.fecha_pago is not None
+        inscripcion = session.get(InscripcionPrograma, pago.inscripcion_programa_id)
+        assert inscripcion.alumno_id == alumno.id and inscripcion.programa_id == programa.id
+
+    def test_queda_registrado_quien_y_por_que(self, session, servicio, programa, alumno, usuario_admin):
+        pago = servicio.iniciar_pago(pedido(programa, alumno), session)
+        servicio.conciliar_manual(
+            pago.id, conciliacion(proveedor_id="HANDY-778899"), como_admin(usuario_admin), session,
+        )
+
+        registros = session.exec(
+            select(PagoNotificacion).where(PagoNotificacion.pago_id == pago.id)
+        ).all()
+        assert len(registros) == 1
+        r = registros[0]
+        assert r.aceptada
+        assert r.cuerpo["origen"] == "conciliacion_manual"
+        assert r.cuerpo["usuario_email"] == usuario_admin.email
+        assert r.cuerpo["estado_anterior"] == "iniciado" and r.cuerpo["estado"] == "pagado"
+        assert "panel de Handy" in r.cuerpo["motivo"]
+        session.refresh(pago)
+        assert pago.proveedor_id == "HANDY-778899"
+
+    def test_fallido_a_mano(self, session, servicio, programa, alumno, usuario_admin):
+        pago = servicio.iniciar_pago(pedido(programa, alumno), session)
+        pago = servicio.conciliar_manual(
+            pago.id, conciliacion(EstadoPago.FALLIDO, "En el panel figura rechazada por el emisor"),
+            como_admin(usuario_admin), session,
+        )
+        assert pago.estado == EstadoPago.FALLIDO
+        assert pago.inscripcion_programa_id is None
+
+    def test_respeta_la_maquina_de_estados(self, session, servicio, programa, alumno, usuario_admin):
+        """Un FALLIDO no vuelve a PAGADO ni a mano: se crea otro cobro."""
+        pago = servicio.iniciar_pago(pedido(programa, alumno), session)
+        servicio.procesar_notificacion(aviso(pago, status=2), session)
+
+        with pytest.raises(ValueError, match="Transicion invalida"):
+            servicio.conciliar_manual(pago.id, conciliacion(), como_admin(usuario_admin), session)
+
+    def test_no_concilia_al_mismo_estado(self, session, servicio, programa, alumno, usuario_admin):
+        pago = servicio.iniciar_pago(pedido(programa, alumno), session)
+        servicio.procesar_notificacion(aviso(pago), session)
+
+        with pytest.raises(ValueError, match="ya esta en pagado"):
+            servicio.conciliar_manual(pago.id, conciliacion(), como_admin(usuario_admin), session)
+
+    def test_solo_a_estados_que_se_ven_en_el_panel(self, session, servicio, programa, alumno, usuario_admin):
+        pago = servicio.iniciar_pago(pedido(programa, alumno), session)
+        with pytest.raises(ValueError, match="Solo se puede conciliar"):
+            servicio.conciliar_manual(
+                pago.id, conciliacion(EstadoPago.PENDIENTE), como_admin(usuario_admin), session,
+            )
+
+    def test_el_motivo_es_obligatorio(self):
+        with pytest.raises(ValueError):
+            PagoConciliacion(estado=EstadoPago.PAGADO, motivo="ok")
+
+    def test_pago_inexistente(self, session, servicio, usuario_admin):
+        with pytest.raises(ValueError, match="no encontrado"):
+            servicio.conciliar_manual(9999, conciliacion(), como_admin(usuario_admin), session)
+
+    def test_un_aviso_tardio_despues_de_conciliar_no_hace_nada(self, session, servicio, programa, alumno, usuario_admin):
+        """Si el aviso al final llega, cae en 'mismo estado' y no duplica nada."""
+        pago = servicio.iniciar_pago(pedido(programa, alumno), session)
+        servicio.conciliar_manual(pago.id, conciliacion(), como_admin(usuario_admin), session)
+
+        resultado = servicio.procesar_notificacion(aviso(pago), session)
+        session.refresh(pago)
+
+        assert resultado.aceptada and "sin efecto" in resultado.motivo
+        assert len(session.exec(select(InscripcionPrograma)).all()) == 1
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Devolucion pedida desde admin
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestPedirDevolucion:
+    def test_pide_a_handy_y_espera_el_webhook(self, session, servicio, handy, programa, alumno, usuario_admin):
+        pago = servicio.iniciar_pago(pedido(programa, alumno), session)
+        servicio.procesar_notificacion(aviso(pago), session)
+
+        pago = servicio.devolver(pago.id, como_admin(usuario_admin), session)
+
+        assert handy.devoluciones == [(pago.referencia_externa, servicio.callback_url())]
+        assert pago.estado == EstadoPago.PAGADO            # todavia: Handy avisa despues
+        assert pago.estado_proveedor == "devolucion_solicitada"
+
+        registro = session.exec(
+            select(PagoNotificacion).where(PagoNotificacion.pago_id == pago.id)
+        ).all()[-1]
+        assert registro.cuerpo["origen"] == "solicitud_devolucion"
+        assert registro.cuerpo["usuario_email"] == usuario_admin.email
+
+        # Llega el resultado por webhook
+        servicio.procesar_notificacion(
+            {"Success": True, "TransactionExternalId": pago.referencia_externa}, session,
+        )
+        session.refresh(pago)
+        assert pago.estado == EstadoPago.DEVUELTO
+
+    def test_solo_lo_que_esta_pagado(self, session, servicio, programa, alumno, usuario_admin):
+        pago = servicio.iniciar_pago(pedido(programa, alumno), session)
+        with pytest.raises(ValueError, match="Solo se devuelve un pago en PAGADO"):
+            servicio.devolver(pago.id, como_admin(usuario_admin), session)
+
+    def test_no_se_pide_dos_veces(self, session, servicio, handy, programa, alumno, usuario_admin):
+        pago = servicio.iniciar_pago(pedido(programa, alumno), session)
+        servicio.procesar_notificacion(aviso(pago), session)
+        servicio.devolver(pago.id, como_admin(usuario_admin), session)
+
+        with pytest.raises(ValueError, match="ya se pidio"):
+            servicio.devolver(pago.id, como_admin(usuario_admin), session)
+        assert len(handy.devoluciones) == 1
+
+    def test_respeta_el_tope_de_handy(self, session, servicio, handy, programa, alumno, usuario_admin):
+        pago = servicio.iniciar_pago(pedido(programa, alumno, monto_total=Decimal("12000.00")), session)
+        servicio.procesar_notificacion(aviso(pago), session)
+
+        with pytest.raises(ValueError, match="no devuelve mas de 10000"):
+            servicio.devolver(pago.id, como_admin(usuario_admin), session)
+        assert not getattr(handy, "devoluciones", [])
+
+    def test_si_handy_la_rechaza_no_queda_como_pedida(self, session, servicio, handy, programa, alumno, usuario_admin):
+        pago = servicio.iniciar_pago(pedido(programa, alumno), session)
+        servicio.procesar_notificacion(aviso(pago), session)
+        handy.fallar = True
+
+        with pytest.raises(ValueError, match="Handy rechazo la devolucion"):
+            servicio.devolver(pago.id, como_admin(usuario_admin), session)
+        session.refresh(pago)
+        assert pago.estado_proveedor != "devolucion_solicitada"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
