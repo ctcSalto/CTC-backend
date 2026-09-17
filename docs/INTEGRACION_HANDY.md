@@ -329,8 +329,7 @@ el **mismo** `HANDY_WEBHOOK_SECRETO`: el callback lo lleva en la ruta).
 # 1. Crea un cobro de $100 en la base y muestra el link de Handy
 python -m v2.scripts.probar_pago_handy
 
-# 2. Abrir el link y pagar con la tarjeta de prueba del manual de Handy
-#    (Mastercard de testing; el número está en el manual, no acá)
+# 2. Abrir el link y pagar con una tarjeta de prueba (estan en HANDY.md)
 
 # 3. Ver si el aviso llegó al backend público y qué hizo
 python -m v2.scripts.probar_pago_handy --estado <referencia>
