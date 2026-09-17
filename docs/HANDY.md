@@ -39,6 +39,11 @@ lado.
 Redpagos y transferencias no tienen datos de prueba: en testing se prueban
 solo tarjetas.
 
+> **16/09/2026:** el sandbox rechazó las dos (`Status = 2`) en la prueba de
+> punta a punta. La integración quedó validada igual (el aviso llega y se
+> procesa); lo que falta es una aprobación. Consultado a Handy, ver
+> [HANDY_CONSULTAS.md](HANDY_CONSULTAS.md).
+
 ## Probar de punta a punta
 
 ```bash

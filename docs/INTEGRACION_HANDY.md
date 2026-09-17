@@ -254,7 +254,7 @@ Todo lo de arriba está implementado y mergeado en `develop`:
 | Máquina de estados, webhook, inscripción al pagar | `v2/services/pago_service.py` |
 | Endpoints de alumno, admin, informes y acciones | `v2/routes/pagos.py` |
 | Contrato de salida probado contra testing real | 11/09/2026 (ver `HANDY_RESPUESTAS.md`) |
-| Webhook de entrada probado de punta a punta | **pendiente** — ver abajo cómo |
+| Webhook de entrada probado de punta a punta | 16/09/2026: llega y se procesa; el sandbox rechazó las tarjetas (ver `HANDY_RESPUESTAS.md`) |
 
 MercadoPago sigue como estaba, en `external_services/`, sin tocar.
 

@@ -729,6 +729,21 @@ FIRST_ADMIN_DOCUMENT=    # opcional
 FIRST_ADMIN_PHONE=       # opcional
 ```
 
+### Handy — estado al 16/09/2026
+
+- ✅ Testing validado de punta a punta contra develop: el link se genera y el
+  webhook recibe y procesa los avisos reales (dos cobros, ambos rechazados por
+  el sandbox de tarjetas, `Status = 2`). Detalle en `docs/HANDY_RESPUESTAS.md`.
+- ⏳ Pedido a Handy el secret de producción y consulta por el sandbox
+  (`docs/HANDY_CONSULTAS.md`, segundo mail).
+- Para salir a producción: cargar `HANDY_MERCHANT_SECRET` de producción,
+  `HANDY_BASE_URL=https://api.payments.handy.uy/api/v2`, un
+  `HANDY_WEBHOOK_SECRETO` **distinto** al de develop, y hacer **un pago real de
+  monto mínimo** antes de habilitarlo a los alumnos: es la única forma de ver
+  la rama de aprobación contra Handy.
+- Los dos cobros de prueba quedaron en la base de develop (ids 1 y 2,
+  `fallido`). No hay que replicarlos.
+
 ### Handy — Botón de Pago (nuevas)
 
 ```bash

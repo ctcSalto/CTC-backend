@@ -163,3 +163,44 @@ aparecer. Los dos casos tienen test.
 Es exactamente el tipo de cosa que solo se descubre contra la API real, y la
 razon por la que el paso siguiente —el webhook de entrada— tambien hay que
 probarlo de verdad y no solo con el doble.
+
+---
+
+## Prueba de punta a punta del webhook (16/09/2026)
+
+Con el backend de develop publicado y las variables de Handy cargadas, se
+crearon dos cobros de $100 contra testing y se pagaron desde el navegador con
+las dos tarjetas del manual.
+
+| | Cobro 1 (Mastercard) | Cobro 2 (Cabal) |
+|---|---|---|
+| Link generado | ✅ | ✅ |
+| Aviso recibido en el webhook | ✅ a los 4 min | ✅ a 1 min 38 s |
+| IP de origen | `34.192.193.146` | `34.192.193.146` |
+| Cuerpo | igual al manual, campo por campo | igual |
+| Monto y moneda contra nuestro registro | coinciden | coinciden |
+| `PurchaseData.Status` | **2 (fallido)** | **2 (fallido)** |
+| Emisor resuelto (`IssuerName`) | `ARGENTA SPAARBANK` | `BANCO CREDICOOP` |
+| Estado final del cobro | `fallido` | `fallido` |
+
+**Lo nuestro está validado:** Handy alcanza el webhook con el segmento
+secreto, el cuerpo tiene la forma esperada, la validación de monto/moneda y
+la máquina de estados funcionan contra un aviso real. La rama de aprobación
+(`Status = 1`) es el mismo código y está cubierta por tests con este mismo
+cuerpo.
+
+**Lo que no se pudo probar:** un pago aprobado. El sandbox rechazó las dos
+tarjetas que el propio manual publica como de prueba, con BINs que resuelve a
+bancos belgas y argentinos. Es el *"el ambiente de pruebas de los medios de
+pago no siempre funciona correctamente"* del manual. Se les consulta y se
+pide el secret de producción (ver HANDY_CONSULTAS.md, segundo mail).
+
+Dos datos que no estaban en ningún lado y ahora sí:
+
+- **Handy llama desde `34.192.193.146`** (AWS, us-east-1) — al menos hoy, en
+  testing. Dijeron que no publican IPs fijas, así que no sirve para filtrar,
+  pero sí para reconocer un aviso legítimo en los logs.
+- **Latencia del aviso:** entre 1,5 y 4 minutos después de que el comprador
+  termina en la página de Handy. El frontend no puede esperar el resultado en
+  la misma pantalla: tiene que mostrar "estamos confirmando el pago" y
+  consultar `GET /v2/portal/estudiante/pagos` después.
