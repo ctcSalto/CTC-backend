@@ -166,10 +166,14 @@ nosotros originamos.
 
 ---
 
-## Segundo mail — confirmación de la integración y pedido del secret (16/09/2026)
+## Segundo mail — consulta por las tarjetas de prueba (17/09/2026)
+
+Se decidió **no** pedir todavía el secret de producción: Handy lo entrega
+cuando confirmemos que testing funciona, y sin un pago aprobado esa
+confirmación no la podemos dar. Primero que respondan por el sandbox.
 
 **Para:** `integraciones@handy.uy`
-**Asunto:** Integración Botón de Pago CTC Salto — testing validado, consulta por sandbox y secret de producción
+**Asunto:** Integración Botón de Pago CTC Salto — consulta por tarjetas de prueba en testing
 
 ```
 Estimados,
@@ -178,7 +182,7 @@ Les escribimos de CTC Salto (Centro de Tecnologías de la Comunicación), en
 seguimiento al intercambio del 10/09 sobre la integración del Botón de Pago
 v2.0.
 
-Ya tenemos la integración funcionando contra el ambiente de testing:
+Ya tenemos la integración implementada contra el ambiente de testing:
 
   - Creación del link de pago (POST /payments) con el merchant secret de
     testing: correcta.
@@ -186,9 +190,9 @@ Ya tenemos la integración funcionando contra el ambiente de testing:
     como lo describe el manual (TransactionExternalId, PurchaseData,
     InstrumentData).
 
-Lo único que no pudimos completar es un pago APROBADO. Hicimos dos pagos de
-$100 con las tarjetas de prueba del manual y en los dos casos el callback
-llegó con PurchaseData.Status = 2:
+Lo que no pudimos completar es un pago APROBADO. Hicimos dos pagos de $100
+con las tarjetas de prueba del manual y en los dos casos el callback llegó
+con PurchaseData.Status = 2:
 
   - Mastercard 5203 9481 0002 3450 (12/26, CVV 045): rechazada,
     IssuerName "ARGENTA SPAARBANK"
@@ -199,18 +203,10 @@ Referencias (TransactionExternalId) por si les sirve para revisar:
   2425a602-ffd0-4e0f-985a-cb1dd5c64384
   954ba6c4-6203-4f81-a7cb-4261d589e40c
 
-Consultas:
-
-  1. ¿Es esperable que el sandbox rechace esas tarjetas hoy? ¿Hay otras
-     tarjetas de prueba, o algún dato adicional (titular, documento, cuotas)
-     que deba ir para que apruebe?
-  2. Si no es posible obtener una aprobación en testing, ¿podemos pasar a
-     producción y validar la aprobación con un pago real de monto mínimo?
-
-Y con eso, el pedido: el merchant-secret-key de PRODUCCIÓN para CTC Salto
-(rubro escuela y servicios educativos). Las condiciones comerciales las
-acordó nuestro director directamente con Handy; si el alta en producción
-requiere pasar por el área comercial, indíquennos con quién seguirlo.
+¿Es esperable que el sandbox rechace esas tarjetas hoy? ¿Hay otras tarjetas
+de prueba, o algún dato adicional que deba ir para que apruebe? Necesitamos
+ver un pago aprobado en testing antes de darles la confirmación de que la
+integración funciona.
 
 Quedamos atentos. Muchas gracias.
 
@@ -219,6 +215,8 @@ Saludos cordiales,
 [Nombre]
 [Cargo]
 Centro de Tecnologías de la Comunicación — Salto
-[Teléfono]
-[Email]
 ```
+
+Cuando el sandbox apruebe un pago, se manda el tercer mail: confirmación + pedido
+del secret de producción por esta misma vía (respuesta 5 de Handy). Las
+dudas comerciales van a Lucía Regueiro; con ella todavía no se habló.
