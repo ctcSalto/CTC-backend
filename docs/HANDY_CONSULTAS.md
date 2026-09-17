@@ -207,8 +207,10 @@ Consultas:
   2. Si no es posible obtener una aprobación en testing, ¿podemos pasar a
      producción y validar la aprobación con un pago real de monto mínimo?
 
-Y con eso, el pedido: el merchant-secret-key de PRODUCCIÓN para CTC Salto,
-rubro escuela y servicios educativos, según lo acordado con Lucía Regueiro.
+Y con eso, el pedido: el merchant-secret-key de PRODUCCIÓN para CTC Salto
+(rubro escuela y servicios educativos). Las condiciones comerciales las
+acordó nuestro director directamente con Handy; si el alta en producción
+requiere pasar por el área comercial, indíquennos con quién seguirlo.
 
 Quedamos atentos. Muchas gracias.
 
