@@ -204,3 +204,14 @@ Dos datos que no estaban en ningún lado y ahora sí:
   termina en la página de Handy. El frontend no puede esperar el resultado en
   la misma pantalla: tiene que mostrar "estamos confirmando el pago" y
   consultar `GET /v2/portal/estudiante/pagos` después.
+
+---
+
+## Respuesta al segundo mail (17/09/2026): tarjetas nuevas
+
+Handy respondió el mismo día con tarjetas de prueba **actualizadas** (las del
+manual v2.0 ya no sirven): Visa `4111 1111 1111 1111`, Visa
+`4456 5300 0000 1096` y Mastercard `5123 4500 0000 0008`, con cualquier CVV y
+vencimiento. Y un dato que no estaba en el manual: el sandbox de tarjetas es
+el de **Mastercard Gateway (MPGS)**; de su documentación se pueden sacar más.
+Están en `HANDY.md`.

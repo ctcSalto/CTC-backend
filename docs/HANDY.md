@@ -26,23 +26,36 @@ HANDY_MERCHANT_SECRET=c80c2dca-ee4f-4cec-ace0-850747a5dcfa
 
 ## Tarjetas de prueba
 
+El sandbox de tarjetas de Handy es el de **Mastercard Gateway (MPGS)**. Las
+tarjetas vigentes son las que Handy mandó el 17/09/2026 (las del manual v2.0
+ya no aprueban):
+
+| Sello | Número | Vencimiento | CVV |
+|---|---|---|---|
+| Visa | `4111 1111 1111 1111` | cualquiera (futuro) | cualquiera |
+| Visa | `4456 5300 0000 1096` | cualquiera (futuro) | cualquiera |
+| Mastercard | `5123 4500 0000 0008` | cualquiera (futuro) | cualquiera |
+
+Más tarjetas, si hacen falta: [Test Card Numbers by Brand — Mastercard
+Gateway](https://developer.mastercard.com/mastercard-gateway/documentation/testing/test-cards/test-card-numbers/test-card-numbers-brand/).
+
+Nombre del titular y documento: cualquiera (lo dice el manual). Redpagos y
+transferencias no tienen datos de prueba: en testing se prueban solo tarjetas.
+
+<details>
+<summary>Las del manual v2.0, que el sandbox rechazó el 16/09/2026</summary>
+
 | Sello | Número | Vencimiento | CVV |
 |---|---|---|---|
 | Mastercard | `5203 9481 0002 3450` | 12/26 | 045 |
 | Cabal | `5896 5720 9999 9991` | 03/80 | 450 |
 
-Nombre del titular y documento: cualquiera. El propio manual avisa que *"el
-ambiente de pruebas de los medios de pago no siempre funciona correctamente"*:
-si una tarjeta falla, probar con la otra antes de buscar el error de nuestro
-lado.
+Las dos dieron `Status = 2`. La integración quedó validada igual (el aviso
+llegó y se procesó); se consultó a Handy y respondieron con las de arriba.
+</details>
 
-Redpagos y transferencias no tienen datos de prueba: en testing se prueban
-solo tarjetas.
-
-> **16/09/2026:** el sandbox rechazó las dos (`Status = 2`) en la prueba de
-> punta a punta. La integración quedó validada igual (el aviso llega y se
-> procesa); lo que falta es una aprobación. Consultado a Handy, ver
-> [HANDY_CONSULTAS.md](HANDY_CONSULTAS.md).
+> Ojo al pegar estos números en un mail o chat corporativo: la DLP de Google
+> Workspace los detecta como tarjetas reales y frena el mensaje.
 
 ## Probar de punta a punta
 
