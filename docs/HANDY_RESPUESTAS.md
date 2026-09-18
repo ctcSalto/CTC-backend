@@ -215,3 +215,39 @@ manual v2.0 ya no sirven): Visa `4111 1111 1111 1111`, Visa
 vencimiento. Y un dato que no estaba en el manual: el sandbox de tarjetas es
 el de **Mastercard Gateway (MPGS)**; de su documentación se pueden sacar más.
 Están en `HANDY.md`.
+
+---
+
+## Intentos 3 y 4 con las tarjetas nuevas (18/09/2026): certificado vencido
+
+Con las tarjetas que mandó Handy pasó lo mismo: `Status = 2`. La Visa
+terminada en 1096 pasó la autenticación 3DS (OTP de sandbox `1234`, en
+Cardinal Commerce) y fue rechazada igual; la 4111 también, incluso mandando
+el cobro **sin `InvoiceNumber`** para descartar una colisión de factura en el
+comercio de prueba compartido.
+
+La página de resultado de Handy dio el motivo que el webhook no trae:
+
+> **Security Data : Merchant certificate has expired.**
+
+Es el certificado del comercio de pruebas (`Plexo UY 001` / *"Comercio
+pruebas boton de pago v2"*) en Plexo. Ninguna transacción de ese comercio
+puede aprobar hasta que Handy lo renueve. No hay nada que hacer de nuestro
+lado; se les pidió que lo renueven o den otro secret de testing (tercer mail
+en `HANDY_CONSULTAS.md`).
+
+| Cobro | Tarjeta | InvoiceNumber | 3DS | Resultado |
+|---|---|---|---|---|
+| 1 | Mastercard del manual | 1 | — | rechazada |
+| 2 | Cabal del manual | 2 | — | rechazada |
+| 3 | Visa …1096 (nueva) | 3 | OTP ok | rechazada |
+| 4 | Visa …1111 (nueva) | ninguno | — | rechazada |
+
+Dos cosas más que se vieron y sirven para producción:
+
+- El comprador ve **"Plexo UY 001"** como nombre del comercio en la pantalla
+  de 3DS. En producción va a aparecer lo que Handy/Plexo tengan configurado
+  para CTC; conviene confirmarlo y avisarlo en la pantalla de pago del portal.
+- Con tarjetas reales el alumno va a pasar por 3DS (SMS del banco). Es parte
+  de la latencia y otra razón para que el frontend no espere el resultado en
+  la misma pantalla.

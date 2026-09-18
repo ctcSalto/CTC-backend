@@ -67,8 +67,17 @@ def verificar_entorno() -> bool:
     return True
 
 
-def crear(monto: Decimal, email: str | None, concepto: str):
+def crear(monto: Decimal, email: str | None, concepto: str, sin_factura: bool = False):
     servicio = PagoService()
+    if sin_factura:
+        # Hipotesis del 18/09/2026: el secret de testing es compartido por todos
+        # los integradores, y Plexo podria rechazar un InvoiceNumber repetido
+        # (respuesta 6 de Handy). Mandamos el id del cobro como factura, y los
+        # ids chicos (1, 2, 3...) ya existen seguro en ese comercio de prueba.
+        # Con esto el cobro va sin InvoiceNumber, para descartarlo.
+        original = servicio.handy.crear_pago
+        servicio.handy.crear_pago = lambda **kw: original(**{**kw, "numero_factura": None})
+        print("\n(sin InvoiceNumber)")
     print(f"\nCallback: {servicio.callback_url().rsplit('/', 1)[0]}/<secreto>")
 
     with get_db_session() as session:
@@ -160,6 +169,8 @@ def main():
     parser.add_argument("--concepto", default="Prueba de integracion Handy (testing)")
     parser.add_argument("--estado", metavar="REFERENCIA", help="Ver el estado de un cobro y sus avisos")
     parser.add_argument("--pendientes", action="store_true", help="Listar cobros sin resolucion")
+    parser.add_argument("--sin-factura", action="store_true",
+                        help="No mandar InvoiceNumber (descarta rechazos por factura repetida en el comercio de prueba)")
     args = parser.parse_args()
 
     if args.estado:
@@ -173,7 +184,7 @@ def main():
     if not verificar_entorno():
         sys.exit(1)
     try:
-        crear(args.monto, args.email, args.concepto)
+        crear(args.monto, args.email, args.concepto, sin_factura=args.sin_factura)
     except ValueError as e:
         print(f"\nERROR: {e}")
         sys.exit(1)

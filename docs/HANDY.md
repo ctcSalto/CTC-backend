@@ -54,6 +54,10 @@ Las dos dieron `Status = 2`. La integración quedó validada igual (el aviso
 llegó y se procesó); se consultó a Handy y respondieron con las de arriba.
 </details>
 
+> **18/09/2026:** con estas también rechaza. La página de Handy dice
+> *"Merchant certificate has expired"*: el comercio de pruebas tiene el
+> certificado vencido en Plexo. Hasta que Handy lo renueve, ninguna aprueba.
+
 > Ojo al pegar estos números en un mail o chat corporativo: la DLP de Google
 > Workspace los detecta como tarjetas reales y frena el mensaje.
 
