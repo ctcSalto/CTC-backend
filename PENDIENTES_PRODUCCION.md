@@ -742,8 +742,12 @@ FIRST_ADMIN_PHONE=       # opcional
   `HANDY_WEBHOOK_SECRETO` **distinto** al de develop, y hacer **un pago real de
   monto mínimo** antes de habilitarlo a los alumnos: es la única forma de ver
   la rama de aprobación contra Handy.
-- Los dos cobros de prueba quedaron en la base de develop (ids 1 y 2,
-  `fallido`). No hay que replicarlos.
+- Los cobros de prueba quedaron en la base de develop (ids 1 a 8, `fallido` o
+  `iniciado`). No hay que replicarlos.
+- ⚠️ **Preguntar a Handy cuanto dura un link de pago.** Su pagina dice que los
+  vinculos "se vencen despues de un tiempo" y el manual no dice cuanto.
+  `VENTANA_REUSO` (30 min) en `pago_service.py` tiene que ser menor que ese
+  TTL, o el portal va a devolver links muertos.
 
 ### Handy — Botón de Pago (nuevas)
 

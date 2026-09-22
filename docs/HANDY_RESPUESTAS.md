@@ -251,3 +251,31 @@ Dos cosas más que se vieron y sirven para producción:
 - Con tarjetas reales el alumno va a pasar por 3DS (SMS del banco). Es parte
   de la latencia y otra razón para que el frontend no espere el resultado en
   la misma pantalla.
+
+---
+
+## Reintento del 22/09/2026: ahora falla antes, "vinculo vencido"
+
+Handy pidio volver a probar. El resultado cambio, pero sigue sin poder
+completarse un pago:
+
+| | 18 y 21/09 | 22/09 |
+|---|---|---|
+| Formulario de tarjeta | aparecia | **no aparece** |
+| 3DS | se superaba | no se llega |
+| Mensaje | "Security Data : Merchant certificate has expired" | "El vinculo de compra se ha vencido" |
+| Donde falla | al autorizar en Plexo | al **iniciar la sesion** (redirige a `/?plexoLoading=true`, HTTP 400 en consola) |
+
+**No es un vencimiento por tiempo:** se abrio un link 20 segundos despues de
+generarlo, con dos links distintos, y ya decia vencido. `POST /payments`
+sigue respondiendo 200 con el link. Referencias: `d6ab8580-...`,
+`cc3f8125-...`, `7f2d8cb3-...`.
+
+### Pendiente de preguntar: cuanto dura un link
+
+El mensaje de Handy dice textual *"los vinculos de compra se vencen despues
+de un tiempo"*. **No esta en el manual cuanto.** Importa: `VENTANA_REUSO` en
+`pago_service.py` reutiliza un intento abierto de hasta 30 minutos, y si el
+TTL de Handy es menor le estariamos devolviendo al alumno un link ya muerto.
+Cuando el sandbox funcione, preguntar el TTL y ajustar esa ventana a algo
+menor.
