@@ -11,6 +11,14 @@ Uso:
     python -m v2.scripts.probar_pago_handy --monto 250           otro monto (UYU)
     python -m v2.scripts.probar_pago_handy --estado <referencia> estado del cobro y avisos recibidos
     python -m v2.scripts.probar_pago_handy --pendientes          cobros sin resolucion
+    python -m v2.scripts.probar_pago_handy --evidencia           ademas guarda request y response
+                                                                 en evidencia/handy_<ref>.md
+    python -m v2.scripts.probar_pago_handy --estado <ref> --evidencia
+                                                                 agrega el callback recibido al mismo archivo
+
+El modo --evidencia es para mandarle a Handy la reproduccion de un caso: el
+archivo queda con el request exacto (secret tapado), la respuesta, y el
+callback tal como llego. La carpeta evidencia/ esta en .gitignore.
 
 Necesita en el .env (o en el entorno):
     DATABASE_URL           la misma base que usa el backend publico (develop)
@@ -36,14 +44,100 @@ try:
 except ImportError:
     pass
 
+import json
+from datetime import datetime
+
 from sqlmodel import select
 
+import external_services.handy_api.client as handy_modulo
 from database.database import get_db_session
 from v2.models.pago import Pago, PagoNotificacion, PagoCreate
 from v2.models.enums import ProveedorPago
 from v2.services.pago_service import PagoService
 
 VARIABLES = ["DATABASE_URL", "BASE_URL", "HANDY_BASE_URL", "HANDY_MERCHANT_SECRET", "HANDY_WEBHOOK_SECRETO"]
+CARPETA_EVIDENCIA = "evidencia"
+
+
+def capturar_http() -> list:
+    """
+    Envuelve requests.request del cliente de Handy para guardar lo que se
+    mando y lo que volvio. El merchant secret se tapa; el secreto del webhook
+    (que viaja dentro del CallbackUrl) tambien.
+    """
+    capturas = []
+    original = handy_modulo.requests.request
+    secreto_webhook = os.getenv("HANDY_WEBHOOK_SECRETO", "")
+
+    def tapar(texto):
+        return texto.replace(secreto_webhook, "<HANDY_WEBHOOK_SECRETO>") if secreto_webhook else texto
+
+    def con_captura(metodo, url, headers=None, json=None, timeout=None):
+        r = original(metodo, url, headers=headers, json=json, timeout=timeout)
+        capturas.append({
+            "request": {
+                "method": metodo,
+                "url": url,
+                "headers": {**(headers or {}), "merchant-secret-key": "<HANDY_MERCHANT_SECRET de testing>"},
+                "body": _json_tapado(json, tapar),
+            },
+            "response": {
+                "status": r.status_code,
+                "headers": {k: v for k, v in r.headers.items() if k.lower() in ("content-type", "date", "server")},
+                "body": tapar(r.text),
+            },
+        })
+        return r
+
+    handy_modulo.requests.request = con_captura
+    return capturas
+
+
+def _json_tapado(obj, tapar):
+    return json.loads(tapar(json.dumps(obj, ensure_ascii=False))) if obj is not None else None
+
+
+def ruta_evidencia(referencia: str) -> str:
+    os.makedirs(CARPETA_EVIDENCIA, exist_ok=True)
+    return os.path.join(CARPETA_EVIDENCIA, f"handy_{referencia}.md")
+
+
+def escribir_evidencia(referencia: str, pago, capturas: list):
+    ruta = ruta_evidencia(referencia)
+    with open(ruta, "w", encoding="utf-8", newline="\n") as f:
+        f.write(f"# Reproduccion de caso — Boton de Pago Handy (testing)\n\n")
+        f.write(f"- Fecha: {datetime.now():%Y-%m-%d %H:%M} (America/Montevideo)\n")
+        f.write(f"- TransactionExternalId: `{referencia}`\n")
+        f.write(f"- Cobro interno: id {pago.id}, {pago.monto_total} UYU\n")
+        f.write(f"- Link de pago: {pago.url_pago}\n\n")
+        for i, c in enumerate(capturas, start=1):
+            f.write(f"## {i}. Request: {c['request']['method']} {c['request']['url']}\n\n")
+            f.write("Headers:\n\n```json\n" + json.dumps(c["request"]["headers"], indent=2, ensure_ascii=False) + "\n```\n\n")
+            f.write("Body:\n\n```json\n" + json.dumps(c["request"]["body"], indent=2, ensure_ascii=False) + "\n```\n\n")
+            f.write(f"## {i}. Response: HTTP {c['response']['status']}\n\n")
+            f.write("Headers:\n\n```json\n" + json.dumps(c["response"]["headers"], indent=2, ensure_ascii=False) + "\n```\n\n")
+            f.write("Body:\n\n```\n" + c["response"]["body"] + "\n```\n\n")
+        f.write("## Callback recibido\n\n_(pendiente: se agrega con `--estado <ref> --evidencia` cuando llegue)_\n")
+    print(f"\nEvidencia guardada en {ruta}")
+
+
+def agregar_callback_a_evidencia(referencia: str, avisos: list):
+    ruta = ruta_evidencia(referencia)
+    if not os.path.exists(ruta):
+        print(f"\nNo hay archivo de evidencia para {referencia} (crear el cobro con --evidencia).")
+        return
+    s = open(ruta, encoding="utf-8").read()
+    marca = "## Callback recibido\n"
+    inicio = s.index(marca) if marca in s else len(s)
+    bloque = marca + "\n"
+    if not avisos:
+        bloque += "_Todavia no llego ningun callback._\n"
+    for a in avisos:
+        bloque += f"Recibido el {a.fecha_recepcion:%Y-%m-%d %H:%M:%S} desde `{a.ip_origen}` en nuestro CallbackUrl:\n\n"
+        bloque += "```json\n" + json.dumps(a.cuerpo, indent=2, ensure_ascii=False) + "\n```\n\n"
+    with open(ruta, "w", encoding="utf-8", newline="\n") as f:
+        f.write(s[:inicio] + bloque)
+    print(f"\nCallback agregado a {ruta}")
 
 
 def verificar_entorno() -> bool:
@@ -67,7 +161,9 @@ def verificar_entorno() -> bool:
     return True
 
 
-def crear(monto: Decimal, email: str | None, concepto: str, sin_factura: bool = False):
+def crear(monto: Decimal, email: str | None, concepto: str, sin_factura: bool = False,
+          evidencia: bool = False):
+    capturas = capturar_http() if evidencia else []
     servicio = PagoService()
     if sin_factura:
         # Hipotesis del 18/09/2026: el secret de testing es compartido por todos
@@ -93,6 +189,8 @@ def crear(monto: Decimal, email: str | None, concepto: str, sin_factura: bool = 
         print(f"\nCobro creado: id={pago.id}  estado={pago.estado.value}")
         print(f"Referencia:   {pago.referencia_externa}")
         print(f"\nLink de pago:\n  {pago.url_pago}")
+        if evidencia:
+            escribir_evidencia(pago.referencia_externa, pago, capturas)
         print(
             "\nPagalo con la tarjeta de prueba del manual de Handy (Mastercard de testing)."
             "\nDespues, para ver si llego el aviso:"
@@ -100,7 +198,7 @@ def crear(monto: Decimal, email: str | None, concepto: str, sin_factura: bool = 
         )
 
 
-def estado(referencia: str):
+def estado(referencia: str, evidencia: bool = False):
     with get_db_session() as session:
         pago = session.exec(select(Pago).where(Pago.referencia_externa == referencia)).first()
         if not pago:
@@ -127,6 +225,9 @@ def estado(referencia: str):
                 PagoNotificacion.pago_id.is_(None),  # type: ignore[union-attr]
             )
         ).all()
+
+        if evidencia:
+            agregar_callback_a_evidencia(referencia, list(avisos) + list(sueltos))
 
         if not avisos and not sueltos:
             print("\nTodavia no llego ningun aviso de Handy.")
@@ -169,12 +270,14 @@ def main():
     parser.add_argument("--concepto", default="Prueba de integracion Handy (testing)")
     parser.add_argument("--estado", metavar="REFERENCIA", help="Ver el estado de un cobro y sus avisos")
     parser.add_argument("--pendientes", action="store_true", help="Listar cobros sin resolucion")
+    parser.add_argument("--evidencia", action="store_true",
+                        help="Guardar request/response (y luego el callback) en evidencia/handy_<ref>.md")
     parser.add_argument("--sin-factura", action="store_true",
                         help="No mandar InvoiceNumber (descarta rechazos por factura repetida en el comercio de prueba)")
     args = parser.parse_args()
 
     if args.estado:
-        estado(args.estado)
+        estado(args.estado, evidencia=args.evidencia)
         return
     if args.pendientes:
         pendientes()
@@ -184,7 +287,8 @@ def main():
     if not verificar_entorno():
         sys.exit(1)
     try:
-        crear(args.monto, args.email, args.concepto, sin_factura=args.sin_factura)
+        crear(args.monto, args.email, args.concepto, sin_factura=args.sin_factura,
+              evidencia=args.evidencia)
     except ValueError as e:
         print(f"\nERROR: {e}")
         sys.exit(1)

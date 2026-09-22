@@ -59,3 +59,6 @@ frontend-test-login/.svelte-kit/
 .idea/
 nul
 .buildpack-cache-clear
+
+# Reproducciones de casos para Handy (request/response/callback)
+evidencia/
