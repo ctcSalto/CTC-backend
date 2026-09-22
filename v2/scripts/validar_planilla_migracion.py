@@ -44,7 +44,14 @@ HOJAS = {
 # Todas las hojas de datos tienen la nota en la fila 1 y el encabezado en la 2
 PRIMERA_FILA = 3
 
-ESTADOS_QUE_CUENTAN_COMO_TENIDA = {"APROBADA", "EXONERADA"}
+ESTADOS_QUE_CUENTAN_COMO_TENIDA = {"APROBADA", "EXONERADA", "REVALIDADA"}
+
+# Formas en que bedelia puede haber escrito un estado a mano. Se aceptan y se
+# normalizan; lo demas fuera de la lista sigue siendo error.
+ALIAS_ESTADOS_HISTORIAL = {
+    "REVALIDA": "REVALIDADA",
+    "REVÁLIDA": "REVALIDADA",
+}
 
 RE_DOCUMENTO = re.compile(r"^\d{6,10}$")
 RE_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -566,6 +573,8 @@ class Validador:
                     f"'{programa_materia}'. Se toma el de la materia.",
                 )
 
+            texto_estado = self._texto(estado).upper()
+            estado = ALIAS_ESTADOS_HISTORIAL.get(texto_estado, estado)
             valor_estado = self._opcion(hoja, fila, estado, "el estado", ESTADOS_HISTORIAL)
             if valor_estado is None:
                 continue

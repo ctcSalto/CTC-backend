@@ -39,12 +39,17 @@ from v2.scripts.malla_inicial import (
 # lleva registro de "perdido por inasistencia" de hace cuatro años, y ofrecer
 # ocho opciones donde alcanzan cinco solo genera datos inconsistentes.
 # La traduccion a los enums reales la hace el importador.
+# El estado ACTUAL de la materia, no el resultado de cada instancia. Ojo con
+# el vocabulario de bedelia: para ellos "aprobado" en un CURSO es ganar el
+# derecho a examen, que aca es A_EXAMEN. APROBADA es la materia cerrada
+# rindiendo el examen (o un taller aprobado, que no tiene examen).
 ESTADOS_HISTORIAL = [
-    "APROBADA",    # aprobo, por examen o por nota de curso
-    "EXONERADA",   # exonero, no rindio examen
-    "A_EXAMEN",    # gano derecho a examen y todavia no lo rindio
+    "APROBADA",    # la cerro rindiendo el examen (o aprobo el taller)
+    "EXONERADA",   # la cerro por nota de curso, sin examen
+    "A_EXAMEN",    # aprobo el curso: tiene derecho a examen y no lo aprobo todavia
     "CURSANDO",    # la esta cursando ahora
-    "RECURSA",     # la curso y no la aprobo, tiene que volver a cursarla
+    "RECURSA",     # no aprobo el curso, tiene que volver a cursarla
+    "REVALIDADA",  # revalida: la tiene por equivalencia, sin cursarla aca
 ]
 
 ESTADOS_CARRERA = ["ACTIVA", "SUSPENDIDA", "COMPLETADA", "BAJA"]
@@ -181,11 +186,23 @@ def _hoja_leeme(wb: Workbook, programas: List[Programa]) -> None:
         ("Una fila por materia que el alumno TENGA ALGO. Si nunca la curso, "
          "no pongas la fila: se asume que la debe.", ""),
         ("", ""),
-        ("  APROBADA   la aprobo (por examen o por nota de curso)", "mono"),
-        ("  EXONERADA  exonero, no rindio examen", "mono"),
-        ("  A_EXAMEN   gano el derecho a examen y todavia no lo rindio", "mono"),
-        ("  CURSANDO   la esta cursando ahora mismo", "mono"),
-        ("  RECURSA    la curso, no la aprobo, tiene que volver a cursarla", "mono"),
+        ("Va el estado EN QUE ESTA HOY la materia, no cada vez que la curso.", ""),
+        ("", ""),
+        ("  APROBADA    la cerro RINDIENDO EL EXAMEN (o aprobo el taller)", "mono"),
+        ("  EXONERADA   la cerro por nota de curso, sin examen", "mono"),
+        ("  A_EXAMEN    aprobo el CURSO: tiene derecho a examen y no lo aprobo todavia", "mono"),
+        ("  CURSANDO    la esta cursando ahora mismo", "mono"),
+        ("  RECURSA     no aprobo el curso, tiene que volver a cursarla", "mono"),
+        ("  REVALIDADA  la tiene por reválida / equivalencia", "mono"),
+        ("", ""),
+        ("Ojo: lo que en las actas de curso es 'aprobado' (gano derecho a examen) "
+         "aca es A_EXAMEN. APROBADA es solo cuando ya rindio y aprobo el examen.", ""),
+        ("Talleres: APROBADA o RECURSA (no tienen exoneracion ni examen).", ""),
+        ("", ""),
+        ("Si una materia la curso varias veces, va UNA sola fila con como esta hoy "
+         "(por ejemplo, recurso tres veces y la cuarta la aprobo: una fila APROBADA "
+         "con la nota y el año de esa ultima vez). Los intentos anteriores ya estan "
+         "en el sistema: se cargaron de la planilla de Escolaridades.", ""),
         ("", ""),
         ("OJO CON LAS MATERIAS APROBADAS HACE AÑOS", "seccion"),
         ("Si un alumno va por 5to semestre, necesitamos el historial COMPLETO, "
