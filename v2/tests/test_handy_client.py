@@ -118,7 +118,11 @@ class TestContratoConHandy:
 class TestValidacionesLocales:
     """Lo que se rechaza antes de llamar a Handy."""
 
-    def test_sin_configurar(self, capturar):
+    def test_sin_configurar(self, capturar, monkeypatch):
+        # Sin esto el test depende del .env de quien lo corre: el cliente cae
+        # a las variables de entorno cuando no le pasan valores.
+        monkeypatch.delenv("HANDY_BASE_URL", raising=False)
+        monkeypatch.delenv("HANDY_MERCHANT_SECRET", raising=False)
         cliente = HandyClient(base_url="", merchant_secret="")
         with pytest.raises(HandyError, match="no esta configurado"):
             crear(cliente)

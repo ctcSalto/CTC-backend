@@ -362,3 +362,50 @@ class TestCadenasIncompletas:
 
         _, avisos = problemas_de(planilla_vacia)
         assert any("P1_T" in str(a) and "A_EXAMEN" in str(a) for a in avisos)
+
+
+class TestRevalida:
+    """
+    Agregada el 22/09/2026: bedelia tiene alumnos con materias por reválida y
+    la planilla no tenia como decirlo. En el portal es REVALIDADA y cuenta como
+    materia cumplida para las previaturas.
+    """
+
+    def _alumno(self, programa):
+        return ("41234567", "Perez", "Ana", None, None, None, None,
+                programa, 2023, "ACTIVA", None)
+
+    def test_revalidada_cuenta_como_tenida(self, planilla_vacia, programa):
+        escribir(planilla_vacia, HOJAS["alumnos"], [self._alumno(programa.nombre)])
+        escribir(planilla_vacia, HOJAS["historial"], [
+            ("41234567", programa.nombre, "P1_T", "REVALIDADA", None, 2023, 1, "Equivalencia UTU"),
+            ("41234567", programa.nombre, "P2_T", "APROBADA", 78, 2024, 1, None),
+        ])
+
+        errores, avisos = problemas_de(planilla_vacia)
+        assert errores == [], [str(e) for e in errores]
+        assert not [a for a in avisos if "previatura" in str(a)]
+
+    @pytest.mark.parametrize("escrito", ["REVALIDA", "Revalida", "Reválida", "revalidada"])
+    def test_acepta_como_lo_escribe_bedelia(self, planilla_vacia, programa, escrito):
+        escribir(planilla_vacia, HOJAS["alumnos"], [self._alumno(programa.nombre)])
+        escribir(planilla_vacia, HOJAS["historial"], [
+            ("41234567", programa.nombre, "P1_T", escrito, None, 2023, 1, None),
+        ])
+
+        errores, _ = problemas_de(planilla_vacia)
+        assert errores == [], [str(e) for e in errores]
+
+    def test_una_sola_fila_por_materia_aunque_la_haya_recursado(self, planilla_vacia, programa):
+        """
+        Recursó tres veces y la cuarta la aprobó: va una fila, la de hoy. Los
+        intentos viejos estan en el legajo historico, no se retipean.
+        """
+        escribir(planilla_vacia, HOJAS["alumnos"], [self._alumno(programa.nombre)])
+        escribir(planilla_vacia, HOJAS["historial"], [
+            ("41234567", programa.nombre, "P1_T", "RECURSA", 40, 2023, 1, None),
+            ("41234567", programa.nombre, "P1_T", "APROBADA", 80, 2024, 2, None),
+        ])
+
+        errores, _ = problemas_de(planilla_vacia)
+        assert any("Una sola por alumno y materia" in str(e) for e in errores)

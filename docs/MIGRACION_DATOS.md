@@ -96,14 +96,25 @@ importable sin interpretar nada a mano:
   Administración no lleva registro de "perdido por inasistencia" de hace cuatro
   años, y ofrecer opciones que nadie va a usar bien solo genera ruido.
 
-| En la planilla | En el sistema |
-|---|---|
-| `APROBADA` | `APROBADO` |
-| `EXONERADA` | `EXONERADO` |
-| `A_EXAMEN` | `A_EXAMEN` |
-| `CURSANDO` | `CURSANDO` |
-| `RECURSA` | `REPROBADO` |
-| *(sin fila)* | nunca la cursó |
+| En la planilla | Qué significa | En el sistema |
+|---|---|---|
+| `APROBADA` | la cerró **rindiendo el examen** (o aprobó el taller) | `APROBADO` |
+| `EXONERADA` | la cerró por nota de curso, sin examen | `EXONERADO` |
+| `A_EXAMEN` | aprobó el **curso**: tiene derecho a examen | `A_EXAMEN` |
+| `CURSANDO` | la está cursando | `CURSANDO` |
+| `RECURSA` | no aprobó el curso | `REPROBADO` |
+| `REVALIDADA` | reválida / equivalencia (agregado el 22/09/2026 a pedido de bedelía) | `REVALIDADA` |
+| *(sin fila)* | nunca la cursó | — |
+
+**Ojo con el vocabulario de bedelía:** en sus actas de curso, *"aprobado"*
+significa ganar el derecho a examen — acá es `A_EXAMEN`. La primera versión de
+la planilla decía que `APROBADA` era "por examen o por nota de curso", y eso
+estaba mal: aprobar por nota de curso es exonerar. Corregido el 22/09/2026.
+
+**Una fila por alumno y materia, con el estado de hoy.** Si la cursó cuatro
+veces, va una fila con el resultado final. Los intentos anteriores no se
+retipean: ya están en el legajo histórico (`docs/HISTORICO_ESCOLARIDADES.md`),
+que tiene la planilla de Escolaridades de bedelía hasta agosto de 2026.
 
 `A_EXAMEN` está aunque parezca un detalle: hay alumnos que arrastran materias
 con derecho a examen durante años, y si eso se pierde en la migración quedan
