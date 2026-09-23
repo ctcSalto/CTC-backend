@@ -393,6 +393,16 @@ pierde si no se reimporta.
       portal después. Sin la variable usa la fecha del acta más reciente del
       histórico, que sirve pero depende de que el Excel no tenga fechas mal
       tipeadas hacia adelante.
+- [ ] **Vigencia del derecho a examen en cursos independientes.** Bedelía
+      (23/09/2026): tienen 2 oportunidades "dentro del año que cursaron". Hoy
+      el derecho a examen no vence nunca. Su propio ejemplo (perdió en 2025,
+      aprobó en la segunda oportunidad en marzo de 2026) muestra que no es año
+      calendario: falta definir la regla exacta. Implementarlo probablemente
+      requiere un campo nuevo en `politica_examen` → se propone antes de tocar
+      el esquema.
+- [ ] Crear la política de examen de **2 oportunidades** para cursos
+      independientes (la de carreras es de 5) y asignarla a sus materias al
+      cargarlos.
 - [ ] Confirmar con bedelía si una **baja voluntaria (abandono)** cuenta como
       0 en el promedio. Hoy no cuenta (`CONTAR_ABANDONO = False` en
       `v2/services/promedio_escolaridad.py`); es una línea si hay que cambiarlo.
