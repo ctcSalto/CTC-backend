@@ -388,6 +388,15 @@ Por eso, el día que el portal empieza a registrar notas:
 Lo que se cargó el 11/09/2026 llega hasta el 27/08/2026; lo posterior se
 pierde si no se reimporta.
 
+- [ ] Fijar `ESCOLARIDAD_FECHA_CORTE=AAAA-MM-DD` con la fecha del arranque. El
+      promedio de la escolaridad toma del histórico hasta esa fecha y del
+      portal después. Sin la variable usa la fecha del acta más reciente del
+      histórico, que sirve pero depende de que el Excel no tenga fechas mal
+      tipeadas hacia adelante.
+- [ ] Confirmar con bedelía si una **baja voluntaria (abandono)** cuenta como
+      0 en el promedio. Hoy no cuenta (`CONTAR_ABANDONO = False` en
+      `v2/services/promedio_escolaridad.py`); es una línea si hay que cambiarlo.
+
 #### 21. `b8c9d0e1f2a3_merge_historico_y_pagos` — Revisión de merge (no-op)
 
 > ✅ **Ya aplicada en develop** el 11/09/2026, al mergear la rama `Handy`.
@@ -748,6 +757,15 @@ FIRST_ADMIN_EMAIL=
 FIRST_ADMIN_PASSWORD=
 FIRST_ADMIN_DOCUMENT=    # opcional
 FIRST_ADMIN_PHONE=       # opcional
+```
+
+### Escolaridad (nueva, opcional)
+
+```
+# Desde cuando el promedio de la escolaridad toma las notas del portal en vez
+# del legajo historico. Poner la fecha del arranque. Sin la variable se usa la
+# fecha del acta mas reciente del historico.
+ESCOLARIDAD_FECHA_CORTE=2026-10-01
 ```
 
 ### Handy — estado al 16/09/2026

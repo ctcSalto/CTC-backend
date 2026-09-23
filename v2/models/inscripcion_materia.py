@@ -1,7 +1,7 @@
 from sqlmodel import SQLModel, Field, Relationship, Column
 from sqlalchemy import JSON
 from typing import Optional, List, Any, TYPE_CHECKING
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
 from uuid import uuid4
 
@@ -128,6 +128,42 @@ class EscolaridadSemestre(SQLModel):
     materias: List[EscolaridadMateriaItem]
 
 
+class ActividadEscolaridadRead(SQLModel):
+    """
+    Una actividad rendida: una cursada o una rendicion de examen. Es una fila
+    del certificado, como en el Excel de bedelia.
+    """
+    fecha: Optional[date] = None
+    materia: str
+    tipo: str = Field(description="CUR, EXA, TALLER o REV")
+    resultado: str = Field(description="APR, EXO, ELI, NSP o REV")
+    nota: Optional[float] = Field(default=None, description="La nota original")
+    nota_promedio: float = Field(description="Lo que suma al promedio (0 si fue eliminado o ausente)")
+    cuenta_en_promedio: bool = Field(description="Si entra al divisor")
+    origen: str = Field(description="historico (Excel de Escolaridades) o portal")
+    detalle: Optional[str] = None
+
+
+class PromedioEscolaridadRead(SQLModel):
+    """
+    Promedio con la regla de bedelia: todas las actividades rendidas de la
+    carrera, historicas y del portal. Ver v2/services/promedio_escolaridad.py.
+    """
+    promedio: Optional[float] = Field(default=None, description="None si no hay nada que promediar")
+    suma_notas: float = 0
+    divisor: int = 0
+    actividades_que_cuentan: int = 0
+    del_historico: int = Field(default=0, description="Actividades que vienen del legajo historico")
+    del_portal: int = Field(default=0, description="Actividades registradas en el portal despues del corte")
+    carrera_historica: Optional[str] = Field(
+        default=None, description="Carrera del historico que corresponde a este programa",
+    )
+    fecha_corte: Optional[date] = Field(
+        default=None, description="Hasta aca vale el historico; despues, el portal",
+    )
+    actividades: List[ActividadEscolaridadRead] = Field(default_factory=list, description="Ordenadas por fecha")
+
+
 class EscolaridadRead(SQLModel):
     """Escolaridad completa del alumno en un programa"""
     alumno_id: int
@@ -135,6 +171,11 @@ class EscolaridadRead(SQLModel):
     semestres: List[EscolaridadSemestre]
     total_creditos: int
     total_creditos_posibles: int
+    promedio: Optional[float] = Field(
+        default=None,
+        description="Promedio de la escolaridad con la regla de bedelia (todas las actividades rendidas)",
+    )
+    promedio_detalle: Optional[PromedioEscolaridadRead] = None
 
 
 class MarcarInasistenciaRequest(SQLModel):

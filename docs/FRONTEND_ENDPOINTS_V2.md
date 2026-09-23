@@ -166,7 +166,29 @@ encima: no hace falta cruzarla con el plan de estudios.
     }
   ],
   "total_creditos": 10,
-  "total_creditos_posibles": 30
+  "total_creditos_posibles": 30,
+  "promedio": 36.1,
+  "promedio_detalle": {
+    "promedio": 36.1,
+    "suma_notas": 361.0,
+    "divisor": 10,
+    "actividades_que_cuentan": 10,
+    "del_historico": 8,
+    "del_portal": 3,
+    "carrera_historica": "Analista Programador",
+    "fecha_corte": "2026-08-27",
+    "actividades": [
+      {"fecha": "2021-07-30", "materia": "PROGRAMACION 1", "tipo": "CUR", "resultado": "ELI",
+       "nota": 0.0, "nota_promedio": 0.0, "cuenta_en_promedio": true, "origen": "historico", "detalle": null},
+      {"fecha": "2026-12-10", "materia": "Programacion 2", "tipo": "EXA", "resultado": "ELI",
+       "nota": 40.0, "nota_promedio": 0.0, "cuenta_en_promedio": true, "origen": "portal", "detalle": null},
+      {"fecha": "2027-02-20", "materia": "Programacion 2", "tipo": "CUR", "resultado": "APR",
+       "nota": 75.0, "nota_promedio": 0.0, "cuenta_en_promedio": false, "origen": "portal",
+       "detalle": "cursada aprobada; cuenta el examen"},
+      {"fecha": "2027-02-20", "materia": "Programacion 2", "tipo": "EXA", "resultado": "APR",
+       "nota": 80.0, "nota_promedio": 80.0, "cuenta_en_promedio": true, "origen": "portal", "detalle": null}
+    ]
+  }
 }
 ```
 
@@ -190,8 +212,43 @@ export interface Escolaridad {
   semestres: { semestre: number; materias: EscolaridadMateria[] }[];
   total_creditos: number;
   total_creditos_posibles: number;
+  promedio: number | null;             // null si no hay nada que promediar
+  promedio_detalle: PromedioEscolaridad;
+}
+
+export interface ActividadEscolaridad {
+  fecha: string | null;               // YYYY-MM-DD
+  materia: string;
+  tipo: "CUR" | "EXA" | "TALLER" | "REV";
+  resultado: "APR" | "EXO" | "ELI" | "NSP" | "REV";
+  nota: number | null;                // la nota original
+  nota_promedio: number;              // lo que suma (0 si eliminado o ausente)
+  cuenta_en_promedio: boolean;
+  origen: "historico" | "portal";
+  detalle: string | null;
+}
+
+export interface PromedioEscolaridad {
+  promedio: number | null;
+  suma_notas: number;
+  divisor: number;
+  actividades_que_cuentan: number;
+  del_historico: number;
+  del_portal: number;
+  carrera_historica: string | null;
+  fecha_corte: string | null;
+  actividades: ActividadEscolaridad[];  // ordenadas por fecha: es el certificado
 }
 ```
+
+**El promedio.** No sale de la tabla de materias (que muestra la ultima
+cursada de cada una) sino de **todas las actividades rendidas**: cada cursada
+y cada rendicion de examen, del legajo historico y del portal. Es la regla de
+bedelia: una cursada perdida o un examen eliminado o ausente suman 0 y
+cuentan 1, asi que **recursar baja el promedio**, a proposito. Para mostrar el
+certificado, `promedio_detalle.actividades` trae las filas en orden, con
+`cuenta_en_promedio` para marcar las que entran. El `suma_notas / divisor`
+permite mostrar la cuenta.
 
 **Cuatro cosas a tener en cuenta:**
 
