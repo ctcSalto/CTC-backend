@@ -12,6 +12,7 @@ import re
 import unicodedata
 from collections import defaultdict
 from datetime import date
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, List, Optional
 
 from sqlmodel import Session, select, func, col
@@ -94,7 +95,7 @@ def resumir_plan(filas: List[HistoricoResultado], plan: HistoricoPlan) -> Resume
             materias_aprobadas.append(f.materia)
 
     divisor = denominador - revalidados
-    promedio = round(numerador / divisor, 2) if divisor > 0 else None
+    promedio = redondear_como_excel(numerador / divisor) if divisor > 0 else None
 
     return ResumenPlanRead(
         plan=plan.codigo,
@@ -109,6 +110,15 @@ def resumir_plan(filas: List[HistoricoResultado], plan: HistoricoPlan) -> Resume
         primera_fecha=min(fechas) if fechas else None,
         ultima_fecha=max(fechas) if fechas else None,
     )
+
+
+def redondear_como_excel(valor: float, decimales: int = 2) -> float:
+    """
+    35,125 -> 35,13. round() de Python redondea al par (35,12) y el Excel de
+    bedelia redondea hacia arriba: el promedio tiene que dar el mismo numero.
+    """
+    paso = Decimal(1).scaleb(-decimales)
+    return float(Decimal(str(valor)).quantize(paso, rounding=ROUND_HALF_UP))
 
 
 def solo_digitos(valor: Optional[str]) -> str:
@@ -234,6 +244,7 @@ class HistoricoService:
 
         return LegajoHistoricoRead(
             alumno=HistoricoAlumnoRead.model_validate(alumno),
+            general=self._resumen_general([f for f, _ in filas], resumenes, planes),
             planes=resumenes,
             resultados=[self._fila_read(f, p) for f, p in filas],
             codigos={
@@ -242,6 +253,33 @@ class HistoricoService:
                 "credito": CREDITOS,
             },
         )
+
+    @staticmethod
+    def _resumen_general(
+        filas: List[HistoricoResultado], resumenes: List[ResumenPlanRead],
+        planes: Dict[int, HistoricoPlan],
+    ) -> Optional[ResumenPlanRead]:
+        """
+        Todas las actas juntas, sin importar el plan. Es el numero por defecto
+        del certificado de bedelia: la hoja ESCOLARIDAD filtra por documento
+        con CARRERA = (Todas), asi que un alumno que paso de AP 2020 a AP 2022
+        promedia las dos. El 22% de los alumnos del historico tiene actas en
+        mas de un plan, asi que no es un detalle.
+
+        Los creditos requeridos en el certificado salen del PLAN que bedelia
+        elige a mano; aca se toman del plan del acta mas reciente. La carrera
+        va solo si todos los planes son de la misma.
+        """
+        if not filas:
+            return None
+        ultimo = max(resumenes, key=lambda r: (r.ultima_fecha or date.min, r.plan))
+        carreras = {p.carrera for p in planes.values()}
+        seudo_plan = HistoricoPlan(
+            codigo="(Todas)",
+            carrera=carreras.pop() if len(carreras) == 1 else None,
+            creditos_requeridos=ultimo.creditos_requeridos,
+        )
+        return resumir_plan(filas, seudo_plan)
 
     def legajo_por_documento(self, session: Session, documento: Optional[str]) -> Optional[LegajoHistoricoRead]:
         """Para el portal del estudiante: por el documento del usuario logueado."""

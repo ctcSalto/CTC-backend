@@ -1756,6 +1756,8 @@ El legajo: datos de la persona, resumen por plan y todas las actas ordenadas por
   "alumno": {"id": 812, "cedula": "41234567", "nombre": "PEREZ GOMEZ JUAN", "plan_declarado": "AP 2011",
              "zona": "11AP", "direccion": "...", "localidad": "SALTO", "departamento": "15",
              "telefono": "...", "celular": "...", "email": "...", "observaciones": null},
+  "general": {"plan": "(Todas)", "carrera": "Analista Programador", "creditos_requeridos": 15,
+              "creditos_aprobados": 12, "creditos_revalidados": 0, "promedio": 78.5, "...": "..."},
   "planes": [
     {"plan": "AP 2011", "carrera": "Analista Programador", "creditos_requeridos": 15,
      "creditos_aprobados": 12, "creditos_revalidados": 0, "promedio": 78.5,
@@ -1779,7 +1781,11 @@ El legajo: datos de la persona, resumen por plan y todas las actas ordenadas por
 ```
 - **Response 404:** no hay legajo para esa cedula
 
-El resumen por plan reproduce el certificado de escolaridad que emitia bedelia
+`general` es el numero del certificado: todas las actas de la persona, de
+todos los planes (el Excel filtra con CARRERA = (Todas); 250 alumnos tienen
+actas en mas de un plan). `planes` es el mismo calculo plan por plan.
+
+El resumen reproduce el certificado de escolaridad que emitia bedelia
 (credito = examen o taller con >= 70, cursada exonerada o revalida; el promedio
 cuenta los eliminados con 0 y no cuenta las cursadas aprobadas que esperan
 examen). `otorga_credito` viene calculado por fila.
