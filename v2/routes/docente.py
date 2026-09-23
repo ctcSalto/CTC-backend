@@ -582,6 +582,33 @@ async def marcar_ausente_docente(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/materia/{materia_id}/examenes/instancia/{instancia_examen_id}/cerrar-acta")
+async def cerrar_acta_docente(
+    materia_id: int,
+    instancia_examen_id: int,
+    current_usuario: UsuarioRead = Depends(require_docente_or_admin),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """
+    Cerrar el acta (docente o admin): los inscriptos sin nota pasan a AUSENTE
+    (NSP) y el examen queda FINALIZADO. Solo examenes de la materia indicada.
+    """
+    from v2.models.enums import RolUsuario
+    if current_usuario.rol != RolUsuario.ADMINISTRATIVO:
+        if not _validar_docente_materia(current_usuario.id, materia_id, session):
+            raise HTTPException(status_code=403, detail="No esta asignado a esta materia")
+
+    try:
+        return v2_services.inscripcionExamenService.cerrar_acta(
+            instancia_examen_id, session, materia_id=materia_id,
+        )
+    except ValueError as e:
+        if "no encontrada" in str(e):
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # -- Documentos ----------------------------------------------------------------
 
 @router.post("/documentos", response_model=DocumentoUsuarioRead, status_code=201)

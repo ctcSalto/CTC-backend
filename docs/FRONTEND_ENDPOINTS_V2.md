@@ -651,6 +651,41 @@ es opcional y filtra por año de `fecha_examen`.
 
 ---
 
+### Cerrar el acta de un examen
+
+```http
+POST /v2/portal/docente/materia/{materia_id}/examenes/instancia/{instancia_examen_id}/cerrar-acta
+POST /v2/admin/examenes/instancias/{instancia_examen_id}/cerrar-acta      (bedelia)
+```
+
+Cuando el docente termina de cargar las notas de un examen, **cierra el
+acta**. Los inscriptos que quedaron sin nota (no se dieron de baja 24 horas
+antes y no vinieron) pasan a `ausente`, que es el NSP de bedelia: cuenta en la
+escolaridad como actividad rendida con 0 y gasta una oportunidad. Si con eso
+un alumno agoto las oportunidades, la materia pasa a `reprobado` y debe
+recursar (`agoto_oportunidades: true` en la respuesta).
+
+Para la UI:
+
+- Mostrar el boton **despues de la fecha del examen** (antes el backend lo
+  rechaza con 400).
+- **Pedir confirmacion** mostrando cuantos inscriptos siguen sin nota: esos
+  van a quedar ausentes. No hay forma de deshacerlo desde el portal.
+- La respuesta trae `marcados_ausentes` con nombre y apellido: mostrarla como
+  resumen.
+
+```json
+{
+  "instancia_examen_id": 12,
+  "estado": "finalizado",
+  "marcados_ausentes": [
+    {"inscripcion_examen_id": 88, "alumno_id": 42, "nombre": "Ana", "apellido": "Perez",
+     "agoto_oportunidades": false}
+  ],
+  "aprobados": 9, "reprobados": 3, "ausentes": 1, "bajas": 2
+}
+```
+
 ## 4. Admin
 
 **Rol:** `administrativo` (la escolaridad y el egreso tambien aceptan `docente`)

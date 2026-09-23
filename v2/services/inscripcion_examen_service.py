@@ -11,7 +11,7 @@ from v2.models.materia import Materia
 from v2.models.politica_examen import PoliticaExamen
 from v2.models.usuario import Usuario
 from v2.models.alumno import Alumno
-from v2.models.enums import EstadoInscripcionMateria, EstadoInscripcionExamen
+from v2.models.enums import EstadoInscripcionMateria, EstadoInscripcionExamen, EstadoInstanciaExamen
 
 import os
 from datetime import datetime, timedelta
@@ -322,11 +322,7 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
             self._aprobar_materia(ie.inscripcion_materia_id, nota, session)
         else:
             ie.estado = EstadoInscripcionExamen.REPROBADO
-            # Verificar si agotó todas las oportunidades
-            max_oport = int(snapshot.get("max_oportunidades", 5))
-            rendiciones = self._contar_rendiciones_previas(ie.inscripcion_materia_id, session)
-            if rendiciones >= max_oport:
-                self._reprobar_materia_por_rendiciones(ie.inscripcion_materia_id, max_oport, session)
+            self._verificar_oportunidades(ie, session)
 
         session.add(ie)
         session.commit()
@@ -340,7 +336,11 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         inscripcion_examen_id: int,
         session: Session,
     ) -> InscripcionExamen:
-        """Marca al estudiante como ausente. La materia queda en A_EXAMEN."""
+        """
+        Marca al estudiante como ausente (el NSP de bedelia). La materia queda
+        en A_EXAMEN, salvo que con esta ausencia agote las oportunidades: ahi
+        pasa a REPROBADO y debe recursar, igual que si hubiera reprobado.
+        """
         ie = session.exec(
             select(InscripcionExamen).where(InscripcionExamen.id == inscripcion_examen_id)
         ).first()
@@ -351,11 +351,82 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
                 f"Solo se puede marcar ausente una inscripcion en estado INSCRIPTO, actual: {ie.estado.value}"
             )
 
-        ie.estado = EstadoInscripcionExamen.AUSENTE
-        session.add(ie)
+        self._registrar_ausente(ie, session)
         session.commit()
         session.refresh(ie)
         return ie
+
+    # -- Cerrar acta ----------------------------------------------------------
+
+    def cerrar_acta(
+        self,
+        instancia_examen_id: int,
+        session: Session,
+        materia_id: Optional[int] = None,
+    ) -> dict:
+        """
+        Cierra el acta de un examen: los que siguen INSCRIPTO (no se dieron de
+        baja a tiempo y no tienen nota) pasan a AUSENTE, y el examen queda
+        FINALIZADO.
+
+        Es la regla de bedelia (23/09/2026): inscripto que no se da de baja 24
+        horas antes y no se presenta queda NSP, cuenta como actividad rendida
+        (0 en el promedio) y gasta una oportunidad. Se hace al cerrar el acta
+        y no por fecha para no marcar a nadie mientras el docente todavia esta
+        cargando notas: cerrar es explicito.
+
+        `materia_id` lo pasa la ruta del docente, para que solo pueda cerrar
+        examenes de su materia. Se puede volver a llamar: si ya estaba cerrada,
+        no queda nadie INSCRIPTO y no cambia nada.
+        """
+        instancia = session.get(InstanciaExamen, instancia_examen_id)
+        if not instancia:
+            raise ValueError(f"Instancia de examen {instancia_examen_id} no encontrada")
+        if materia_id is not None and instancia.materia_id != materia_id:
+            raise ValueError("Ese examen no es de esta materia")
+        if instancia.estado == EstadoInstanciaExamen.CANCELADO:
+            raise ValueError("El examen esta cancelado: no hay acta que cerrar")
+
+        ahora = datetime.now(get_uruguay_tz()).replace(tzinfo=None)
+        if instancia.fecha_examen and instancia.fecha_examen > ahora:
+            raise ValueError("El examen todavia no se tomo: el acta se cierra despues de la fecha del examen")
+
+        inscripciones = session.exec(
+            select(InscripcionExamen).where(InscripcionExamen.instancia_examen_id == instancia_examen_id)
+        ).all()
+
+        ausentes = []
+        for ie in inscripciones:
+            if ie.estado != EstadoInscripcionExamen.INSCRIPTO:
+                continue
+            agoto = self._registrar_ausente(ie, session)
+            im = session.get(InscripcionMateria, ie.inscripcion_materia_id)
+            usuario = _usuario_de_alumno(im.alumno_id, session) if im else None
+            ausentes.append({
+                "inscripcion_examen_id": ie.id,
+                "alumno_id": im.alumno_id if im else None,
+                "nombre": usuario.nombre if usuario else "",
+                "apellido": usuario.apellido if usuario else "",
+                "agoto_oportunidades": agoto,
+            })
+
+        instancia.estado = EstadoInstanciaExamen.FINALIZADO
+        session.add(instancia)
+        session.commit()
+
+        cuenta = {e: 0 for e in EstadoInscripcionExamen}
+        for ie in inscripciones:
+            session.refresh(ie)
+            cuenta[ie.estado] += 1
+        return {
+            "instancia_examen_id": instancia_examen_id,
+            "estado": instancia.estado.value,
+            "marcados_ausentes": ausentes,
+            "aprobados": cuenta[EstadoInscripcionExamen.APROBADO],
+            "reprobados": cuenta[EstadoInscripcionExamen.REPROBADO],
+            "ausentes": cuenta[EstadoInscripcionExamen.AUSENTE],
+            "bajas": cuenta[EstadoInscripcionExamen.BAJA],
+        }
 
     # -- Consultas ------------------------------------------------------------
 
@@ -703,6 +774,31 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
                 })
 
         return resultado
+
+    def _registrar_ausente(self, ie: InscripcionExamen, session: Session) -> bool:
+        """
+        Pasa la rendicion a AUSENTE y revisa las oportunidades. Devuelve True si
+        con esta ausencia el alumno las agoto (y la materia paso a REPROBADO).
+        No hace commit.
+        """
+        ie.estado = EstadoInscripcionExamen.AUSENTE
+        session.add(ie)
+        return self._verificar_oportunidades(ie, session)
+
+    def _verificar_oportunidades(self, ie: InscripcionExamen, session: Session) -> bool:
+        """
+        Si con esta rendicion (reprobada o ausente) el alumno llego al maximo
+        de oportunidades de la politica, la materia pasa a REPROBADO: debe
+        recursar. Antes solo lo hacia al reprobar; un ausente tambien gasta una
+        oportunidad (regla de bedelia, 23/09/2026), asi que tambien cuenta.
+        """
+        session.flush()   # que el conteo vea el estado nuevo de esta rendicion
+        snapshot = ie.snapshot_politica_examen or {}
+        max_oport = int(snapshot.get("max_oportunidades", 5))
+        if self._contar_rendiciones_previas(ie.inscripcion_materia_id, session) >= max_oport:
+            self._reprobar_materia_por_rendiciones(ie.inscripcion_materia_id, max_oport, session)
+            return True
+        return False
 
     def _contar_rendiciones_previas(
         self, inscripcion_materia_id: int, session: Session

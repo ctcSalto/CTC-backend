@@ -110,3 +110,27 @@ async def desinscribir_examen(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# -- Cerrar acta ---------------------------------------------------------------
+
+@router.post(
+    "/instancias/{instancia_examen_id}/cerrar-acta",
+    summary="Cerrar el acta de un examen",
+    description="Los inscriptos que no se dieron de baja a tiempo y no tienen nota pasan "
+                "a AUSENTE (NSP): cuenta como actividad rendida con 0 en el promedio y gasta "
+                "una oportunidad. El examen queda FINALIZADO. Solo despues de la fecha del "
+                "examen. Devuelve a quienes marco como ausentes.",
+)
+async def cerrar_acta(
+    instancia_examen_id: int,
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    try:
+        return v2_services.inscripcionExamenService.cerrar_acta(instancia_examen_id, session)
+    except ValueError as e:
+        if "no encontrada" in str(e):
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))

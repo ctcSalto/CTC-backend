@@ -102,3 +102,131 @@ class TestNSP:
         session.refresh(ie)
         assert pe.actividad_de_examen(ie, "PROGRAMACION 1", None) is None
         assert SERVICIO._contar_rendiciones_previas(ie.inscripcion_materia_id, session) == 0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Cierre de acta: el NSP se marca solo, al cerrar
+# ══════════════════════════════════════════════════════════════════════════════
+
+@pytest.fixture(name="examen_pasado")
+def fixture_examen_pasado(session, alumno, materias_con_previaturas):
+    """
+    Un examen de ayer con tres inscriptos del mismo alumno en tres cursadas
+    distintas (para no tener que crear alumnos): uno aprobado, uno que se dio
+    de baja y uno que no hizo nada.
+    """
+    p1 = materias_con_previaturas["prog1"]
+    fecha = ahora_naive() - timedelta(days=1)
+    inst = InstanciaExamen(materia_id=p1.id, nombre="Examen de ayer", fecha_inicio_inscripcion=fecha - timedelta(days=10),
+                           fecha_fin_inscripcion=fecha - timedelta(days=2), fecha_examen=fecha, habilitado=True)
+    session.add(inst)
+    session.flush()
+
+    def inscripcion(estado, max_oportunidades=5):
+        ic = InstanciaCursado(materia_id=p1.id, anio_lectivo=2026, estado=EstadoInstanciaCursado.FINALIZADA)
+        session.add(ic)
+        session.flush()
+        im = InscripcionMateria(alumno_id=alumno.id, instancia_cursado_id=ic.id, estado=EM.A_EXAMEN)
+        session.add(im)
+        session.flush()
+        ie = InscripcionExamen(inscripcion_materia_id=im.id, instancia_examen_id=inst.id, estado=estado,
+                               snapshot_politica_examen={"max_oportunidades": max_oportunidades})
+        session.add(ie)
+        session.flush()
+        return ie
+
+    armado = {
+        "instancia": inst,
+        "aprobado": inscripcion(EE.APROBADO),
+        "baja": inscripcion(EE.BAJA),
+        "sin_nota": inscripcion(EE.INSCRIPTO),
+        "inscripcion": inscripcion,
+        "materia": p1,
+    }
+    session.commit()
+    return armado
+
+
+class TestCerrarActa:
+    def test_el_que_no_hizo_nada_queda_ausente(self, session, examen_pasado):
+        r = SERVICIO.cerrar_acta(examen_pasado["instancia"].id, session)
+
+        for clave in ("aprobado", "baja", "sin_nota"):
+            session.refresh(examen_pasado[clave])
+        assert examen_pasado["sin_nota"].estado == EE.AUSENTE
+        assert examen_pasado["aprobado"].estado == EE.APROBADO       # no se toca
+        assert examen_pasado["baja"].estado == EE.BAJA               # se bajo a tiempo: no es NSP
+        assert [a["inscripcion_examen_id"] for a in r["marcados_ausentes"]] == [examen_pasado["sin_nota"].id]
+        assert (r["aprobados"], r["ausentes"], r["bajas"]) == (1, 1, 1)
+
+    def test_el_examen_queda_finalizado(self, session, examen_pasado):
+        from v2.models.enums import EstadoInstanciaExamen
+        r = SERVICIO.cerrar_acta(examen_pasado["instancia"].id, session)
+        session.refresh(examen_pasado["instancia"])
+        assert examen_pasado["instancia"].estado == EstadoInstanciaExamen.FINALIZADO
+        assert r["estado"] == "finalizado"
+
+    def test_cerrarla_dos_veces_no_cambia_nada(self, session, examen_pasado):
+        SERVICIO.cerrar_acta(examen_pasado["instancia"].id, session)
+        r = SERVICIO.cerrar_acta(examen_pasado["instancia"].id, session)
+        assert r["marcados_ausentes"] == [] and r["ausentes"] == 1
+
+    def test_no_se_cierra_antes_del_examen(self, session, inscripto_a):
+        ie = inscripto_a(48)
+        with pytest.raises(ValueError, match="todavia no se tomo"):
+            SERVICIO.cerrar_acta(ie.instancia_examen_id, session)
+        session.refresh(ie)
+        assert ie.estado == EE.INSCRIPTO
+
+    def test_no_se_cierra_un_examen_cancelado(self, session, examen_pasado):
+        from v2.models.enums import EstadoInstanciaExamen
+        examen_pasado["instancia"].estado = EstadoInstanciaExamen.CANCELADO
+        session.add(examen_pasado["instancia"])
+        session.commit()
+        with pytest.raises(ValueError, match="cancelado"):
+            SERVICIO.cerrar_acta(examen_pasado["instancia"].id, session)
+
+    def test_el_docente_solo_cierra_examenes_de_su_materia(self, session, examen_pasado, materias_con_previaturas):
+        otra = materias_con_previaturas["prog2"]
+        with pytest.raises(ValueError, match="no es de esta materia"):
+            SERVICIO.cerrar_acta(examen_pasado["instancia"].id, session, materia_id=otra.id)
+        r = SERVICIO.cerrar_acta(examen_pasado["instancia"].id, session, materia_id=examen_pasado["materia"].id)
+        assert len(r["marcados_ausentes"]) == 1
+
+    def test_el_nsp_entra_al_promedio(self, session, examen_pasado):
+        SERVICIO.cerrar_acta(examen_pasado["instancia"].id, session)
+        session.refresh(examen_pasado["sin_nota"])
+        act = pe.actividad_de_examen(examen_pasado["sin_nota"], "PROGRAMACION 1", None)
+        assert (act.resultado, act.nota_promedio, act.peso) == ("NSP", 0.0, 1)
+
+
+class TestAusenteGastaOportunidad:
+    """
+    Antes solo reprobar revisaba si se agotaron las oportunidades. Un ausente
+    tambien gasta una (regla de bedelia), asi que tambien puede obligar a
+    recursar.
+    """
+
+    def test_agotar_con_ausentes_obliga_a_recursar(self, session, examen_pasado):
+        ie = examen_pasado["inscripcion"](EE.INSCRIPTO, max_oportunidades=1)
+        session.commit()
+        r = SERVICIO.cerrar_acta(examen_pasado["instancia"].id, session)
+
+        im = session.get(InscripcionMateria, ie.inscripcion_materia_id)
+        assert im.estado == EM.REPROBADO
+        assert "Agotadas" in im.motivo_cierre
+        agotados = {a["inscripcion_examen_id"]: a["agoto_oportunidades"] for a in r["marcados_ausentes"]}
+        assert agotados[ie.id] is True
+        assert agotados[examen_pasado["sin_nota"].id] is False   # le quedan
+
+    def test_marcar_ausente_a_mano_tambien_lo_revisa(self, session, examen_pasado):
+        ie = examen_pasado["inscripcion"](EE.INSCRIPTO, max_oportunidades=1)
+        session.commit()
+        SERVICIO.marcar_ausente(ie.id, session)
+        im = session.get(InscripcionMateria, ie.inscripcion_materia_id)
+        assert im.estado == EM.REPROBADO
+
+    def test_con_oportunidades_la_materia_sigue_a_examen(self, session, examen_pasado):
+        SERVICIO.marcar_ausente(examen_pasado["sin_nota"].id, session)
+        im = session.get(InscripcionMateria, examen_pasado["sin_nota"].inscripcion_materia_id)
+        assert im.estado == EM.A_EXAMEN
