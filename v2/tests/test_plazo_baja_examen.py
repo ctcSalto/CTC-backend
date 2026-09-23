@@ -230,3 +230,77 @@ class TestAusenteGastaOportunidad:
         SERVICIO.marcar_ausente(examen_pasado["sin_nota"].id, session)
         im = session.get(InscripcionMateria, examen_pasado["sin_nota"].inscripcion_materia_id)
         assert im.estado == EM.A_EXAMEN
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Cursos independientes: 2 oportunidades, sin fecha de caducidad
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestCursosIndependientes:
+    """
+    Decision de negocio (23/09/2026): los cursos independientes (anuales o
+    cortos, fuera de una carrera) tienen 2 oportunidades de examen y el
+    derecho NO VENCE. Hay alumnos que vuelven a los cinco años a usarlo, y si
+    no se les da no vuelven. Las carreras tienen 5.
+
+    No es codigo especial: es la politica de examen de la materia con
+    max_oportunidades = 2. Este test fija que la antigüedad de la cursada no
+    se mira nunca; si alguien agrega un vencimiento, se entera aca.
+    """
+
+    @pytest.fixture(name="curso_independiente")
+    def fixture_curso_independiente(self, session, programa, politica_base100, alumno):
+        from v2.models.materia import Materia
+        from v2.models.politica_examen import PoliticaExamen
+        politica = PoliticaExamen(nombre="Cursos independientes", nota_maxima=100,
+                                  umbral_aprobacion=70, max_oportunidades=2)
+        session.add(politica)
+        session.flush()
+        materia = Materia(programa_id=programa.id, nombre="Soporte Tecnico IT", codigo="STIT",
+                          semestre=1, creditos=10, politica_id=politica_base100.id,
+                          politica_examen_id=politica.id, activo=True)
+        session.add(materia)
+        session.flush()
+        # Aprobo el curso hace cinco años y nunca rindio
+        ic = InstanciaCursado(materia_id=materia.id, anio_lectivo=2021, semestre=2,
+                              estado=EstadoInstanciaCursado.FINALIZADA)
+        session.add(ic)
+        session.flush()
+        im = InscripcionMateria(alumno_id=alumno.id, instancia_cursado_id=ic.id, estado=EM.A_EXAMEN)
+        session.add(im)
+        session.commit()
+        return {"materia": materia, "inscripcion": im}
+
+    def _mesa(self, session, materia, dias):
+        """Un examen con la inscripcion abierta hoy, dentro de `dias` dias."""
+        ahora = ahora_naive()
+        inst = InstanciaExamen(materia_id=materia.id, nombre=f"Examen +{dias}d",
+                               fecha_inicio_inscripcion=ahora - timedelta(days=1),
+                               fecha_fin_inscripcion=ahora + timedelta(days=1),
+                               fecha_examen=ahora + timedelta(days=dias), habilitado=True)
+        session.add(inst)
+        session.commit()
+        return inst
+
+    def test_cinco_años_despues_puede_rendir(self, session, curso_independiente):
+        inst = self._mesa(session, curso_independiente["materia"], 10)
+        ie = SERVICIO.inscribir_examen(curso_independiente["inscripcion"].id, inst.id, session)
+        assert ie.estado == EE.INSCRIPTO and ie.numero_rendicion == 1
+
+    def test_tiene_dos_oportunidades_y_despues_recursa(self, session, curso_independiente):
+        from decimal import Decimal
+        im = curso_independiente["inscripcion"]
+
+        primera = SERVICIO.inscribir_examen(im.id, self._mesa(session, curso_independiente["materia"], 10).id, session)
+        SERVICIO.calificar_examen(primera.id, Decimal("40"), session)
+        session.refresh(im)
+        assert im.estado == EM.A_EXAMEN          # le queda una
+
+        segunda = SERVICIO.inscribir_examen(im.id, self._mesa(session, curso_independiente["materia"], 20).id, session)
+        assert segunda.numero_rendicion == 2
+        SERVICIO.calificar_examen(segunda.id, Decimal("50"), session)
+        session.refresh(im)
+        assert im.estado == EM.REPROBADO         # agoto las dos: recursa
+
+        with pytest.raises(ValueError):
+            SERVICIO.inscribir_examen(im.id, self._mesa(session, curso_independiente["materia"], 30).id, session)
