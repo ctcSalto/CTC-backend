@@ -192,7 +192,7 @@ class HistoricoResultadoRead(SQLModel):
 
 
 class ResumenPlanRead(SQLModel):
-    """Lo que el certificado de escolaridad calculaba por plan."""
+    """Las cuentas del certificado para un plan (o, en `general`, para todo junto)."""
     plan: str
     carrera: Optional[str] = None
     creditos_requeridos: Optional[int] = None

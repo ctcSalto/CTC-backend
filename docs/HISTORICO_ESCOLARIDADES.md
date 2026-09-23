@@ -121,9 +121,9 @@ contienen (`EXCEL AV` → "Excel Avanzado"). El catálogo completo está en
 
 ---
 
-## 3. El resumen por plan (lo que decía el certificado)
+## 3. El resumen (lo que decía el certificado)
 
-La hoja `ESCOLARIDAD` calculaba, por alumno y plan, **créditos aprobados,
+La hoja `ESCOLARIDAD` calculaba, por alumno, **créditos aprobados,
 créditos revalidados y promedio**. El endpoint del legajo devuelve lo mismo,
 con las mismas reglas, para que el número que ve el alumno sea el que le daban
 antes:
