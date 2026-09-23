@@ -148,22 +148,40 @@ Verificado contra el certificado que estaba armado en la planilla (una
 alumna de AP 2022): 6 créditos, 0 revalidados, promedio 30,375. Da lo
 mismo. Está como test en `v2/tests/test_historico.py`.
 
-### General y por plan
+### Por carrera: la escolaridad
 
-El certificado de bedelía filtra por documento con **`CARRERA = (Todas)`**:
-un alumno que pasó de AP 2020 a AP 2022 promedia **todas** sus actas juntas.
-Por eso el legajo trae dos niveles:
+**Criterio de bedelía (22/09/2026):** *"se suma, porque la escolaridad es la
+historia académica del estudiante. No se sumaría si fueran dos carreras
+distintas o dos cursos distintos. En tal caso, tendría que haber un promedio
+por carrera."* Y aclaró que el Excel no podía hacer esa separación: sumaba
+todo junto.
 
-- **`general`** — todas las actas de la persona, de todos los planes. Es el
-  número del certificado. Los créditos requeridos se toman del plan del acta
-  más reciente (en el Excel salen del PLAN que bedelía elige a mano).
-- **`planes`** — el mismo cálculo plan por plan, que es lo que ve bedelía si
-  filtra una carrera en el certificado.
+Por eso el legajo trae tres niveles:
 
-No es un detalle: **250 de los 1.155 alumnos con actas tienen actas en más de
-un plan.** Caso real que trajo bedelía el 22/09/2026: AP 2020 → AP 2022,
-recursó Programación 1 tres veces, promedio del certificado 281 / 8 = 35,13.
-El general da eso; los dos planes por separado darían 24,25 y 46,0.
+| Campo | Qué agrupa | Para qué |
+|---|---|---|
+| **`carreras`** | todas las actas de una carrera, con **todos sus planes juntos** (AP 2020 + AP 2022) | **Es la escolaridad.** Lo que va primero |
+| `general` | todas las actas de la persona, de todas las carreras | Es lo que imprimía el Excel (`CARRERA = (Todas)`). Sirve para cotejar certificados ya emitidos |
+| `planes` | plan por plan | Desglose |
+
+Para un alumno con una sola carrera, `carreras[0]` y `general` dan lo mismo.
+
+- **250 de los 1.155 alumnos** con actas cambiaron de plan: para ellos la
+  carrera suma los planes, como decía bedelía.
+- **110** tienen actas en **más de una carrera**: a esos el Excel les mezclaba
+  todo en un solo promedio; en el legajo tienen uno por carrera.
+- Caso real que trajo bedelía: AP 2020 → AP 2022, recursó Programación 1 tres
+  veces. Una carrera, promedio 281 / 8 = **35,13**, igual que su certificado.
+
+Qué es "la misma carrera" lo decide el campo `carrera` del catálogo de planes
+(`CATALOGO_PLANES` del importador): los planes de una misma carrera tienen que
+tener exactamente el mismo nombre. Los nocturnos (`TA 2001 N`, `TA 2016 N`)
+son Técnico en Gerencia, igual que los diurnos. Un plan sin carrera en el
+catálogo se trata como su propia carrera.
+
+Dos pares que se dejaron **separados** porque parecen cursos distintos, a
+confirmar con bedelía: `EXCEL AV` / `EX+PBI` (Excel Avanzado vs. Excel
+Avanzado y Power BI) y `LS` / `LS+GNS` (Liquidación de Sueldos, con y sin GNS).
 
 **Recursar baja el promedio**, y es a propósito: cada cursada eliminada suma
 0 al numerador y 1 al divisor. Es la regla de bedelía.
@@ -215,6 +233,18 @@ La cédula puede venir con puntos y guion. `404` si no existe.
     "zona": "11AP", "direccion": "…", "localidad": "SALTO", "departamento": "15",
     "telefono": "…", "celular": "…", "email": "…", "observaciones": null
   },
+  "carreras": [
+    {
+      "carrera": "Analista Programador", "planes": ["AP 2011"],
+      "creditos_requeridos": 15, "creditos_aprobados": 6, "creditos_revalidados": 0,
+      "promedio": 71.2, "cantidad_resultados": 9, "por_resultado": {"APR": 5, "ELI": 4},
+      "materias_aprobadas": ["…"], "primera_fecha": "2014-07-15", "ultima_fecha": "2015-07-22"
+    },
+    {
+      "carrera": "Tecnico en Soporte Informatico", "planes": ["TSI 2011"],
+      "…": "…"
+    }
+  ],
   "general": {
       "plan": "(Todas)", "carrera": null, "creditos_requeridos": 17,
       "creditos_aprobados": 13, "creditos_revalidados": 0, "promedio": 76.4,
@@ -251,9 +281,10 @@ La cédula puede venir con puntos y guion. `404` si no existe.
 }
 ```
 
-- **`general` es el número a mostrar primero**: es el del certificado. Si la
-  persona tiene un solo plan, coincide con `planes[0]`. `carrera` viene `null`
-  cuando mezcla carreras distintas.
+- **`carreras` es la escolaridad**: un promedio por carrera, con todos sus
+  planes juntos. Es lo que se muestra primero.
+- `general` mezcla todo, como el Excel viejo. `carrera` viene `null` cuando
+  hay carreras distintas. Mostrarlo solo como dato para cotejar.
 - `planes` viene ordenado por primera fecha; `resultados` por fecha ascendente,
   con las de fecha `null` al final.
 - `otorga_credito` ya viene calculado por fila: sirve para marcar en la tabla
@@ -328,9 +359,9 @@ Una propuesta de mínima, en dos pantallas:
 "solo con actas". Tabla con nombre, cédula, planes (chips), cantidad de actas y
 rango de fechas. Click → legajo.
 
-**Legajo** — cabecera con los datos de la persona y el resumen `general`
-(créditos y promedio del certificado); una tarjeta por plan con créditos
-aprobados / requeridos, promedio y el desglose `por_resultado`; y la
+**Legajo** — cabecera con los datos de la persona; **una tarjeta por
+carrera** (de `carreras`) con créditos aprobados / requeridos, promedio, los
+planes que incluye y el desglose `por_resultado`; y la
 tabla de actas ordenada por fecha con fecha, plan, materia, tipo, resultado,
 nota, crédito, acta y docente. Marcar las filas con `otorga_credito`. Para las
 descripciones usar `codigos`.

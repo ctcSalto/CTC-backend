@@ -64,6 +64,10 @@ from v2.services.historico_service import solo_digitos, texto_busqueda
 # codigo -> (carrera, creditos requeridos). Los creditos son los de la hoja
 # ESCOLARIDAD (la que usaba la formula del certificado); donde diferia de la
 # hoja Validaciones se tomo ESCOLARIDAD.
+#
+# La carrera tiene que ser EXACTAMENTE igual entre planes de la misma carrera:
+# el legajo promedia por carrera (criterio de bedelia, 22/09/2026). Los planes
+# nocturnos (TA ... N) son la misma carrera en otro turno, no otra carrera.
 CATALOGO_PLANES: Dict[str, Tuple[Optional[str], Optional[int]]] = {
     "AP 95": ("Analista Programador", 23),
     "AP 2000": ("Analista Programador", 20),
@@ -75,10 +79,10 @@ CATALOGO_PLANES: Dict[str, Tuple[Optional[str], Optional[int]]] = {
     "AP 2022": ("Analista Programador", 15),
     "TA 1996": ("Tecnico en Gerencia", 17),
     "TA 2001": ("Tecnico en Gerencia", 19),
-    "TA 2001 N": ("Tecnico en Gerencia (nocturno)", 18),
+    "TA 2001 N": ("Tecnico en Gerencia", 18),
     "TA 2011": ("Tecnico en Gerencia", None),
     "TA 2016": ("Tecnico en Gerencia", 18),
-    "TA 2016 N": ("Tecnico en Gerencia (nocturno)", 15),
+    "TA 2016 N": ("Tecnico en Gerencia", 15),
     "TA 2017": ("Tecnico en Gerencia", None),
     "TEI": ("Tecnico en Electronica Informatica", None),
     "TEI 2000": ("Tecnico en Electronica Informatica", 18),
