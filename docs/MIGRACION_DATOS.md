@@ -116,6 +116,14 @@ veces, va una fila con el resultado final. Los intentos anteriores no se
 retipean: ya están en el legajo histórico (`docs/HISTORICO_ESCOLARIDADES.md`),
 que tiene la planilla de Escolaridades de bedelía hasta agosto de 2026.
 
+**Oportunidades de examen según el tipo de programa (bedelía, 23/09/2026):**
+las materias de una **carrera** tienen hasta **5** oportunidades; los **cursos
+independientes** (anuales o cortos, fuera de una carrera, por ejemplo Técnico
+en Soporte IT) tienen **2**. En el portal es la `politica_examen` de cada
+materia: hay que crear una política con `max_oportunidades = 2` y que el
+importador se la asigne a las materias de los programas que no son carrera.
+Hoy en develop existe solo la de 5.
+
 **Para el importador de la planilla (cuando se escriba): no poner
 `fecha_cierre` en las inscripciones que crea.** El promedio de la escolaridad
 cuenta una cursada del portal solo si *el portal la cerró* después de la fecha
