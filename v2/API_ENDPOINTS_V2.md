@@ -472,9 +472,9 @@ Historial de examenes de una inscripcion a materia.
 - **Response 200:** Lista de `InscripcionExamenRead`
 
 ### DELETE `/desinscribir-examen/{inscripcion_examen_id}`
-Desinscribirse de un examen (solo si esta INSCRIPTO). Usa soft-delete: cambia estado a `baja` con `fecha_baja`. Valida plazo minimo de 72hs antes del examen.
+Desinscribirse de un examen (solo si esta INSCRIPTO). Usa soft-delete: cambia estado a `baja` con `fecha_baja`. Valida plazo minimo de **24 horas** antes del examen (`PLAZO_BAJA_EXAMEN_HORAS`; regla de bedelia del 23/09/2026, antes eran 72). Quien no se da de baja a tiempo y no se presenta queda `ausente` (NSP): cuenta como actividad rendida con 0 en el promedio y gasta una oportunidad.
 - **Response 204:** Sin body
-- **Error 400:** `"Solo se permite hasta 72 horas antes del examen"`
+- **Error 400:** `"No puedes darte de baja. El plazo es hasta 24 horas antes del examen."`
 
 ### DELETE `/desinscribir-materia/{inscripcion_id}`
 Desinscribirse de una materia (solo si CURSANDO y dentro de periodo activo). Usa soft-delete: cambia estado a `abandono` con `fecha_baja` y `motivo_cierre`.
