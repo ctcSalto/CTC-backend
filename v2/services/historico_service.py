@@ -20,7 +20,7 @@ from sqlmodel import Session, select, func, col
 from v2.models.historico import (
     HistoricoAlumno, HistoricoPlan, HistoricoResultado,
     HistoricoAlumnoRead, HistoricoAlumnoResumenRead, HistoricoPlanRead,
-    HistoricoResultadoRead, ResumenPlanRead, LegajoHistoricoRead,
+    HistoricoResultadoRead, ResumenPlanRead, ResumenCarreraRead, LegajoHistoricoRead,
     TIPOS_EVALUACION, RESULTADOS, CREDITOS,
 )
 
@@ -244,6 +244,7 @@ class HistoricoService:
 
         return LegajoHistoricoRead(
             alumno=HistoricoAlumnoRead.model_validate(alumno),
+            carreras=self._resumenes_por_carrera(filas, resumenes),
             general=self._resumen_general([f for f, _ in filas], resumenes, planes),
             planes=resumenes,
             resultados=[self._fila_read(f, p) for f, p in filas],
@@ -255,16 +256,51 @@ class HistoricoService:
         )
 
     @staticmethod
+    def _resumenes_por_carrera(
+        filas: list, resumenes: List[ResumenPlanRead],
+    ) -> List[ResumenCarreraRead]:
+        """
+        Un promedio por carrera, con todos sus planes juntos. Criterio de
+        bedelia (22/09/2026): "si cambian los planes se suma, porque la
+        escolaridad es la historia academica del estudiante; no se sumaria si
+        fueran dos carreras distintas o dos cursos distintos".
+
+        El Excel no podia separar (sumaba todo); esto es lo que bedelia dice
+        que corresponde. Un plan sin carrera en el catalogo se trata como su
+        propia carrera, para no mezclarlo con nada.
+        """
+        por_carrera: Dict[str, list] = defaultdict(list)
+        planes_de: Dict[str, List[ResumenPlanRead]] = defaultdict(list)
+        for fila, plan in filas:
+            por_carrera[plan.carrera or plan.codigo].append(fila)
+        for r in resumenes:
+            planes_de[r.carrera or r.plan].append(r)
+
+        salida = []
+        for carrera, filas_carrera in por_carrera.items():
+            sus_planes = sorted(planes_de[carrera], key=lambda r: (r.primera_fecha or date.min, r.plan))
+            ultimo = max(sus_planes, key=lambda r: (r.ultima_fecha or date.min, r.plan))
+            resumen = resumir_plan(filas_carrera, HistoricoPlan(
+                codigo=carrera, carrera=carrera, creditos_requeridos=ultimo.creditos_requeridos,
+            ))
+            salida.append(ResumenCarreraRead(
+                **resumen.model_dump(exclude={"plan"}),
+                planes=[r.plan for r in sus_planes],
+            ))
+        salida.sort(key=lambda r: (r.primera_fecha or date.min, r.carrera))
+        return salida
+
+    @staticmethod
     def _resumen_general(
         filas: List[HistoricoResultado], resumenes: List[ResumenPlanRead],
         planes: Dict[int, HistoricoPlan],
     ) -> Optional[ResumenPlanRead]:
         """
-        Todas las actas juntas, sin importar el plan. Es el numero por defecto
-        del certificado de bedelia: la hoja ESCOLARIDAD filtra por documento
-        con CARRERA = (Todas), asi que un alumno que paso de AP 2020 a AP 2022
-        promedia las dos. El 22% de los alumnos del historico tiene actas en
-        mas de un plan, asi que no es un detalle.
+        Todas las actas juntas, sin importar plan ni carrera. Es lo que
+        imprimia el Excel: la hoja ESCOLARIDAD filtra por documento con
+        CARRERA = (Todas) y no puede separar. Bedelia aclaro que lo correcto es
+        por carrera (_resumenes_por_carrera); este queda para cotejar contra
+        certificados ya emitidos.
 
         Los creditos requeridos en el certificado salen del PLAN que bedelia
         elige a mano; aca se toman del plan del acta mas reciente. La carrera

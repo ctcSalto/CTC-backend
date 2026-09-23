@@ -206,16 +206,39 @@ class ResumenPlanRead(SQLModel):
     ultima_fecha: Optional[date] = None
 
 
+class ResumenCarreraRead(SQLModel):
+    """
+    La escolaridad de una carrera: todas las actas de todos sus planes juntas.
+    Es el criterio de bedelia (22/09/2026): si el alumno cambio de plan dentro
+    de la misma carrera se suma, si son carreras o cursos distintos, no.
+    """
+    carrera: str
+    planes: List[str] = Field(default_factory=list, description="Codigos de plan que entran, en orden de fecha")
+    creditos_requeridos: Optional[int] = Field(default=None, description="Del plan del acta mas reciente")
+    creditos_aprobados: int = 0
+    creditos_revalidados: int = 0
+    promedio: Optional[float] = None
+    cantidad_resultados: int = 0
+    por_resultado: Dict[str, int] = Field(default_factory=dict)
+    materias_aprobadas: List[str] = Field(default_factory=list)
+    primera_fecha: Optional[date] = None
+    ultima_fecha: Optional[date] = None
+
+
 class LegajoHistoricoRead(SQLModel):
     alumno: HistoricoAlumnoRead
+    carreras: List[ResumenCarreraRead] = Field(
+        default_factory=list,
+        description="LA ESCOLARIDAD: un promedio por carrera, con todos sus planes juntos",
+    )
     general: Optional[ResumenPlanRead] = Field(
         default=None,
-        description="Todas las actas de la persona, de todos los planes juntos. Es lo que "
-                    "muestra el certificado de bedelia con CARRERA = (Todas). None si no tiene actas",
+        description="Todas las actas juntas, de todas las carreras. Es lo que imprimia el Excel "
+                    "viejo (CARRERA = (Todas)); sirve para cotejar certificados ya emitidos",
     )
     planes: List[ResumenPlanRead] = Field(
         default_factory=list,
-        description="El mismo calculo, plan por plan: lo que muestra el certificado filtrando una carrera",
+        description="Desglose plan por plan",
     )
     resultados: List[HistoricoResultadoRead] = Field(default_factory=list, description="Ordenados por fecha")
     codigos: Dict[str, Dict[str, str]] = Field(

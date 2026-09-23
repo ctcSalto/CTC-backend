@@ -282,6 +282,34 @@ class TestBuscarResultados:
         assert fechas[-1] is None
 
 
+@pytest.fixture(name="cambio_de_plan")
+def fixture_cambio_de_plan(session):
+    ap20 = HistoricoPlan(codigo="AP 2020", carrera="Analista Programador", creditos_requeridos=15)
+    ap22 = HistoricoPlan(codigo="AP 2022", carrera="Analista Programador", creditos_requeridos=15)
+    session.add_all([ap20, ap22])
+    session.flush()
+    a = HistoricoAlumno(cedula="45000001", nombre="GOMEZ RUIZ PEDRO", nombre_busqueda="GOMEZ RUIZ PEDRO")
+    session.add(a)
+    session.flush()
+
+    def acta(plan, fecha, materia, tipo, resultado, nota, n):
+        return HistoricoResultado(alumno_id=a.id, plan_id=plan.id, materia=materia, fecha=fecha,
+                                  tipo_evaluacion=tipo, resultado=resultado, puntaje=nota,
+                                  puntaje_promedio=nota, fila_origen=n)
+    session.add_all([
+        acta(ap20, date(2021, 7, 30), "PROGRAMACION 1", "CUR", "ELI", 0, 1),
+        acta(ap20, date(2021, 7, 30), "PENSAMIENTO COMPUTACIONAL", "CUR", "EXO", 97, 2),
+        acta(ap20, date(2021, 12, 15), "BASES DE DATOS 1", "CUR", "ELI", 0, 3),
+        acta(ap20, date(2022, 7, 30), "PROGRAMACION 1", "CUR", "ELI", 0, 4),
+        acta(ap22, date(2023, 7, 31), "PROGRAMACION 1", "CUR", "ELI", 0, 5),
+        acta(ap22, date(2023, 9, 15), "TALLER DE USABILIDAD", "TALLER", "ELI", 0, 6),
+        acta(ap22, date(2026, 7, 7), "PENSAMIENTO COMPUTACIONAL", "CUR", "EXO", 89, 7),
+        acta(ap22, date(2026, 7, 20), "PROGRAMACION 1", "CUR", "EXO", 95, 8),
+    ])
+    session.commit()
+    return a
+
+
 class TestResumenGeneral:
     """
     El certificado de bedelia filtra por documento con CARRERA = (Todas): un
@@ -289,33 +317,6 @@ class TestResumenGeneral:
     22/09/2026 (datos cambiados): AP 2020 -> AP 2022, recurso Programacion 1
     tres veces. El Excel da 281 / 8 = 35,125.
     """
-
-    @pytest.fixture(name="cambio_de_plan")
-    def fixture_cambio_de_plan(self, session):
-        ap20 = HistoricoPlan(codigo="AP 2020", carrera="Analista Programador", creditos_requeridos=15)
-        ap22 = HistoricoPlan(codigo="AP 2022", carrera="Analista Programador", creditos_requeridos=15)
-        session.add_all([ap20, ap22])
-        session.flush()
-        a = HistoricoAlumno(cedula="45000001", nombre="GOMEZ RUIZ PEDRO", nombre_busqueda="GOMEZ RUIZ PEDRO")
-        session.add(a)
-        session.flush()
-
-        def acta(plan, fecha, materia, tipo, resultado, nota, n):
-            return HistoricoResultado(alumno_id=a.id, plan_id=plan.id, materia=materia, fecha=fecha,
-                                      tipo_evaluacion=tipo, resultado=resultado, puntaje=nota,
-                                      puntaje_promedio=nota, fila_origen=n)
-        session.add_all([
-            acta(ap20, date(2021, 7, 30), "PROGRAMACION 1", "CUR", "ELI", 0, 1),
-            acta(ap20, date(2021, 7, 30), "PENSAMIENTO COMPUTACIONAL", "CUR", "EXO", 97, 2),
-            acta(ap20, date(2021, 12, 15), "BASES DE DATOS 1", "CUR", "ELI", 0, 3),
-            acta(ap20, date(2022, 7, 30), "PROGRAMACION 1", "CUR", "ELI", 0, 4),
-            acta(ap22, date(2023, 7, 31), "PROGRAMACION 1", "CUR", "ELI", 0, 5),
-            acta(ap22, date(2023, 9, 15), "TALLER DE USABILIDAD", "TALLER", "ELI", 0, 6),
-            acta(ap22, date(2026, 7, 7), "PENSAMIENTO COMPUTACIONAL", "CUR", "EXO", 89, 7),
-            acta(ap22, date(2026, 7, 20), "PROGRAMACION 1", "CUR", "EXO", 95, 8),
-        ])
-        session.commit()
-        return a
 
     def test_el_general_da_lo_mismo_que_el_certificado(self, session, cambio_de_plan):
         legajo = SERVICIO.legajo(session, "45000001")
@@ -346,3 +347,55 @@ class TestResumenGeneral:
 
     def test_sin_actas_no_hay_general(self, session, historico):
         assert SERVICIO.legajo(session, "30000009").general is None
+
+
+class TestPorCarrera:
+    """
+    Criterio de bedelia (22/09/2026): la escolaridad es por carrera. Si el
+    alumno cambio de plan dentro de la misma carrera, se suma; si son dos
+    carreras o dos cursos distintos, un promedio para cada una. El Excel no
+    podia separar; el legajo si.
+    """
+
+    def test_cambio_de_plan_en_la_misma_carrera_se_suma(self, session, cambio_de_plan):
+        carreras = SERVICIO.legajo(session, "45000001").carreras
+        assert len(carreras) == 1
+        c = carreras[0]
+        assert c.carrera == "Analista Programador"
+        assert c.planes == ["AP 2020", "AP 2022"]
+        assert c.promedio == 35.13
+        assert c.cantidad_resultados == 8
+
+    def test_carreras_distintas_van_separadas(self, session, historico):
+        """AP 2011 y TSI 2011: dos carreras, dos promedios."""
+        carreras = {c.carrera: c for c in SERVICIO.legajo(session, "41234567").carreras}
+        assert set(carreras) == {"Analista Programador", "Tecnico en Soporte Informatico"}
+        assert carreras["Tecnico en Soporte Informatico"].promedio == 45.0    # (90 + 0) / 2
+        assert carreras["Analista Programador"].planes == ["AP 2011"]
+        # El general sigue mezclando todo, como el Excel
+        assert SERVICIO.legajo(session, "41234567").general.cantidad_resultados == 4
+
+    def test_plan_sin_carrera_no_se_mezcla(self, session):
+        raro = HistoricoPlan(codigo="PLAN RARO")
+        ap = HistoricoPlan(codigo="AP 2022", carrera="Analista Programador", creditos_requeridos=15)
+        session.add_all([raro, ap])
+        session.flush()
+        a = HistoricoAlumno(cedula="46000001", nombre="X", nombre_busqueda="X")
+        session.add(a)
+        session.flush()
+        session.add_all([
+            HistoricoResultado(alumno_id=a.id, plan_id=raro.id, materia="M1", tipo_evaluacion="EXA",
+                               resultado="APR", puntaje=80, puntaje_promedio=80, fecha=date(2020, 1, 1)),
+            HistoricoResultado(alumno_id=a.id, plan_id=ap.id, materia="M2", tipo_evaluacion="EXA",
+                               resultado="APR", puntaje=90, puntaje_promedio=90, fecha=date(2021, 1, 1)),
+        ])
+        session.commit()
+
+        carreras = SERVICIO.legajo(session, "46000001").carreras
+        assert [c.carrera for c in carreras] == ["PLAN RARO", "Analista Programador"]
+        assert [c.promedio for c in carreras] == [80.0, 90.0]
+
+    def test_los_planes_nocturnos_son_la_misma_carrera(self):
+        from v2.scripts.importar_historico import CATALOGO_PLANES
+        assert CATALOGO_PLANES["TA 2001 N"][0] == CATALOGO_PLANES["TA 2001"][0]
+        assert CATALOGO_PLANES["TA 2016 N"][0] == CATALOGO_PLANES["TA 2016"][0]

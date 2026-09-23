@@ -1738,6 +1738,10 @@ El legajo: datos de la persona, resumen por plan y todas las actas ordenadas por
   "alumno": {"id": 812, "cedula": "41234567", "nombre": "PEREZ GOMEZ JUAN", "plan_declarado": "AP 2011",
              "zona": "11AP", "direccion": "...", "localidad": "SALTO", "departamento": "15",
              "telefono": "...", "celular": "...", "email": "...", "observaciones": null},
+  "carreras": [
+    {"carrera": "Analista Programador", "planes": ["AP 2011"], "creditos_requeridos": 15,
+     "creditos_aprobados": 12, "creditos_revalidados": 0, "promedio": 78.5, "...": "..."}
+  ],
   "general": {"plan": "(Todas)", "carrera": "Analista Programador", "creditos_requeridos": 15,
               "creditos_aprobados": 12, "creditos_revalidados": 0, "promedio": 78.5, "...": "..."},
   "planes": [
@@ -1763,9 +1767,10 @@ El legajo: datos de la persona, resumen por plan y todas las actas ordenadas por
 ```
 - **Response 404:** no hay legajo para esa cedula
 
-`general` es el numero del certificado: todas las actas de la persona, de
-todos los planes (el Excel filtra con CARRERA = (Todas); 250 alumnos tienen
-actas en mas de un plan). `planes` es el mismo calculo plan por plan.
+`carreras` es la escolaridad: un promedio por carrera, con todos sus planes
+juntos (criterio de bedelia: si cambia el plan se suma, si son carreras o
+cursos distintos van separados). `general` mezcla todo, como el Excel viejo,
+y sirve para cotejar certificados ya emitidos. `planes` es el desglose.
 
 El resumen reproduce el certificado de escolaridad que emitia bedelia
 (credito = examen o taller con >= 70, cursada exonerada o revalida; el promedio
