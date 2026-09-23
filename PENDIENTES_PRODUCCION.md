@@ -367,6 +367,27 @@ python -m v2.scripts.importar_historico "ruta/Escolaridades.xlsx"             # 
 - [ ] `GET /v2/admin/historico/planes` devuelve 39 filas
 - [ ] Si la planilla se actualizó desde el 11/09/2026, los números van a ser otros: el informe del script dice qué descartó y por qué
 
+#### El dia del arranque: reimportar la planilla de Escolaridades
+
+**Acordado con bedelía el 22/09/2026.** La escolaridad (el promedio) cuenta
+**todas las instancias rendidas**: cada cursada, cada examen (aprobado,
+eliminado o ausente) y cada taller. La planilla de carga inicial tiene una
+fila por materia con el estado de hoy y **no** lleva esas instancias: salen
+del Excel de Escolaridades, que bedelía sigue usando hasta el arranque.
+
+Por eso, el día que el portal empieza a registrar notas:
+
+- [ ] Pedirle a bedelía la versión final de `Escolaridades ver 2023.xlsm`,
+      guardada sin contraseña
+- [ ] `python -m v2.scripts.importar_historico "<archivo>" --dry-run` y
+      revisar el informe
+- [ ] Mismo comando con `--reemplazar`
+- [ ] A partir de ahí bedelía **deja de cargar el Excel**: todo va al portal.
+      Si carga en los dos lados, las instancias posteriores quedan duplicadas
+
+Lo que se cargó el 11/09/2026 llega hasta el 27/08/2026; lo posterior se
+pierde si no se reimporta.
+
 #### 21. `b8c9d0e1f2a3_merge_historico_y_pagos` — Revisión de merge (no-op)
 
 > ✅ **Ya aplicada en develop** el 11/09/2026, al mergear la rama `Handy`.
