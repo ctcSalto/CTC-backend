@@ -417,7 +417,12 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         """
         Desinscribirse de un examen (soft-delete).
         - Solo si esta en estado INSCRIPTO
-        - Solo hasta 72 horas antes de la fecha del examen (configurable)
+        - Solo hasta 24 horas antes de la fecha del examen (PLAZO_BAJA_EXAMEN_HORAS)
+
+        El plazo es regla de bedelia (23/09/2026): quien se inscribio y no se
+        dio de baja 24 horas antes y no se presenta queda NSP, que cuenta como
+        actividad rendida (0 en el promedio de la escolaridad) y gasta una
+        oportunidad de examen. Antes el default era 72.
         """
         ie = session.exec(
             select(InscripcionExamen).where(InscripcionExamen.id == inscripcion_examen_id)
@@ -427,10 +432,10 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         if ie.estado != EstadoInscripcionExamen.INSCRIPTO:
             raise ValueError("Solo se puede desinscribir una inscripcion en estado INSCRIPTO")
 
-        # Validar plazo de baja (72 horas antes del examen)
+        # Validar plazo de baja (24 horas antes del examen)
         instancia = session.get(InstanciaExamen, ie.instancia_examen_id)
         if instancia and instancia.fecha_examen:
-            plazo_horas = int(os.getenv("PLAZO_BAJA_EXAMEN_HORAS", "72"))
+            plazo_horas = int(os.getenv("PLAZO_BAJA_EXAMEN_HORAS", "24"))
             tz = get_uruguay_tz()
             ahora = datetime.now(tz).replace(tzinfo=None)
             limite = instancia.fecha_examen - timedelta(hours=plazo_horas)

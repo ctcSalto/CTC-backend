@@ -10,7 +10,8 @@ TODAS las actividades rendidas, no solo el resultado final de cada materia.
     inasistencia) suma 0 y cuenta 1 en el divisor. Recursar baja el promedio,
     y es a proposito.
   - Cada rendicion de examen cuenta. Aprobado suma su nota; eliminado o
-    ausente suma 0 y cuenta 1.
+    ausente suma 0 y cuenta 1. Ausente es el NSP de bedelia: se inscribio,
+    no se dio de baja 24 horas antes y no se presento (confirmado 23/09/2026).
   - La cursada aprobada que espera examen (A_EXAMEN) NO cuenta: todavia no
     cerro nada. Cuenta el examen cuando se rinde.
   - La reválida da creditos pero no entra al promedio.

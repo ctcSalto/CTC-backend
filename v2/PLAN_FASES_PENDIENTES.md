@@ -369,7 +369,11 @@ v2/services/inscripcion_service.py         ← desinscripcion materia con fecha
 v2/services/inscripcion_examen_service.py  ← desinscripcion examen como soft-delete
 ```
 
-### 2.3 Plazo de baja de examen (72 horas)
+### 2.3 Plazo de baja de examen (72 horas → 24 horas)
+
+> **Cambiado a 24 horas el 23/09/2026** por regla de bedelía: quien no se da
+> de baja 24 horas antes y no se presenta queda NSP, que cuenta como actividad
+> rendida. Lo de abajo es el plan original.
 
 **Regla:** El alumno puede darse de baja de un examen hasta 72 horas antes de la fecha del examen.
 

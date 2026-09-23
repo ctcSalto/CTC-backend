@@ -759,6 +759,15 @@ FIRST_ADMIN_DOCUMENT=    # opcional
 FIRST_ADMIN_PHONE=       # opcional
 ```
 
+### Plazo de baja de examenes (cambio de default)
+
+```
+# Hasta cuantas horas antes del examen el alumno puede darse de baja.
+# Regla de bedelia (23/09/2026): 24. El default del codigo paso de 72 a 24.
+# Si en Easypanel esta cargada con 72, sacarla o ponerla en 24.
+PLAZO_BAJA_EXAMEN_HORAS=24
+```
+
 ### Escolaridad (nueva, opcional)
 
 ```
