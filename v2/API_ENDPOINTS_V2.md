@@ -911,8 +911,18 @@ Calificar un examen.
 - **Response 200:** Objeto `InscripcionExamenRead` (estado actualizado)
 
 ### POST `/materia/{materia_id}/examenes/{inscripcion_examen_id}/ausente`
-Marcar como ausente en un examen.
+Marcar como ausente en un examen. Gasta una oportunidad: si con esta ausencia
+el alumno llega al maximo, la materia pasa a `reprobado` y debe recursar.
 - **Response 200:** Objeto `InscripcionExamenRead` con `estado: "ausente"`
+
+### POST `/materia/{materia_id}/examenes/instancia/{instancia_examen_id}/cerrar-acta`
+Cerrar el acta de un examen de la materia. Los inscriptos que **no se dieron
+de baja a tiempo y no tienen nota** pasan a `ausente` (el NSP de bedelia:
+cuenta como actividad rendida con 0 en el promedio y gasta una oportunidad), y
+el examen queda `finalizado`. Mismo servicio que la version de admin (seccion 15).
+- **Response 200:** resumen, con la lista de a quienes marco como ausentes
+- **Response 400:** el examen todavia no se tomo, esta cancelado, o no es de esa materia
+- **Response 403:** el docente no esta asignado a la materia
 
 ---
 
@@ -1454,7 +1464,33 @@ Calificar examen. **Body:**
 **Response 200:** `InscripcionExamenRead` - Si aprueba, la inscripcion materia pasa a `aprobado`
 
 ### POST `/{inscripcion_examen_id}/ausente`
-Marcar como ausente. La materia queda en `a_examen`.
+Marcar como ausente (NSP). La materia queda en `a_examen`, salvo que con esta
+ausencia agote las oportunidades de examen: ahi pasa a `reprobado` y debe
+recursar (antes solo pasaba al reprobar).
+
+### POST `/instancias/{instancia_examen_id}/cerrar-acta`
+Cerrar el acta. Regla de bedelia (23/09/2026): quien se inscribio, no se dio
+de baja 24 horas antes y no se presento queda **NSP**. Al cerrar, todos los que
+siguen `inscripto` sin nota pasan a `ausente`; los aprobados, reprobados y
+bajas no se tocan. El examen queda `finalizado`.
+
+Se hace al cerrar y no automaticamente por fecha para no marcar a nadie
+mientras el docente todavia carga notas. **Solo despues de la fecha del
+examen.** Se puede volver a llamar sin efecto.
+- **Response 200:**
+```json
+{
+  "instancia_examen_id": 12,
+  "estado": "finalizado",
+  "marcados_ausentes": [
+    {"inscripcion_examen_id": 88, "alumno_id": 42, "nombre": "Ana", "apellido": "Perez",
+     "agoto_oportunidades": false}
+  ],
+  "aprobados": 9, "reprobados": 3, "ausentes": 1, "bajas": 2
+}
+```
+- **Response 400:** el examen todavia no se tomo, o esta cancelado
+- **Response 404:** el examen no existe
 
 ### GET `/instancia/{instancia_examen_id}` - Lista de inscripciones a examen
 
