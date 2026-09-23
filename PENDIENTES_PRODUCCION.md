@@ -393,13 +393,12 @@ pierde si no se reimporta.
       portal después. Sin la variable usa la fecha del acta más reciente del
       histórico, que sirve pero depende de que el Excel no tenga fechas mal
       tipeadas hacia adelante.
-- [ ] **Vigencia del derecho a examen en cursos independientes.** Bedelía
-      (23/09/2026): tienen 2 oportunidades "dentro del año que cursaron". Hoy
-      el derecho a examen no vence nunca. Su propio ejemplo (perdió en 2025,
-      aprobó en la segunda oportunidad en marzo de 2026) muestra que no es año
-      calendario: falta definir la regla exacta. Implementarlo probablemente
-      requiere un campo nuevo en `politica_examen` → se propone antes de tocar
-      el esquema.
+- [x] **Vigencia del derecho a examen en cursos independientes: NO VENCE.**
+      Decidido el 23/09/2026: si aprobó el curso tiene sus 2 oportunidades sin
+      fecha de caducidad. Hay alumnos que vuelven años después a usarlas y
+      negárselas los aleja. Es lo que el portal ya hace (no mira la antigüedad
+      de la cursada); fijado con test en `test_plazo_baja_examen.py`. Sin
+      cambios de esquema.
 - [ ] Crear la política de examen de **2 oportunidades** para cursos
       independientes (la de carreras es de 5) y asignarla a sus materias al
       cargarlos.

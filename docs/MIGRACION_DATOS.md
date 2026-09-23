@@ -119,7 +119,8 @@ que tiene la planilla de Escolaridades de bedelía hasta agosto de 2026.
 **Oportunidades de examen según el tipo de programa (bedelía, 23/09/2026):**
 las materias de una **carrera** tienen hasta **5** oportunidades; los **cursos
 independientes** (anuales o cortos, fuera de una carrera, por ejemplo Técnico
-en Soporte IT) tienen **2**. En el portal es la `politica_examen` de cada
+en Soporte IT) tienen **2**, **sin fecha de caducidad**: quien aprobó el curso
+puede volver años después a rendir (decisión de negocio). En el portal es la `politica_examen` de cada
 materia: hay que crear una política con `max_oportunidades = 2` y que el
 importador se la asigne a las materias de los programas que no son carrera.
 Hoy en develop existe solo la de 5.
