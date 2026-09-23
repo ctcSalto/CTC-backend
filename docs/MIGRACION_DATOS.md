@@ -116,6 +116,13 @@ veces, va una fila con el resultado final. Los intentos anteriores no se
 retipean: ya están en el legajo histórico (`docs/HISTORICO_ESCOLARIDADES.md`),
 que tiene la planilla de Escolaridades de bedelía hasta agosto de 2026.
 
+**Para el importador de la planilla (cuando se escriba): no poner
+`fecha_cierre` en las inscripciones que crea.** El promedio de la escolaridad
+cuenta una cursada del portal solo si *el portal la cerró* después de la fecha
+de corte; así las filas de la planilla, cuya última instancia ya está en el
+histórico, no se cuentan dos veces. Las que vienen como `CURSANDO` sí van a
+contar cuando el portal las cierre. Ver `v2/services/promedio_escolaridad.py`.
+
 `A_EXAMEN` está aunque parezca un detalle: hay alumnos que arrastran materias
 con derecho a examen durante años, y si eso se pierde en la migración quedan
 como si nunca las hubieran cursado.

@@ -567,6 +567,13 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
 
             por_semestre.setdefault(materia.semestre, []).append(item)
 
+        # El promedio no sale de la tabla de arriba (que muestra la ultima
+        # cursada de cada materia) sino de TODAS las actividades rendidas.
+        # Import local: promedio_escolaridad importa v2.services.historico_service,
+        # y eso carga v2/services/__init__, que importa este modulo.
+        from v2.services.promedio_escolaridad import promedio_escolaridad
+        detalle = promedio_escolaridad(alumno_id, programa_id, session)
+
         return EscolaridadRead(
             alumno_id=alumno_id,
             programa_id=programa_id,
@@ -576,6 +583,8 @@ class InscripcionMateriaService(BaseServiceWithFilters[InscripcionMateria]):
             ],
             total_creditos=total_creditos,
             total_creditos_posibles=total_creditos_posibles,
+            promedio=detalle.promedio,
+            promedio_detalle=detalle,
         ).model_dump()
 
     # ── Materias disponibles ─────────────────────────────────────────────────

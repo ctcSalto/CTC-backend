@@ -246,9 +246,39 @@ agrupadas por semestre, esten cursadas o no.
     }
   ],
   "total_creditos": 10,
-  "total_creditos_posibles": 30
+  "total_creditos_posibles": 30,
+  "promedio": 36.1,
+  "promedio_detalle": {
+    "promedio": 36.1,
+    "suma_notas": 361.0,
+    "divisor": 10,
+    "actividades_que_cuentan": 10,
+    "del_historico": 8,
+    "del_portal": 3,
+    "carrera_historica": "Analista Programador",
+    "fecha_corte": "2026-08-27",
+    "actividades": [
+      {"fecha": "2021-07-30", "materia": "PROGRAMACION 1", "tipo": "CUR", "resultado": "ELI",
+       "nota": 0.0, "nota_promedio": 0.0, "cuenta_en_promedio": true, "origen": "historico", "detalle": null},
+      {"fecha": "2026-12-10", "materia": "Programacion 2", "tipo": "EXA", "resultado": "ELI",
+       "nota": 40.0, "nota_promedio": 0.0, "cuenta_en_promedio": true, "origen": "portal", "detalle": null},
+      {"fecha": "2027-02-20", "materia": "Programacion 2", "tipo": "CUR", "resultado": "APR",
+       "nota": 75.0, "nota_promedio": 0.0, "cuenta_en_promedio": false, "origen": "portal",
+       "detalle": "cursada aprobada; cuenta el examen"},
+      {"fecha": "2027-02-20", "materia": "Programacion 2", "tipo": "EXA", "resultado": "APR",
+       "nota": 80.0, "nota_promedio": 80.0, "cuenta_en_promedio": true, "origen": "portal", "detalle": null}
+    ]
+  }
 }
 ```
+
+`promedio` es el de la escolaridad con la regla de bedelia: **todas** las
+actividades rendidas de la carrera (cada cursada y cada rendicion de examen),
+del legajo historico hasta la fecha de corte y del portal despues. Cursada
+perdida, examen eliminado o ausente suman 0 y cuentan 1; la cursada que espera
+examen no cuenta (cuenta el examen); la revalida no promedia. Detalle en
+`v2/services/promedio_escolaridad.py`. Mismo campo en
+`GET /v2/admin/inscripciones/escolaridad/{alumno_id}`.
 
 **Notas para el cliente:**
 - `semestres` es una **lista ordenada** por numero de semestre, no un objeto indexado.
