@@ -630,9 +630,11 @@ Lo que conviene saber antes de armar la pantalla:
 
 - **La cedula es el identificador estable.** Los `id` cambian si se reimporta
   la planilla; no guardarlos.
-- **El legajo trae todo junto**: persona, un resumen por plan (creditos
-  aprobados / requeridos, promedio, desglose por resultado) y las actas
-  ordenadas por fecha. Una sola llamada para la pantalla.
+- **El legajo trae todo junto**: persona, un resumen `general` (el numero
+  del certificado: todas las actas, todos los planes), un resumen por plan y
+  las actas ordenadas por fecha. Una sola llamada para la pantalla. Mostrar
+  primero el `general`: un alumno que cambio de plan tiene un solo promedio
+  en el certificado, no uno por plan.
 - `otorga_credito` viene calculado por fila: marcar esas en la tabla.
 - `codigos` trae los diccionarios para mostrar `CUR` como "Cursada", etc. No
   hardcodearlos.

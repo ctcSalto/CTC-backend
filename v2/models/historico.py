@@ -208,7 +208,15 @@ class ResumenPlanRead(SQLModel):
 
 class LegajoHistoricoRead(SQLModel):
     alumno: HistoricoAlumnoRead
-    planes: List[ResumenPlanRead] = Field(default_factory=list)
+    general: Optional[ResumenPlanRead] = Field(
+        default=None,
+        description="Todas las actas de la persona, de todos los planes juntos. Es lo que "
+                    "muestra el certificado de bedelia con CARRERA = (Todas). None si no tiene actas",
+    )
+    planes: List[ResumenPlanRead] = Field(
+        default_factory=list,
+        description="El mismo calculo, plan por plan: lo que muestra el certificado filtrando una carrera",
+    )
     resultados: List[HistoricoResultadoRead] = Field(default_factory=list, description="Ordenados por fecha")
     codigos: Dict[str, Dict[str, str]] = Field(
         default_factory=dict,

@@ -127,6 +127,12 @@ class TestResumirPlan:
 
 
 class TestNormalizacion:
+    def test_redondeo_como_excel(self):
+        from v2.services.historico_service import redondear_como_excel
+        assert redondear_como_excel(35.125) == 35.13   # round() daria 35.12
+        assert redondear_como_excel(30.375) == 30.38
+        assert redondear_como_excel(2.5, 0) == 3.0     # round() daria 2
+
     def test_solo_digitos(self):
         assert solo_digitos("4.257.024-3") == "42570243"
         assert solo_digitos(42570243) == "42570243"
@@ -274,3 +280,69 @@ class TestBuscarResultados:
         fechas = [i["fecha"] for i in SERVICIO.buscar_resultados(session, cedula="41234567")["items"]]
         assert fechas[:3] == sorted((f for f in fechas if f), reverse=True)
         assert fechas[-1] is None
+
+
+class TestResumenGeneral:
+    """
+    El certificado de bedelia filtra por documento con CARRERA = (Todas): un
+    alumno que cambio de plan promedia todas sus actas juntas. Caso real del
+    22/09/2026 (datos cambiados): AP 2020 -> AP 2022, recurso Programacion 1
+    tres veces. El Excel da 281 / 8 = 35,125.
+    """
+
+    @pytest.fixture(name="cambio_de_plan")
+    def fixture_cambio_de_plan(self, session):
+        ap20 = HistoricoPlan(codigo="AP 2020", carrera="Analista Programador", creditos_requeridos=15)
+        ap22 = HistoricoPlan(codigo="AP 2022", carrera="Analista Programador", creditos_requeridos=15)
+        session.add_all([ap20, ap22])
+        session.flush()
+        a = HistoricoAlumno(cedula="45000001", nombre="GOMEZ RUIZ PEDRO", nombre_busqueda="GOMEZ RUIZ PEDRO")
+        session.add(a)
+        session.flush()
+
+        def acta(plan, fecha, materia, tipo, resultado, nota, n):
+            return HistoricoResultado(alumno_id=a.id, plan_id=plan.id, materia=materia, fecha=fecha,
+                                      tipo_evaluacion=tipo, resultado=resultado, puntaje=nota,
+                                      puntaje_promedio=nota, fila_origen=n)
+        session.add_all([
+            acta(ap20, date(2021, 7, 30), "PROGRAMACION 1", "CUR", "ELI", 0, 1),
+            acta(ap20, date(2021, 7, 30), "PENSAMIENTO COMPUTACIONAL", "CUR", "EXO", 97, 2),
+            acta(ap20, date(2021, 12, 15), "BASES DE DATOS 1", "CUR", "ELI", 0, 3),
+            acta(ap20, date(2022, 7, 30), "PROGRAMACION 1", "CUR", "ELI", 0, 4),
+            acta(ap22, date(2023, 7, 31), "PROGRAMACION 1", "CUR", "ELI", 0, 5),
+            acta(ap22, date(2023, 9, 15), "TALLER DE USABILIDAD", "TALLER", "ELI", 0, 6),
+            acta(ap22, date(2026, 7, 7), "PENSAMIENTO COMPUTACIONAL", "CUR", "EXO", 89, 7),
+            acta(ap22, date(2026, 7, 20), "PROGRAMACION 1", "CUR", "EXO", 95, 8),
+        ])
+        session.commit()
+        return a
+
+    def test_el_general_da_lo_mismo_que_el_certificado(self, session, cambio_de_plan):
+        legajo = SERVICIO.legajo(session, "45000001")
+        g = legajo.general
+        assert g.plan == "(Todas)"
+        assert g.cantidad_resultados == 8
+        assert g.promedio == 35.13          # 281 / 8 = 35,125: redondeo de Excel, no al par
+        assert g.creditos_aprobados == 3     # las tres exoneraciones
+        assert g.carrera == "Analista Programador"
+        assert g.creditos_requeridos == 15   # del plan del acta mas reciente
+
+    def test_por_plan_sigue_disponible(self, session, cambio_de_plan):
+        """Es lo que ve bedelia si filtra CARRERA en el certificado."""
+        planes = {p.plan: p for p in SERVICIO.legajo(session, "45000001").planes}
+        assert set(planes) == {"AP 2020", "AP 2022"}
+        assert planes["AP 2020"].cantidad_resultados + planes["AP 2022"].cantidad_resultados == 8
+
+    def test_cada_recursada_cuenta_en_el_divisor(self, session, cambio_de_plan):
+        """Recursar baja el promedio: el 0 suma al divisor. Es la regla del Excel."""
+        g = SERVICIO.legajo(session, "45000001").general
+        assert g.por_resultado == {"ELI": 5, "EXO": 3}
+
+    def test_carrera_mezclada_queda_sin_carrera(self, session, historico):
+        """AP 2011 y TSI 2011 son carreras distintas: el general no inventa una."""
+        g = SERVICIO.legajo(session, "41234567").general
+        assert g.carrera is None
+        assert g.cantidad_resultados == 4
+
+    def test_sin_actas_no_hay_general(self, session, historico):
+        assert SERVICIO.legajo(session, "30000009").general is None

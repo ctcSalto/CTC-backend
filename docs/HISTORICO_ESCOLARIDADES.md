@@ -148,6 +148,29 @@ Verificado contra el certificado que estaba armado en la planilla (una
 alumna de AP 2022): 6 créditos, 0 revalidados, promedio 30,375. Da lo
 mismo. Está como test en `v2/tests/test_historico.py`.
 
+### General y por plan
+
+El certificado de bedelía filtra por documento con **`CARRERA = (Todas)`**:
+un alumno que pasó de AP 2020 a AP 2022 promedia **todas** sus actas juntas.
+Por eso el legajo trae dos niveles:
+
+- **`general`** — todas las actas de la persona, de todos los planes. Es el
+  número del certificado. Los créditos requeridos se toman del plan del acta
+  más reciente (en el Excel salen del PLAN que bedelía elige a mano).
+- **`planes`** — el mismo cálculo plan por plan, que es lo que ve bedelía si
+  filtra una carrera en el certificado.
+
+No es un detalle: **250 de los 1.155 alumnos con actas tienen actas en más de
+un plan.** Caso real que trajo bedelía el 22/09/2026: AP 2020 → AP 2022,
+recursó Programación 1 tres veces, promedio del certificado 281 / 8 = 35,13.
+El general da eso; los dos planes por separado darían 24,25 y 46,0.
+
+**Recursar baja el promedio**, y es a propósito: cada cursada eliminada suma
+0 al numerador y 1 al divisor. Es la regla de bedelía.
+
+**Redondeo:** como Excel, hacia arriba en el medio (35,125 → 35,13). El
+`round()` de Python redondea al par y daría 35,12.
+
 ---
 
 ## 4. Endpoints
@@ -192,6 +215,12 @@ La cédula puede venir con puntos y guion. `404` si no existe.
     "zona": "11AP", "direccion": "…", "localidad": "SALTO", "departamento": "15",
     "telefono": "…", "celular": "…", "email": "…", "observaciones": null
   },
+  "general": {
+      "plan": "(Todas)", "carrera": null, "creditos_requeridos": 17,
+      "creditos_aprobados": 13, "creditos_revalidados": 0, "promedio": 76.4,
+      "cantidad_resultados": 22, "por_resultado": {"APR": 12, "EXO": 4, "ELI": 6},
+      "materias_aprobadas": ["…"], "primera_fecha": "2011-07-15", "ultima_fecha": "2015-07-22"
+  },
   "planes": [
     {
       "plan": "TSI 2011", "carrera": "Tecnico en Soporte Informatico",
@@ -222,6 +251,9 @@ La cédula puede venir con puntos y guion. `404` si no existe.
 }
 ```
 
+- **`general` es el número a mostrar primero**: es el del certificado. Si la
+  persona tiene un solo plan, coincide con `planes[0]`. `carrera` viene `null`
+  cuando mezcla carreras distintas.
 - `planes` viene ordenado por primera fecha; `resultados` por fecha ascendente,
   con las de fecha `null` al final.
 - `otorga_credito` ya viene calculado por fila: sirve para marcar en la tabla
@@ -296,8 +328,9 @@ Una propuesta de mínima, en dos pantallas:
 "solo con actas". Tabla con nombre, cédula, planes (chips), cantidad de actas y
 rango de fechas. Click → legajo.
 
-**Legajo** — cabecera con los datos de la persona; una tarjeta por plan con
-créditos aprobados / requeridos, promedio y el desglose `por_resultado`; y la
+**Legajo** — cabecera con los datos de la persona y el resumen `general`
+(créditos y promedio del certificado); una tarjeta por plan con créditos
+aprobados / requeridos, promedio y el desglose `por_resultado`; y la
 tabla de actas ordenada por fecha con fecha, plan, materia, tipo, resultado,
 nota, crédito, acta y docente. Marcar las filas con `otorga_credito`. Para las
 descripciones usar `codigos`.
