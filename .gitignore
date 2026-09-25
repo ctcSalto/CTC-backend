@@ -42,8 +42,9 @@ SKILL.md
 # Excel / VBA (datos locales)
 *.xlsx
 *.vba
-# Salvo la planilla de carga inicial que se le mando a bedelia (referencia)
-!docs/carga_inicial/*.xlsx
+# Salvo la planilla VACIA que se le mando a bedelia (referencia del formato).
+# La completa tiene cedulas y notas de alumnos: NO va al repo (ver el README de la carpeta).
+!docs/carga_inicial/carga_inicial_portal_enviada_bedelia.xlsx
 
 # Frontend
 frontend/node_modules/
