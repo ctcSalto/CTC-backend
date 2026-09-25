@@ -583,3 +583,100 @@ class TestColumnasAgregadas:
         errores, avisos = problemas_de(planilla_vacia)
         assert not [e for e in errores if "no se puede repetir" in str(e)], [str(e) for e in errores]
         assert any("planes" in str(a) and "2011" in str(a) and "2022" in str(a) for a in avisos),             [str(a) for a in avisos]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Cada plan es un programa aparte: cada alumno tiene que decir su plan
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestPlanDelAlumno:
+    """
+    Decidido el 25/09/2026: cada plan de una carrera es un programa aparte.
+    En la planilla real, de 52 alumnos de carreras con varios planes, en 39 no
+    habia forma de saber el plan: lo tiene que decir bedelia.
+    """
+
+    @pytest.fixture(name="dos_planes")
+    def fixture_dos_planes(self, planilla_vacia, programa):
+        """El programa de test con sus materias en el plan 2022, y P1 y una 'Algoritmos 1' en el 2011."""
+        wb = load_workbook(planilla_vacia)
+        ws = wb[HOJAS["plan"]]
+        ws.cell(row=2, column=8, value="Plan")
+        propias = [r for r in range(3, ws.max_row + 1) if ws.cell(row=r, column=1).value == programa.nombre]
+        for r in propias:
+            ws.cell(row=r, column=8, value=2022)
+        ultima = ws.max_row + 1
+        for col, valor in enumerate([programa.nombre, None, "Programacion 1", 1, 10, "NO", None, 2011], start=1):
+            ws.cell(row=ultima, column=col, value=valor)
+        for col, valor in enumerate([programa.nombre, None, "Algoritmos 1", 1, 10, "NO", None, 2011], start=1):
+            ws.cell(row=ultima + 1, column=col, value=valor)
+        wb.save(planilla_vacia)
+        completar_malla(planilla_vacia)
+        return planilla_vacia
+
+    def _con_plan(self, ruta, programa, plan):
+        encabezado = list(ENCABEZADO_ALUMNOS_CON_OTRO) + ["Plan"]
+        escribir(ruta, HOJAS["alumnos"], [encabezado], desde=2)
+        escribir(ruta, HOJAS["alumnos"], [
+            ("41234567", "Perez", "Ana", None, None, None, None, programa, 2015, "ACTIVA",
+             None, None, None, plan),
+        ])
+
+    def test_sin_plan_es_error_con_la_lista(self, dos_planes, programa):
+        escribir(dos_planes, HOJAS["alumnos"], [
+            ("41234567", "Perez", "Ana", None, None, None, None, programa.nombre, 2015, "ACTIVA", None),
+        ])
+        errores, _ = problemas_de(dos_planes)
+        falta = [e for e in errores if "no dicen en que plan estan" in str(e)]
+        assert len(falta) == 1
+        assert "Perez, Ana" in str(falta[0]) and "ingreso 2015" in str(falta[0])
+
+    def test_con_la_columna_plan(self, dos_planes, programa):
+        self._con_plan(dos_planes, programa.nombre, 2011)
+        errores, _ = problemas_de(dos_planes)
+        assert not [e for e in errores if "plan" in str(e).lower()], [str(e) for e in errores]
+
+    def test_con_el_plan_en_el_nombre(self, dos_planes, programa):
+        escribir(dos_planes, HOJAS["alumnos"], [
+            ("41234567", "Perez", "Ana", None, None, None, None,
+             f"{programa.nombre} (Plan 2011)", 2015, "ACTIVA", None),
+        ])
+        errores, _ = problemas_de(dos_planes)
+        assert not [e for e in errores if "plan" in str(e).lower()], [str(e) for e in errores]
+
+    def test_plan_que_no_existe(self, dos_planes, programa):
+        self._con_plan(dos_planes, programa.nombre, 2019)
+        errores, _ = problemas_de(dos_planes)
+        assert any("El plan 2019 no esta" in str(e) for e in errores)
+
+    def test_la_materia_se_busca_en_el_plan_del_alumno(self, dos_planes, programa):
+        """'Algoritmos 1' solo existe en el 2011: para un alumno del 2011 se encuentra sin aviso."""
+        self._con_plan(dos_planes, programa.nombre, 2011)
+        escribir(dos_planes, HOJAS["historial"], [
+            ("41234567", programa.nombre, "Algoritmos 1", "APROBADA", 80, 2012, 1, None),
+            ("41234567", programa.nombre, "Programacion 1", "APROBADA", 75, 2012, 1, None),
+        ])
+        errores, avisos = problemas_de(dos_planes)
+        assert errores == [], [str(e) for e in errores]
+        assert not [a for a in avisos if "no esta en el plan" in str(a)], [str(a) for a in avisos]
+
+    def test_materia_de_otro_plan_es_aviso(self, dos_planes, programa):
+        """Alumno del 2022 con una materia que solo esta en el 2011: se toma, pero se avisa."""
+        self._con_plan(dos_planes, programa.nombre, 2022)
+        escribir(dos_planes, HOJAS["historial"], [
+            ("41234567", programa.nombre, "Algoritmos 1", "APROBADA", 80, 2012, 1, None),
+        ])
+        errores, avisos = problemas_de(dos_planes)
+        assert errores == [], [str(e) for e in errores]
+        assert any("no esta en el plan 2022" in str(a) and "2011" in str(a) for a in avisos)
+
+    def test_observaciones_dicen_el_plan_de_la_fila(self, dos_planes, programa):
+        """Cambio de plan: la fila vieja dice 'Plan 2011' en Observaciones y no se avisa."""
+        self._con_plan(dos_planes, programa.nombre, 2022)
+        escribir(dos_planes, HOJAS["historial"], [
+            ("41234567", programa.nombre, "Algoritmos 1", "APROBADA", 80, 2012, 1,
+             "Analista Programador - Plan 2011"),
+        ])
+        errores, avisos = problemas_de(dos_planes)
+        assert errores == [], [str(e) for e in errores]
+        assert not [a for a in avisos if "no esta en el plan" in str(a)], [str(a) for a in avisos]

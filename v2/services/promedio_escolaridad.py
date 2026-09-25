@@ -17,7 +17,9 @@ TODAS las actividades rendidas, no solo el resultado final de cada materia.
   - La reválida da creditos pero no entra al promedio.
   - Se promedia por carrera, con todos sus planes juntos: si el alumno cambio
     de plan dentro de la misma carrera se suma. Carreras distintas, promedios
-    distintos (en el portal, uno por programa).
+    distintos. En el portal cada plan es un programa aparte ("Analista
+    Programador (Plan 2020)", ver v2/services/planes.py), asi que se juntan
+    las cursadas de todos los programas de la misma carrera.
 
 Es la misma regla que la hoja ESCOLARIDAD del Excel de bedelia, que
 reproduce historico_service.evaluar_fila. Las dos partes se suman en un
@@ -80,6 +82,7 @@ from v2.models.materia import Materia
 from v2.models.programa import Programa
 from v2.models.usuario import Usuario
 from v2.services.historico_service import evaluar_fila, redondear_como_excel, solo_digitos, texto_busqueda
+from v2.services.planes import carrera_de
 
 
 ORIGEN_HISTORICO = "historico"
@@ -239,8 +242,12 @@ def fecha_de_cursada(instancia: InstanciaCursado, insc: InscripcionMateria) -> O
 
 
 def carrera_historica_de(programa: str, carreras: List[str]) -> Optional[str]:
-    """La carrera del historico que corresponde a un programa del portal, por nombre."""
-    objetivo = texto_busqueda(programa)
+    """
+    La carrera del historico que corresponde a un programa del portal, por
+    nombre. El plan del programa no cuenta: "Analista Programador (Plan 2020)"
+    es la carrera "Analista Programador".
+    """
+    objetivo = texto_busqueda(carrera_de(programa))
     objetivo = ALIAS_CARRERA_HISTORICA.get(objetivo, objetivo)
     for carrera in carreras:
         if carrera and texto_busqueda(carrera) == objetivo:
@@ -288,12 +295,23 @@ def promedio_escolaridad(alumno_id: int, programa_id: int, session: Session) -> 
             if corte is None or r.fecha is None or r.fecha <= corte
         ]
 
-    # ── Portal: cursadas y rendiciones del programa, despues del corte ────────
+    # ── Portal: cursadas y rendiciones de la carrera, despues del corte ───────
+    # Todos los programas de la misma carrera: cada plan es un programa aparte
+    # y el promedio es de la carrera, con todos sus planes.
+    programas_de_la_carrera = [programa_id]
+    if programa is not None:
+        base = texto_busqueda(carrera_de(programa.nombre))
+        programas_de_la_carrera = [
+            pid for pid, nombre in session.exec(select(Programa.id, Programa.nombre)).all()
+            if texto_busqueda(carrera_de(nombre)) == base
+        ] or [programa_id]
+
     cursadas = session.exec(
         select(InscripcionMateria, InstanciaCursado, Materia)
         .join(InstanciaCursado, InstanciaCursado.id == InscripcionMateria.instancia_cursado_id)
         .join(Materia, Materia.id == InstanciaCursado.materia_id)
-        .where(InscripcionMateria.alumno_id == alumno_id, Materia.programa_id == programa_id)
+        .where(InscripcionMateria.alumno_id == alumno_id,
+               col(Materia.programa_id).in_(programas_de_la_carrera))
     ).all()
 
     ids = [insc.id for insc, _, _ in cursadas]

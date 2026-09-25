@@ -393,6 +393,15 @@ pierde si no se reimporta.
       portal después. Sin la variable usa la fecha del acta más reciente del
       histórico, que sirve pero depende de que el Excel no tenga fechas mal
       tipeadas hacia adelante.
+- [x] **Varios planes por carrera: cada plan es un programa aparte**
+      ("Analista Programador (Plan 2020)"), decidido el 25/09/2026. Sin cambios
+      de esquema. El promedio de la escolaridad junta los planes de la carrera.
+      Detalle y lo que tiene que hacer el importador en `docs/MIGRACION_DATOS.md`.
+- [ ] Semestres `.5` en el plan de estudios (talleres entre semestres):
+      `materia.semestre` es entero. Decidir si 1.5 va como 1 o como 2, o si se
+      propone un cambio de esquema.
+- [ ] Hoja "Dictado actual": el año y el semestre parecen ser los del plan y no
+      el año lectivo. Preguntar a bedelía qué quiso cargar.
 - [x] **Vigencia del derecho a examen en cursos independientes: NO VENCE.**
       Decidido el 23/09/2026: si aprobó el curso tiene sus 2 oportunidades sin
       fecha de caducidad. Hay alumnos que vuelven años después a usarlas y

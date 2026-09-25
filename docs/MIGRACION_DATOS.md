@@ -116,6 +116,32 @@ veces, va una fila con el resultado final. Los intentos anteriores no se
 retipean: ya están en el legajo histórico (`docs/HISTORICO_ESCOLARIDADES.md`),
 que tiene la planilla de Escolaridades de bedelía hasta agosto de 2026.
 
+**Cada plan es un programa aparte (decidido el 25/09/2026).** La planilla
+devuelta trae varias versiones de una carrera: Analista Programador en los
+planes 2007, 2011, 2020 y 2022, y TGDE en 2022 y 2025, cada una con su malla.
+En vez de agregar el concepto de plan a la base, cada plan es un `Programa` con
+el año en el nombre: `Analista Programador (Plan 2020)`. Las carreras con un
+solo plan no llevan sufijo. Helpers en `v2/services/planes.py`.
+
+- **Qué agrupa por carrera y no por plan:** el promedio de la escolaridad
+  (bedelía lo calcula con todos los planes juntos). `promedio_escolaridad`
+  junta las cursadas de todos los programas de la misma carrera.
+- **Qué tiene que dar bedelía:** el plan de cada alumno de esas carreras
+  (columna `Plan` al final de `1-Alumnos`, o dentro del nombre del programa).
+  Con los datos de la planilla no se puede deducir: en 39 de 52 alumnos no
+  hay ningún indicio. El validador lo exige.
+- **Historial:** cada materia se busca en el plan del alumno; si la fila dice
+  otro plan (en Observaciones, "Plan 2011"), en ese. **Previaturas y dictado**
+  no dicen el plan: se toman del más reciente.
+- **Para el importador:** `materia.codigo` es **único en toda la base**, no
+  por programa, y la planilla repite el código de una materia en cada plan
+  (PROG1 en 2020 y en 2022). Hay que diferenciarlos (`PROG1-2020`) o dejar sin
+  código los planes viejos. El programa "Analista Programador" que ya existe en
+  develop (la malla del plan actual) pasa a llamarse "Analista Programador
+  (Plan 2022)".
+- **Pendiente:** los semestres `.5` (talleres entre dos semestres, 1.5, 2.5)
+  no entran en `materia.semestre`, que es entero.
+
 **Oportunidades de examen según el tipo de programa (bedelía, 23/09/2026):**
 las materias de una **carrera** tienen hasta **5** oportunidades; los **cursos
 independientes** (anuales o cortos, fuera de una carrera, por ejemplo Técnico

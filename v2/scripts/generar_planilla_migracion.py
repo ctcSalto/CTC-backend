@@ -179,6 +179,13 @@ def _hoja_leeme(wb: Workbook, programas: List[Programa]) -> None:
         ("Al final '5-Historial' y '6-Dictado actual', que usan las dos cosas "
          "anteriores.", ""),
         ("", ""),
+        ("CARRERAS CON VARIOS PLANES", "seccion"),
+        ("Cada plan es un programa aparte en el portal (por ejemplo 'Analista "
+         "Programador (Plan 2020)'). En '3-Plan de estudios' poné el año del plan de "
+         "cada materia en la columna Plan, y en '1-Alumnos' el plan en que esta cada "
+         "alumno. Si un alumno cambio de plan, en '5-Historial' las materias del plan "
+         "viejo llevan 'Plan 2011' (o el que sea) en Observaciones.", ""),
+        ("", ""),
         ("LA HOJA IMPORTANTE ES '5-Historial'", "seccion"),
         ("Es la que dice, para cada alumno, como viene con cada materia. "
          "De ahi sale la escolaridad y de ahi sale a que se puede inscribir.", ""),
@@ -258,12 +265,17 @@ def _hoja_alumnos(wb: Workbook, nombres_programas: List[str]) -> None:
         Columna("Año de ingreso*", 14, obligatoria=True),
         Columna("Estado en la carrera*", 18, opciones=ESTADOS_CARRERA, obligatoria=True),
         Columna("Observaciones", 40),
+        # Cada plan es un programa aparte (25/09/2026). El validador la busca por
+        # el titulo, no por la posicion.
+        Columna("Plan", 10),
     ]
     _armar_hoja(
         wb, "1-Alumnos", columnas,
         nota="Una fila por alumno. Si un alumno cursa dos carreras, una fila por carrera "
              "(mismo documento repetido). El email institucional es con el que entra al "
-             "portal: si no lo tiene todavia, dejalo vacio y se lo creamos.",
+             "portal: si no lo tiene todavia, dejalo vacio y se lo creamos. PLAN: el año "
+             "del plan en que esta, solo si la carrera tiene varios (Analista Programador: "
+             "2007, 2011, 2020 o 2022).",
     )
 
 
@@ -294,6 +306,8 @@ def _hoja_plan(wb: Workbook, session: Session, nombres_programas: List[str]) -> 
         Columna("Creditos*", 12, obligatoria=True),
         Columna("¿Se sigue dictando?*", 16, opciones=SI_NO, obligatoria=True),
         Columna("Observaciones", 40),
+        # El año del plan: cada plan es un programa aparte (25/09/2026)
+        Columna("Plan", 10),
     ]
     ws = _armar_hoja(
         wb, "3-Plan de estudios", columnas,

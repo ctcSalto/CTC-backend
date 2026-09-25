@@ -334,3 +334,60 @@ class TestEnLaEscolaridad:
         esc = InscripcionMateriaService().get_escolaridad(alumno.id, programa.id, session)
         assert esc["promedio"] is None
         assert esc["promedio_detalle"]["actividades"] == []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Cada plan es un programa aparte (25/09/2026)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestPlanesComoProgramas:
+    def test_separar_y_armar_el_nombre(self):
+        from v2.services.planes import separar_plan, carrera_de, nombre_programa
+        assert separar_plan("Analista Programador (Plan 2020)") == ("Analista Programador", "2020")
+        assert separar_plan("Analista Programador - Plan 2007") == ("Analista Programador", "2007")
+        assert separar_plan("Analista Programador plan 2011") == ("Analista Programador", "2011")
+        assert separar_plan("Excel y Power BI") == ("Excel y Power BI", None)
+        assert carrera_de("Técnico en Gestión y Dirección de Empresas (Plan 2025)") == \
+            "Técnico en Gestión y Dirección de Empresas"
+        assert nombre_programa("Analista Programador", "2022") == "Analista Programador (Plan 2022)"
+        assert nombre_programa("Excel Avanzado", None) == "Excel Avanzado"
+
+    def test_la_carrera_historica_no_mira_el_plan(self):
+        assert pe.carrera_historica_de("Analista Programador (Plan 2020)", ["Analista Programador"]) == \
+            "Analista Programador"
+
+    def test_el_promedio_junta_los_planes_de_la_carrera(self, session, alumno, politica_base100):
+        """
+        Empezo en el plan 2020 y paso al 2022: son dos programas, pero el
+        promedio es uno solo, de la carrera (criterio de bedelia).
+        """
+        from v2.models.programa import Programa
+        from v2.models.materia import Materia
+        from v2.models.enums import TipoPrograma, AreaPrograma
+
+        def programa(nombre):
+            p = Programa(nombre=nombre, tipo=TipoPrograma.CARRERA, area=AreaPrograma.INFORMATICA,
+                         duracion_semestres=4, activo=True)
+            session.add(p)
+            session.flush()
+            # materia.codigo es unico en toda la base, no por programa
+            m = Materia(programa_id=p.id, nombre="Programacion 1", codigo=f"P1-{p.id}",
+                        semestre=1, creditos=10, politica_id=politica_base100.id, activo=True)
+            session.add(m)
+            session.flush()
+            return p, m
+
+        viejo, m20 = programa("Analista Programador (Plan 2020)")
+        nuevo, m22 = programa("Analista Programador (Plan 2022)")
+        otra, mo = programa("Otra Carrera (Plan 2022)")
+        cursar(session, alumno, m20, EM.REPROBADO, 2025, 1, nota_curso=40, cerrada=datetime(2025, 7, 20))
+        cursar(session, alumno, m22, EM.EXONERADO, 2026, 1, nota_curso=90, nota_final=90,
+               cerrada=datetime(2026, 7, 20))
+        cursar(session, alumno, mo, EM.EXONERADO, 2026, 1, nota_curso=100, nota_final=100,
+               cerrada=datetime(2026, 7, 20))
+
+        r = pe.promedio_escolaridad(alumno.id, nuevo.id, session)
+        assert (r.suma_notas, r.divisor) == (90.0, 2)     # 0 del plan 2020 + 90 del 2022; la otra carrera no
+        assert r.promedio == 45.0
+        # Desde el programa viejo, el mismo numero: es la misma carrera
+        assert pe.promedio_escolaridad(alumno.id, viejo.id, session).promedio == 45.0
