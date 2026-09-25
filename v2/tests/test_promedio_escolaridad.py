@@ -132,9 +132,13 @@ class TestAuxiliares:
         assert pe.promediar(acts)[0] == 35.13
 
     def test_carrera_por_nombre_sin_acentos(self):
-        assert pe.carrera_historica_de("Analista Programador", ["Analista Programador", "X"]) == "Analista Programador"
-        assert pe.carrera_historica_de("Técnico en Gerencia", ["Tecnico en Gerencia"]) == "Tecnico en Gerencia"
-        assert pe.carrera_historica_de("Otra", ["Analista Programador"]) is None
+        assert pe.carreras_historicas_de("Analista Programador", ["Analista Programador", "X"]) == ["Analista Programador"]
+        assert pe.carreras_historicas_de("Otra", ["Analista Programador"]) == []
+
+    def test_tgde_junta_tecnico_en_gerencia(self):
+        """Bedelia (25/09/2026): Tecnico en Gerencia es el plan anterior de TGDE."""
+        historico = ["Tecnico en Gerencia", "Tecnico en Gestion y Direccion de Empresas", "Analista Programador"]
+        assert pe.carreras_historicas_de("Técnico en Gestión y Dirección de Empresas (Plan 2025)", historico) ==             ["Tecnico en Gerencia", "Tecnico en Gestion y Direccion de Empresas"]
 
     def test_fecha_de_cursada(self):
         ic = InstanciaCursado(materia_id=1, anio_lectivo=2026, semestre=1)
@@ -353,8 +357,8 @@ class TestPlanesComoProgramas:
         assert nombre_programa("Excel Avanzado", None) == "Excel Avanzado"
 
     def test_la_carrera_historica_no_mira_el_plan(self):
-        assert pe.carrera_historica_de("Analista Programador (Plan 2020)", ["Analista Programador"]) == \
-            "Analista Programador"
+        assert pe.carreras_historicas_de("Analista Programador (Plan 2020)", ["Analista Programador"]) == \
+            ["Analista Programador"]
 
     def test_el_promedio_junta_los_planes_de_la_carrera(self, session, alumno, politica_base100):
         """

@@ -395,6 +395,30 @@ class TestPorCarrera:
         assert [c.carrera for c in carreras] == ["PLAN RARO", "Analista Programador"]
         assert [c.promedio for c in carreras] == [80.0, 90.0]
 
+    def test_tecnico_en_gerencia_va_con_tgde(self, session):
+        """Bedelia (25/09/2026): Gerencia es el plan anterior de TGDE; un solo promedio."""
+        ta = HistoricoPlan(codigo="TA 2016", carrera="Tecnico en Gerencia", creditos_requeridos=15)
+        tg = HistoricoPlan(codigo="TGDE 2022", carrera="Tecnico en Gestion y Direccion de Empresas",
+                           creditos_requeridos=15)
+        session.add_all([ta, tg])
+        session.flush()
+        a = HistoricoAlumno(cedula="46000002", nombre="X", nombre_busqueda="X")
+        session.add(a)
+        session.flush()
+        session.add_all([
+            HistoricoResultado(alumno_id=a.id, plan_id=ta.id, materia="M1", tipo_evaluacion="EXA",
+                               resultado="APR", puntaje=80, puntaje_promedio=80, fecha=date(2020, 1, 1)),
+            HistoricoResultado(alumno_id=a.id, plan_id=tg.id, materia="M2", tipo_evaluacion="EXA",
+                               resultado="APR", puntaje=90, puntaje_promedio=90, fecha=date(2023, 1, 1)),
+        ])
+        session.commit()
+
+        carreras = SERVICIO.legajo(session, "46000002").carreras
+        assert len(carreras) == 1
+        assert carreras[0].carrera == "Tecnico en Gestion y Direccion de Empresas"   # la del plan mas reciente
+        assert carreras[0].planes == ["TA 2016", "TGDE 2022"]
+        assert carreras[0].promedio == 85.0
+
     def test_los_planes_nocturnos_son_la_misma_carrera(self):
         from v2.scripts.importar_historico import CATALOGO_PLANES
         assert CATALOGO_PLANES["TA 2001 N"][0] == CATALOGO_PLANES["TA 2001"][0]

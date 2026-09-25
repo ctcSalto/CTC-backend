@@ -81,7 +81,9 @@ from v2.models.instancia_examen import InstanciaExamen
 from v2.models.materia import Materia
 from v2.models.programa import Programa
 from v2.models.usuario import Usuario
-from v2.services.historico_service import evaluar_fila, redondear_como_excel, solo_digitos, texto_busqueda
+from v2.services.historico_service import (
+    carrera_canonica, evaluar_fila, redondear_como_excel, solo_digitos, texto_busqueda,
+)
 from v2.services.planes import carrera_de
 
 
@@ -92,11 +94,6 @@ ORIGEN_PORTAL = "portal"
 # defecto no entra. A CONFIRMAR con bedelia: si ellos la cargaban como ELI,
 # poner True y pasa a contar como 0.
 CONTAR_ABANDONO = False
-
-# Programa del portal -> carrera del historico, cuando el nombre no coincide.
-# Las claves y valores van normalizados (texto_busqueda). Hoy no hace falta:
-# "Analista Programador" coincide exacto.
-ALIAS_CARRERA_HISTORICA: Dict[str, str] = {}
 
 
 @dataclass
@@ -241,18 +238,16 @@ def fecha_de_cursada(instancia: InstanciaCursado, insc: InscripcionMateria) -> O
     return None
 
 
-def carrera_historica_de(programa: str, carreras: List[str]) -> Optional[str]:
+def carreras_historicas_de(programa: str, carreras: List[str]) -> List[str]:
     """
-    La carrera del historico que corresponde a un programa del portal, por
+    Las carreras del historico que corresponden a un programa del portal, por
     nombre. El plan del programa no cuenta: "Analista Programador (Plan 2020)"
-    es la carrera "Analista Programador".
+    es la carrera "Analista Programador". Puede ser mas de una cuando el Excel
+    registra la misma carrera con otro nombre (CARRERAS_EQUIVALENTES): TGDE
+    junta lo suyo y lo de Tecnico en Gerencia, su plan anterior.
     """
-    objetivo = texto_busqueda(carrera_de(programa))
-    objetivo = ALIAS_CARRERA_HISTORICA.get(objetivo, objetivo)
-    for carrera in carreras:
-        if carrera and texto_busqueda(carrera) == objetivo:
-            return carrera
-    return None
+    objetivo = carrera_canonica(carrera_de(programa))
+    return sorted(c for c in set(carreras) if c and carrera_canonica(c) == objetivo)
 
 
 # ── Con base ─────────────────────────────────────────────────────────────────
@@ -271,22 +266,22 @@ def promedio_escolaridad(alumno_id: int, programa_id: int, session: Session) -> 
 
     # ── Historico: por documento del usuario, en la carrera del programa ──────
     historicas: List[Actividad] = []
-    carrera = None
+    carreras: List[str] = []
     if programa is not None:
-        carreras = [c for c in session.exec(select(HistoricoPlan.carrera).distinct()).all() if c]
-        carrera = carrera_historica_de(programa.nombre, carreras)
+        todas = [c for c in session.exec(select(HistoricoPlan.carrera).distinct()).all() if c]
+        carreras = carreras_historicas_de(programa.nombre, todas)
 
     documento = session.exec(
         select(Usuario.documento).join(Alumno, Alumno.usuario_id == Usuario.id).where(Alumno.id == alumno_id)
     ).first()
-    if carrera and solo_digitos(documento):
+    if carreras and solo_digitos(documento):
         filas = session.exec(
             select(HistoricoResultado)
             .join(HistoricoAlumno, HistoricoAlumno.id == HistoricoResultado.alumno_id)
             .join(HistoricoPlan, HistoricoPlan.id == HistoricoResultado.plan_id)
             .where(
                 HistoricoAlumno.cedula == solo_digitos(documento),
-                HistoricoPlan.carrera == carrera,
+                col(HistoricoPlan.carrera).in_(carreras),
             )
             .order_by(col(HistoricoResultado.fecha).asc().nulls_last(), HistoricoResultado.fila_origen)
         ).all()
@@ -300,10 +295,10 @@ def promedio_escolaridad(alumno_id: int, programa_id: int, session: Session) -> 
     # y el promedio es de la carrera, con todos sus planes.
     programas_de_la_carrera = [programa_id]
     if programa is not None:
-        base = texto_busqueda(carrera_de(programa.nombre))
+        base = carrera_canonica(carrera_de(programa.nombre))
         programas_de_la_carrera = [
             pid for pid, nombre in session.exec(select(Programa.id, Programa.nombre)).all()
-            if texto_busqueda(carrera_de(nombre)) == base
+            if carrera_canonica(carrera_de(nombre)) == base
         ] or [programa_id]
 
     cursadas = session.exec(
@@ -352,7 +347,7 @@ def promedio_escolaridad(alumno_id: int, programa_id: int, session: Session) -> 
         actividades_que_cuentan=sum(1 for a in todas if a.cuenta),
         del_historico=len(historicas),
         del_portal=len(del_portal),
-        carrera_historica=carrera,
+        carrera_historica=" / ".join(carreras) or None,
         fecha_corte=corte,
         actividades=[a.read() for a in todas],
     )

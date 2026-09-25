@@ -179,6 +179,14 @@ tener exactamente el mismo nombre. Los nocturnos (`TA 2001 N`, `TA 2016 N`)
 son Técnico en Gerencia, igual que los diurnos. Un plan sin carrera en el
 catálogo se trata como su propia carrera.
 
+Cuando la carrera cambió de nombre con el plan, el nombre no alcanza: eso va en
+`CARRERAS_EQUIVALENTES` (`v2/services/historico_service.py`). Hoy tiene un
+caso: **Técnico en Gerencia es el plan anterior de Técnico en Gestión y
+Dirección de Empresas** (bedelía, 25/09/2026: *"cambió el plan, pero la
+carrera es la misma"*). Van en un solo promedio, con el nombre del plan más
+reciente, tanto en el legajo como en la escolaridad del portal. En develop hay
+2 alumnos con actas en las dos.
+
 Dos pares que se dejaron **separados** porque parecen cursos distintos, a
 confirmar con bedelía: `EXCEL AV` / `EX+PBI` (Excel Avanzado vs. Excel
 Avanzado y Power BI) y `LS` / `LS+GNS` (Liquidación de Sueldos, con y sin GNS).

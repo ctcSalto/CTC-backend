@@ -184,6 +184,12 @@ del semestre y les pone el docente de la hoja 6.
 - **Algoritmos 2** ya no existe en Analista Programador y **Programación WEB**
   (un curso de CTC Minas, que cerró) ya no existe: no se cargan. Lo cursado en
   eso queda solo en el legajo histórico.
+- **Materias sin nota todavía** (el docente no la pasó): van como
+  `CURSANDO`, y la nota se pone en el portal cuando llegue. Como no están en
+  el histórico, cuentan para el promedio cuando el portal las cierra. El
+  importador tiene que dejarlas en un estado en el que se puedan calificar.
+- **Técnico en Gerencia (plan 2016):** lo cursado en ese plan no se carga en
+  el portal; queda solo en el legajo histórico, que ya lo tiene completo.
 - **Segundo curso:** un alumno puede estar en una carrera y además en un curso
   (Comunicación Efectiva, Excel y Power BI…). Va en `Otro Programa` de
   `1-Alumnos`, y el importador lo toma como una inscripción más.

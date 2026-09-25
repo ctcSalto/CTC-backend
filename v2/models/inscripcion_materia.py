@@ -156,7 +156,7 @@ class PromedioEscolaridadRead(SQLModel):
     del_historico: int = Field(default=0, description="Actividades que vienen del legajo historico")
     del_portal: int = Field(default=0, description="Actividades registradas en el portal despues del corte")
     carrera_historica: Optional[str] = Field(
-        default=None, description="Carrera del historico que corresponde a este programa",
+        default=None, description="Carrera(s) del historico que corresponden a este programa, separadas por ' / '",
     )
     fecha_corte: Optional[date] = Field(
         default=None, description="Hasta aca vale el historico; despues, el portal",

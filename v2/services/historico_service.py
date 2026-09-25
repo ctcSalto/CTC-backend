@@ -135,6 +135,21 @@ def texto_busqueda(valor: Optional[str]) -> str:
     return re.sub(r"\s+", " ", sin_acentos).strip().upper()
 
 
+# Carreras que el Excel registra con otro nombre pero son la misma: cambio el
+# plan, no la carrera, y el promedio va todo junto. Bedelia (25/09/2026):
+# Tecnico en Gerencia es el plan anterior de Tecnico en Gestion y Direccion de
+# Empresas. Claves y valores en texto_busqueda.
+CARRERAS_EQUIVALENTES: Dict[str, str] = {
+    "TECNICO EN GERENCIA": "TECNICO EN GESTION Y DIRECCION DE EMPRESAS",
+}
+
+
+def carrera_canonica(nombre: Optional[str]) -> str:
+    """El nombre con el que se agrupa una carrera, sea del historico o del portal."""
+    texto = texto_busqueda(nombre)
+    return CARRERAS_EQUIVALENTES.get(texto, texto)
+
+
 # ── Servicio ─────────────────────────────────────────────────────────────────
 
 class HistoricoService:
@@ -267,19 +282,21 @@ class HistoricoService:
 
         El Excel no podia separar (sumaba todo); esto es lo que bedelia dice
         que corresponde. Un plan sin carrera en el catalogo se trata como su
-        propia carrera, para no mezclarlo con nada.
+        propia carrera, para no mezclarlo con nada. Las carreras equivalentes
+        (CARRERAS_EQUIVALENTES) van juntas, con el nombre del plan mas reciente.
         """
         por_carrera: Dict[str, list] = defaultdict(list)
         planes_de: Dict[str, List[ResumenPlanRead]] = defaultdict(list)
         for fila, plan in filas:
-            por_carrera[plan.carrera or plan.codigo].append(fila)
+            por_carrera[carrera_canonica(plan.carrera) if plan.carrera else plan.codigo].append(fila)
         for r in resumenes:
-            planes_de[r.carrera or r.plan].append(r)
+            planes_de[carrera_canonica(r.carrera) if r.carrera else r.plan].append(r)
 
         salida = []
-        for carrera, filas_carrera in por_carrera.items():
-            sus_planes = sorted(planes_de[carrera], key=lambda r: (r.primera_fecha or date.min, r.plan))
+        for clave, filas_carrera in por_carrera.items():
+            sus_planes = sorted(planes_de[clave], key=lambda r: (r.primera_fecha or date.min, r.plan))
             ultimo = max(sus_planes, key=lambda r: (r.ultima_fecha or date.min, r.plan))
+            carrera = ultimo.carrera or clave
             resumen = resumir_plan(filas_carrera, HistoricoPlan(
                 codigo=carrera, carrera=carrera, creditos_requeridos=ultimo.creditos_requeridos,
             ))
