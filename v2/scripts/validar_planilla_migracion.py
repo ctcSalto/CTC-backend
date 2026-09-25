@@ -32,6 +32,7 @@ from v2.scripts.generar_planilla_migracion import (
     ESTADOS_CARRERA, ESTADOS_HISTORIAL, ROLES_DOCENTE, SI_NO, TIPOS_PREVIATURA,
 )
 from v2.scripts.malla_inicial import normalizar
+from v2.services.planes import separar_plan
 
 HOJAS = {
     "alumnos": "1-Alumnos",
@@ -58,6 +59,8 @@ ALIAS_ESTADOS_HISTORIAL = {
 # los creditos de un curso corto). Visto en la planilla devuelta el 25/09/2026.
 VACIOS = {"--", "-", "---", "—"}
 NO_CORRESPONDE = {"NC", "N/C", "NO CORRESPONDE"}
+
+RE_PLAN_EN_TEXTO = re.compile(r"plan\s*(\d{4})", re.IGNORECASE)
 
 RE_DOCUMENTO = re.compile(r"^\d{6,10}$")
 RE_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -104,6 +107,12 @@ class Validador:
         # 2022). programa -> planes, y (programa, nombre) -> plan elegido.
         self.planes_de_programa: Dict[str, Set[str]] = defaultdict(set)
         self.plan_por_nombre: Dict[Tuple[str, str], str] = {}
+        # Cada plan es un programa aparte (decidido el 25/09/2026): las materias
+        # se buscan tambien dentro de un plan puntual, y cada alumno de una
+        # carrera con varios planes tiene que decir en cual esta.
+        self.por_nombre_plan: Dict[Tuple[str, str, str], str] = {}   # (prog, plan, nombre)
+        self.por_codigo_plan: Dict[Tuple[str, str], str] = {}        # (codigo, plan)
+        self.plan_de_alumno: Dict[Tuple[str, str], str] = {}         # (doc, prog) -> plan
 
     # ── Utilidades ───────────────────────────────────────────────────────────
 
@@ -187,8 +196,11 @@ class Validador:
             return None
         return numero
 
+    def _varios_planes(self, programa: str) -> bool:
+        return len(self.planes_de_programa.get(programa, ())) > 1
+
     def _resolver_materia(
-        self, valor, programa: Optional[str] = None
+        self, valor, programa: Optional[str] = None, plan: Optional[str] = None
     ) -> Tuple[Optional[str], Optional[str]]:
         """
         Encuentra la materia venga escrito el codigo o el nombre.
@@ -204,10 +216,17 @@ class Validador:
         if not texto:
             return None, "esta vacio"
 
+        normalizado = normalizar(texto)
+
+        # Primero dentro del plan pedido (el del alumno, en el historial)
+        if plan and programa:
+            clave = (self.por_codigo_plan.get((texto.upper(), plan))
+                     or self.por_nombre_plan.get((normalizar(programa), plan, normalizado)))
+            if clave:
+                return clave, None
+
         if texto.upper() in self.por_codigo:
             return self.por_codigo[texto.upper()], None
-
-        normalizado = normalizar(texto)
 
         if programa:
             clave = self.por_nombre.get((normalizar(programa), normalizado))
@@ -344,6 +363,9 @@ class Validador:
             self.programas.add(programa)
             if plan:
                 self.planes_de_programa[programa].add(plan)
+                self.por_nombre_plan[(normalizar(programa), plan, nombre_normalizado)] = clave
+                if codigo:
+                    self.por_codigo_plan[(codigo, plan)] = clave
             # Por codigo, igual que por nombre: gana el plan mas reciente
             if codigo and (codigo not in self.por_codigo
                            or plan > self.materias[self.por_codigo[codigo]].get("plan", "")):
@@ -382,11 +404,10 @@ class Validador:
                 self.aviso(
                     hoja, None,
                     f"'{programa}' trae materias de {len(planes)} planes "
-                    f"({', '.join(sorted(planes))}). Las otras hojas no dicen de que plan "
-                    f"es cada fila, asi que por ahora cada materia se busca por nombre en "
-                    f"el plan mas reciente que la tiene. Como se cargan los planes viejos "
-                    f"en el portal esta pendiente de definir: no hace falta cambiar nada "
-                    f"en la planilla.",
+                    f"({', '.join(sorted(planes))}). Cada plan va a ser un programa aparte "
+                    f"en el portal ('{programa} (Plan {max(planes)})'). En el historial cada "
+                    f"materia se busca en el plan del alumno; en previaturas y dictado, que "
+                    f"no dicen el plan, en el mas reciente.",
                 )
 
         if not self.materias:
@@ -492,6 +513,10 @@ class Validador:
         col_otro = next((i for i, e in enumerate(encabezados) if e.startswith("otro programa")), None)
         col_otro_estado = col_otro + 1 if col_otro is not None else None
         segundos_programas = 0
+        # "Plan": el año del plan, para las carreras que tienen varios. Tambien
+        # se acepta dentro del nombre: "Analista Programador (Plan 2020)".
+        col_plan = encabezados.index("plan") if "plan" in encabezados else None
+        sin_plan: List[Tuple[int, str, str, str]] = []
 
         for fila, datos in self._filas("alumnos"):
             (documento, apellido, nombre, email, _personal, _tel,
@@ -530,7 +555,9 @@ class Validador:
                 )
             nombres_por_documento[documento] = nombre_completo
 
-            programa = self._texto(programa)
+            programa, plan = separar_plan(self._texto(programa))
+            if col_plan is not None and col_plan < len(datos) and self._texto(datos[col_plan]):
+                plan = self._texto(datos[col_plan])
             if not programa:
                 self.error(hoja, fila, "Falta el programa.")
                 self.documentos_con_error.add(documento)
@@ -561,11 +588,15 @@ class Validador:
 
             self._entero(hoja, fila, anio, "el año de ingreso", 1990, anio_actual + 1)
             self._opcion(hoja, fila, estado, "el estado en la carrera", ESTADOS_CARRERA)
+            self._registrar_plan(hoja, fila, documento, programa, plan,
+                                 f"{self._texto(apellido)}, {self._texto(nombre)}",
+                                 self._texto(anio), sin_plan)
 
             self.documentos_alumnos.add(documento)
             self.programas_de_alumno[documento].add(programa)
 
             otro = self._texto(datos[col_otro]) if col_otro is not None and col_otro < len(datos) else ""
+            otro, plan_otro = separar_plan(otro)
             if otro:
                 if otro not in self.programas:
                     self.error(
@@ -578,6 +609,9 @@ class Validador:
                 else:
                     estado_otro = datos[col_otro_estado] if col_otro_estado < len(datos) else None
                     self._opcion(hoja, fila, estado_otro, "el estado en el otro programa", ESTADOS_CARRERA)
+                    self._registrar_plan(hoja, fila, documento, otro, plan_otro,
+                                         f"{self._texto(apellido)}, {self._texto(nombre)} (otro programa)",
+                                         "", sin_plan)
                     self.programas_de_alumno[documento].add(otro)
                     segundos_programas += 1
 
@@ -589,6 +623,27 @@ class Validador:
                 f"de ingreso: el importador va a usar el año de la primera materia de ese "
                 f"programa en el historial.",
             )
+
+        if sin_plan:
+            por_carrera: Dict[str, List[Tuple[int, str, str, str]]] = defaultdict(list)
+            for item in sin_plan:
+                por_carrera[item[3]].append(item)
+            for programa, items in sorted(por_carrera.items()):
+                muestra = "; ".join(
+                    f"fila {f}: {quien}{f' (ingreso {anio})' if anio else ''}"
+                    for f, quien, anio, _ in items[:20]
+                )
+                if len(items) > 20:
+                    muestra += f"; y {len(items) - 20} mas"
+                self.error(
+                    hoja, None,
+                    f"{len(items)} alumnos de '{programa}' no dicen en que plan estan, y la "
+                    f"carrera tiene varios ({', '.join(sorted(self.planes_de_programa[programa]))}). "
+                    f"Cada plan es un programa aparte en el portal, asi que sin el plan no se "
+                    f"pueden inscribir. Agregar una columna 'Plan' al final de esta hoja con el "
+                    f"año del plan (o escribirlo en el programa: '{programa} (Plan "
+                    f"{max(self.planes_de_programa[programa])})'): {muestra}",
+                )
 
         if sin_documento:
             def marca(quien):
@@ -609,6 +664,22 @@ class Validador:
 
         if not self.documentos_alumnos:
             self.error(hoja, None, "No hay ningun alumno cargado.")
+
+    def _registrar_plan(self, hoja, fila, documento, programa, plan, quien, anio, sin_plan):
+        """Guarda el plan del alumno en el programa, o lo anota como faltante."""
+        if not self._varios_planes(programa):
+            return
+        planes = self.planes_de_programa[programa]
+        if not plan:
+            sin_plan.append((fila, quien, anio, programa))
+        elif plan not in planes:
+            self.error(
+                hoja, fila,
+                f"El plan {plan} no esta en el plan de estudios de '{programa}' "
+                f"(tiene {', '.join(sorted(planes))}).",
+            )
+        else:
+            self.plan_de_alumno[(documento, programa)] = plan
 
     def validar_docentes(self):
         hoja = HOJAS["docentes"]
@@ -658,7 +729,7 @@ class Validador:
         estados: Dict[str, Dict[str, str]] = defaultdict(dict)
 
         for fila, datos in self._filas("historial"):
-            documento, programa, codigo, estado, nota, anio, semestre, _obs = (
+            documento, programa, codigo, estado, nota, anio, semestre, obs = (
                 list(datos) + [None] * 8
             )[:8]
 
@@ -679,11 +750,31 @@ class Validador:
                     )
                 continue
 
-            resuelto, falla = self._resolver_materia(codigo, self._texto(programa))
+            # El plan de la fila: el que diga la fila (en el programa o en
+            # Observaciones, "Plan 2020"), y si no, el del alumno.
+            programa_fila, plan_fila = separar_plan(self._texto(programa))
+            if not plan_fila:
+                m = RE_PLAN_EN_TEXTO.search(self._texto(obs))
+                if m and m.group(1) in self.planes_de_programa.get(programa_fila, ()):
+                    plan_fila = m.group(1)
+            plan_alumno = self.plan_de_alumno.get((documento, programa_fila))
+            plan_buscado = plan_fila or plan_alumno
+
+            resuelto, falla = self._resolver_materia(codigo, programa_fila, plan_buscado)
             if resuelto is None:
                 self.error(hoja, fila, f"'{self._texto(codigo)}' {falla}.")
                 continue
             codigo = resuelto
+
+            plan_materia = self.materias[codigo].get("plan")
+            if plan_buscado and plan_materia and plan_materia != plan_buscado:
+                self.aviso(
+                    hoja, fila,
+                    f"'{self._mostrar(codigo)}' no esta en el plan {plan_buscado} "
+                    f"{'de la fila' if plan_fila else 'del alumno'} sino en el {plan_materia}: "
+                    f"se toma del {plan_materia}. Si el alumno cambio de plan, ponerlo en "
+                    f"Observaciones ('Plan {plan_materia}').",
+                )
 
             clave_fila = (documento, codigo, self._texto(anio), self._texto(semestre),
                           self._texto(estado).upper())
@@ -706,7 +797,7 @@ class Validador:
                 )
                 continue
 
-            texto_programa = self._texto(programa)
+            texto_programa = programa_fila
             if texto_programa and texto_programa != programa_materia:
                 self.aviso(
                     hoja, fila,
