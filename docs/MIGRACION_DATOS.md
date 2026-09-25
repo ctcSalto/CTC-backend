@@ -275,14 +275,35 @@ alumno y bedelía reporta que el sistema está roto.
 
 ### Paso 3 — Importar
 
-Pendiente de escribir. Se hace cuando vuelva la primera planilla con datos
-reales: el importador depende de cómo se vean los datos de verdad, y escribirlo
-antes es adivinar. Va a tener `--dry-run` y ser idempotente (correrlo dos veces
-no duplica nada).
+```bash
+python -m v2.scripts.importar_planilla_migracion carga_inicial.xlsx              # simula
+python -m v2.scripts.importar_planilla_migracion carga_inicial.xlsx --confirmar  # escribe
+```
 
-Tiene que resolver los nombres **ignorando tildes y mayúsculas**. Es exactamente
-el error que dejó el seed sin efecto, y se repite solo si se vuelve a comparar
-con igualdad exacta.
+`v2/scripts/importar_planilla_migracion.py`. Cargado en develop el 25/09/2026.
+
+- **Corre el validador primero** y con un solo error no importa nada. Importa
+  las filas que el validador ya resolvió (materia con su plan, plan de cada
+  alumno), así no vuelve a interpretar la planilla por su cuenta.
+- **Una sola transacción:** entra todo o nada. Sin `--confirmar`, simula.
+- **Idempotente:** busca antes de crear (programa por nombre, materia por
+  código, persona por cédula o email, inscripciones por alumno y programa o por
+  alumno y cursada). Correrlo dos veces no duplica nada, y sirve para completar
+  lo que haya faltado.
+- **Personas:** si ya tienen cuenta (por cédula o por email) se completa solo
+  lo que falta. Las nuevas se crean igual que un alta manual; el primer login
+  con Google las vincula por email.
+- **Historial:** una cursada por materia y año, y una inscripción por fila. Las
+  que están CURSANDO quedan en curso, con la política copiada y su docente de
+  la hoja 6. Las demás quedan finalizadas, sin `fecha_cierre`.
+- **Políticas:** las carreras usan "Base 100 - Carrera AP" con examen de 5
+  oportunidades; los cursos, "Base 100 - Curso Corto" con la de 2
+  oportunidades, que el importador crea si no está.
+- Un estado que la base no acepta (en develop falta `REVALIDADA`) se saltea con
+  un aviso, y la fila entra al volver a correrlo después de la migración.
+
+Resuelve los nombres **ignorando tildes y mayúsculas** (lo hace el validador),
+que es el error que dejó el seed sin efecto.
 
 ---
 

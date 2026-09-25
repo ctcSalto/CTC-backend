@@ -113,6 +113,14 @@ class Validador:
         self.por_nombre_plan: Dict[Tuple[str, str, str], str] = {}   # (prog, plan, nombre)
         self.por_codigo_plan: Dict[Tuple[str, str], str] = {}        # (codigo, plan)
         self.plan_de_alumno: Dict[Tuple[str, str], str] = {}         # (doc, prog) -> plan
+        # Las filas que pasaron la validacion, ya resueltas (materia -> clave,
+        # plan del alumno). Es lo que lee el importador: asi importa exactamente
+        # lo que se valido, sin volver a interpretar la planilla.
+        self.filas_previaturas: List[dict] = []
+        self.filas_alumnos: List[dict] = []
+        self.filas_docentes: List[dict] = []
+        self.filas_historial: List[dict] = []
+        self.filas_dictado: List[dict] = []
 
     # ── Utilidades ───────────────────────────────────────────────────────────
 
@@ -276,7 +284,7 @@ class Validador:
         col_plan = encabezados.index("plan") if "plan" in encabezados else None
 
         for fila, datos in self._filas("plan"):
-            programa, codigo, nombre, semestre, creditos, dictando, _ = (
+            programa, codigo, nombre, semestre, creditos, dictando, observaciones = (
                 list(datos) + [None] * 7
             )[:7]
             plan = self._texto(datos[col_plan]) if col_plan is not None and col_plan < len(datos) else ""
@@ -359,6 +367,9 @@ class Validador:
                 "semestre": semestre,
                 "plan": plan,
                 "fila": fila,
+                "creditos": None if self._no_corresponde(creditos) else self._texto(creditos),
+                "dictando": self._texto(dictando).upper(),
+                "observaciones": self._texto(observaciones),
             }
             self.programas.add(programa)
             if plan:
@@ -467,8 +478,11 @@ class Validador:
                 continue
             vistas.add((codigo, codigo_previa))
 
-            self._opcion(hoja, fila, tipo, "el tipo de previatura", TIPOS_PREVIATURA)
+            valor_tipo = self._opcion(hoja, fila, tipo, "el tipo de previatura", TIPOS_PREVIATURA)
             self.previas_de[codigo].append((codigo_previa, str(fila)))
+            if valor_tipo:
+                self.filas_previaturas.append(
+                    {"fila": fila, "materia": codigo, "previa": codigo_previa, "tipo": valor_tipo})
 
         self._buscar_ciclos()
 
@@ -519,8 +533,8 @@ class Validador:
         sin_plan: List[Tuple[int, str, str, str]] = []
 
         for fila, datos in self._filas("alumnos"):
-            (documento, apellido, nombre, email, _personal, _tel,
-             _nacimiento, programa, anio, estado, _obs) = (list(datos) + [None] * 11)[:11]
+            (documento, apellido, nombre, email, personal, telefono,
+             nacimiento, programa, anio, estado, obs) = (list(datos) + [None] * 11)[:11]
 
             documento = self._documento(documento)
             if not documento:
@@ -586,7 +600,7 @@ class Validador:
                 continue
             documentos_por_fila[clave] = fila
 
-            self._entero(hoja, fila, anio, "el año de ingreso", 1990, anio_actual + 1)
+            anio_ingreso = self._entero(hoja, fila, anio, "el año de ingreso", 1990, anio_actual + 1)
             self._opcion(hoja, fila, estado, "el estado en la carrera", ESTADOS_CARRERA)
             self._registrar_plan(hoja, fila, documento, programa, plan,
                                  f"{self._texto(apellido)}, {self._texto(nombre)}",
@@ -594,6 +608,19 @@ class Validador:
 
             self.documentos_alumnos.add(documento)
             self.programas_de_alumno[documento].add(programa)
+            persona = {
+                "documento": documento, "apellido": self._texto(apellido),
+                "nombre": self._texto(nombre), "email": texto_email.lower(),
+                "email_personal": self._texto(personal), "telefono": self._texto(telefono),
+                "nacimiento": nacimiento,
+            }
+            self.filas_alumnos.append({
+                **persona, "fila": fila, "programa": programa,
+                "plan": self.plan_de_alumno.get((documento, programa)),
+                "anio": anio_ingreso,
+                "estado": self._texto(estado).upper(), "observaciones": self._texto(obs),
+                "otro_programa": False,
+            })
 
             otro = self._texto(datos[col_otro]) if col_otro is not None and col_otro < len(datos) else ""
             otro, plan_otro = separar_plan(otro)
@@ -614,6 +641,12 @@ class Validador:
                                          "", sin_plan)
                     self.programas_de_alumno[documento].add(otro)
                     segundos_programas += 1
+                    self.filas_alumnos.append({
+                        **persona, "fila": fila, "programa": otro,
+                        "plan": self.plan_de_alumno.get((documento, otro)),
+                        "anio": None, "estado": self._texto(estado_otro).upper(),
+                        "observaciones": "", "otro_programa": True,
+                    })
 
         if segundos_programas:
             self.aviso(
@@ -682,7 +715,7 @@ class Validador:
         vistos: Dict[str, int] = {}
 
         for fila, datos in self._filas("docentes"):
-            documento, apellido, nombre, email, _personal, _tel, activo, _obs = (
+            documento, apellido, nombre, email, personal, telefono, activo, obs = (
                 list(datos) + [None] * 8
             )[:8]
 
@@ -708,8 +741,14 @@ class Validador:
             if texto_email and not RE_EMAIL.match(texto_email):
                 self.error(hoja, fila, f"El email '{texto_email}' esta mal escrito.")
 
-            self._opcion(hoja, fila, activo, "si sigue activo", SI_NO)
+            valor_activo = self._opcion(hoja, fila, activo, "si sigue activo", SI_NO)
             self.documentos_docentes.add(documento)
+            self.filas_docentes.append({
+                "fila": fila, "documento": documento, "apellido": self._texto(apellido),
+                "nombre": self._texto(nombre), "email": texto_email.lower(),
+                "email_personal": self._texto(personal), "telefono": self._texto(telefono),
+                "activo": valor_activo != "NO", "observaciones": self._texto(obs),
+            })
 
     def validar_historial(self):
         hoja = HOJAS["historial"]
@@ -814,6 +853,7 @@ class Validador:
                 mas_reciente[(documento, codigo)] = orden
                 estados[documento][codigo] = valor_estado
 
+            numero = None
             if self._texto(nota):
                 texto_nota = self._texto(nota).replace(",", ".")
                 try:
@@ -823,8 +863,9 @@ class Validador:
                 except ValueError:
                     self.error(hoja, fila, f"La nota '{texto_nota}' no es un numero.")
 
+            valor_anio = None
             if self._texto(anio):
-                self._entero(hoja, fila, anio, "el año", 1990, anio_actual + 1)
+                valor_anio = self._entero(hoja, fila, anio, "el año", 1990, anio_actual + 1)
             elif valor_estado in ESTADOS_QUE_CUENTAN_COMO_TENIDA:
                 self.aviso(
                     hoja, fila,
@@ -836,6 +877,12 @@ class Validador:
             # talleres), no el del año. Es informativo: se acepta cualquiera.
             if self._texto(semestre):
                 self._entero(hoja, fila, semestre, "el semestre", 1, 20)
+
+            self.filas_historial.append({
+                "fila": fila, "documento": documento, "materia": codigo,
+                "estado": valor_estado, "nota": numero, "anio": valor_anio,
+                "observaciones": self._texto(obs),
+            })
 
         # Un solo error por alumno cuya fila en 1-Alumnos esta mal, en vez de uno
         # por cada materia suya: se arregla en un lugar y se van todos.
@@ -899,10 +946,10 @@ class Validador:
             datos = list(datos) + [None] * 12
             if dos_docentes:
                 (programa, codigo, anio, semestre, documento, rol, documento_2, rol_2,
-                 _horario, _salon, cupo, _obs) = datos[:12]
+                 horario, salon, cupo, _obs) = datos[:12]
             else:
                 (programa, codigo, anio, semestre, documento, rol,
-                 _horario, _salon, cupo, _obs) = datos[:10]
+                 horario, salon, cupo, _obs) = datos[:10]
                 documento_2 = rol_2 = None
 
             documento = self._documento(documento)
@@ -936,8 +983,16 @@ class Validador:
             if (valor_semestre and valor_semestre > 2) or (valor_anio and valor_anio < anio_actual):
                 fuera_de_rango += 1
 
+            valor_cupo = None
             if self._texto(cupo):
-                self._entero(hoja, fila, cupo, "el cupo maximo", 1, 500)
+                valor_cupo = self._entero(hoja, fila, cupo, "el cupo maximo", 1, 500)
+
+            self.filas_dictado.append({
+                "fila": fila, "materia": codigo,
+                "docentes": [(d, self._texto(r).upper()) for d, r in
+                             ((documento, rol), (documento_2, rol_2)) if d],
+                "horario": self._texto(horario), "salon": self._texto(salon), "cupo": valor_cupo,
+            })
 
             if valor_anio and valor_semestre and documento:
                 clave = (codigo, valor_anio, valor_semestre, documento)

@@ -455,6 +455,35 @@ Todo esto es data inventada para poder probar. **No tiene que ir a producción.*
   (25/25/30-grupal/20)
 - Reparado `snapshot_instancias` vacío en las inscripciones 55 y 56
 
+### Carga inicial de la planilla de bedelía (25/09/2026)
+
+Cargada en develop con `v2/scripts/importar_planilla_migracion.py` desde la copia
+corregida (`carga_inicial_portal_corregida_25-09.xlsx`, fuera del repo porque
+tiene cédulas). **En producción hay que correrlo igual**, después de las
+migraciones y del alta de las políticas (ver `docs/MIGRACION_DATOS.md`, Paso 3):
+
+```bash
+python -m v2.scripts.importar_planilla_migracion carga_inicial.xlsx              # simula
+python -m v2.scripts.importar_planilla_migracion carga_inicial.xlsx --confirmar
+```
+
+Quedó en develop: 36 programas (cada plan aparte), 146 materias, 60
+previaturas, 104 personas nuevas (86 alumnos, 21 docentes), 103 inscripciones a
+programas, 122 cursadas, 572 inscripciones a materias y 18 asignaciones
+docentes. Además se creó la política de examen "Examen curso independiente - 2
+oportunidades".
+
+Tocó datos que ya estaban (de prueba):
+- el programa 1 "Analista Programador" pasó a llamarse "Analista Programador
+  (Plan 2022)";
+- las materias PROG1, PROG2 y BD1 tomaron el nombre, el semestre y los créditos
+  de la planilla (antes tenían 10 créditos; ahora 1);
+- a BD1 se le asignó la política de examen de 5 oportunidades.
+
+**Falta 1 fila** (5-Historial fila 30, REVALIDADA): la base de develop no tiene
+ese estado. Ver "Propuesto: valores de enum que faltan" más abajo. Una vez
+agregado, se vuelve a correr el importador y entra solo esa fila.
+
 ### Base temporal creada y borrada
 
 Para la verificación de esquema del 06/08/2026 se creó la base
@@ -722,6 +751,32 @@ el cliente, no porque el esquema lo permitiera. De los 28 testimonios cargados,
 recrearles la tabla en el próximo arranque. Se borraron el modelo, su servicio y
 —en el caso de `example`— la ruta, que no estaba montada en `main.py` y usaba un
 `services.exampleService` que no existe: habría dado 500 si alguien la montaba.
+
+---
+
+## Propuesto: valores de enum que faltan en la base (A CONFIRMAR)
+
+Encontrado el 25/09/2026 al importar la planilla. El código usa dos estados que
+los tipos de Postgres de develop no tienen, y ninguna migración los agrega:
+
+| Tipo en Postgres | Falta | Lo usa |
+|---|---|---|
+| `estadoinscripcionmateria` | `REVALIDADA` | reválidas (`EstadoInscripcionMateria.REVALIDADA`) |
+| `estadoinscripcionexamen` | `BAJA` | baja de un examen (`EstadoInscripcionExamen.BAJA`) |
+
+Hoy, en develop, una reválida o una baja de examen hechas desde el portal
+fallan al guardar. En producción hay que verificar si están.
+
+**Propuesta** (no aplicada; necesita el OK): una migración que haga
+
+```sql
+ALTER TYPE estadoinscripcionmateria ADD VALUE IF NOT EXISTS 'REVALIDADA';
+ALTER TYPE estadoinscripcionexamen ADD VALUE IF NOT EXISTS 'BAJA';
+```
+
+Solo agrega valores: no cambia filas ni columnas y no rompe nada de lo que hay.
+`ADD VALUE` no se puede deshacer con un `downgrade` simple (Postgres no borra
+valores de un enum), así que el `downgrade` queda vacío.
 
 ---
 
