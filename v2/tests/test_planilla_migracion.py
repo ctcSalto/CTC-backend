@@ -246,15 +246,17 @@ class TestValidacion:
         errores, _ = problemas_de(planilla_vacia)
         assert any("NO_EXISTE" in str(e) for e in errores)
 
-    def test_una_sola_fila_por_alumno_y_materia(self, planilla_vacia, programa):
+    def test_una_fila_identica_es_aviso(self, planilla_vacia, programa):
+        """Misma materia, mismo año y mismo estado dos veces: probablemente copiada de mas."""
         escribir(planilla_vacia, HOJAS["alumnos"], [self._alumno(programa=programa.nombre)])
         escribir(planilla_vacia, HOJAS["historial"], [
             ("41234567", programa.nombre, "P1_T", "APROBADA", 78, 2024, 1, None),
-            ("41234567", programa.nombre, "P1_T", "EXONERADA", 90, 2025, 1, None),
+            ("41234567", programa.nombre, "P1_T", "APROBADA", 78, 2024, 1, None),
         ])
 
-        errores, _ = problemas_de(planilla_vacia)
-        assert any("una fila para 'P1_T'" in str(e) for e in errores)
+        errores, avisos = problemas_de(planilla_vacia)
+        assert errores == [], [str(e) for e in errores]
+        assert any("Repite la fila" in str(a) for a in avisos)
 
     def test_estado_fuera_del_vocabulario(self, planilla_vacia, programa):
         escribir(planilla_vacia, HOJAS["alumnos"], [self._alumno(programa=programa.nombre)])
@@ -396,16 +398,188 @@ class TestRevalida:
         errores, _ = problemas_de(planilla_vacia)
         assert errores == [], [str(e) for e in errores]
 
-    def test_una_sola_fila_por_materia_aunque_la_haya_recursado(self, planilla_vacia, programa):
+    def test_varias_cursadas_de_la_misma_materia(self, planilla_vacia, programa):
         """
-        Recursó tres veces y la cuarta la aprobó: va una fila, la de hoy. Los
-        intentos viejos estan en el legajo historico, no se retipean.
+        Bedelia cargo todas las cursadas, no solo la de hoy (planilla del
+        25/09/2026). Se aceptan, y el estado actual es el de la mas reciente:
+        recurso P1 en 2023 y la aprobo en 2024, asi que P2 no queda sin previa.
         """
         escribir(planilla_vacia, HOJAS["alumnos"], [self._alumno(programa.nombre)])
         escribir(planilla_vacia, HOJAS["historial"], [
             ("41234567", programa.nombre, "P1_T", "RECURSA", 40, 2023, 1, None),
-            ("41234567", programa.nombre, "P1_T", "APROBADA", 80, 2024, 2, None),
+            ("41234567", programa.nombre, "P1_T", "APROBADA", 80, 2024, 1, None),
+            ("41234567", programa.nombre, "P2_T", "APROBADA", 75, 2025, 2, None),
         ])
 
+        errores, avisos = problemas_de(planilla_vacia)
+        assert errores == [], [str(e) for e in errores]
+        assert not [a for a in avisos if "previatura" in str(a)], [str(a) for a in avisos]
+
+    def test_gana_la_mas_reciente_aunque_este_arriba(self, planilla_vacia, programa):
+        """El orden de las filas no importa: manda el año."""
+        escribir(planilla_vacia, HOJAS["alumnos"], [self._alumno(programa.nombre)])
+        escribir(planilla_vacia, HOJAS["historial"], [
+            ("41234567", programa.nombre, "P1_T", "RECURSA", 40, 2025, 1, None),
+            ("41234567", programa.nombre, "P1_T", "APROBADA", 80, 2023, 1, None),
+            ("41234567", programa.nombre, "P2_T", "APROBADA", 75, 2025, 2, None),
+        ])
+
+        _, avisos = problemas_de(planilla_vacia)
+        assert any("P1_T" in str(a) and "RECURSA" in str(a) for a in avisos)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Lo que agrego administracion en la planilla real (25/09/2026)
+# ══════════════════════════════════════════════════════════════════════════════
+
+ENCABEZADO_ALUMNOS_CON_OTRO = [
+    "DOCUMENTO*", "Apellido*", "Nombre*", "Email institucional", "Email personal", "Telefono",
+    "Fecha nacimiento (dd/mm/aaaa)", "Programa*", "Año de ingreso*", "Estado en la carrera*",
+    "Observaciones", "Otro Programa*", "Estado en la carrera*",
+]
+ENCABEZADO_DICTADO_DOS_DOCENTES = [
+    "Programa*", "Materia* (codigo o nombre)", "Año*", "Semestre* (1 o 2)",
+    "DOCUMENTO del docente*", "Rol*", None, "Rol*", "Horario", "Salon", "Cupo maximo", "Observaciones",
+]
+
+
+class TestColumnasAgregadas:
+    def _alumno(self, programa, otro=None, estado_otro=None, email=None):
+        return ("41234567", "Perez", "Ana", email, None, None, None,
+                programa, 2023, "ACTIVA", None, otro, estado_otro)
+
+    def _segunda_carrera(self, session, politica_base100):
+        """Un segundo programa con una materia, cargado en el plan de estudios."""
+        from v2.models.programa import Programa
+        from v2.models.materia import Materia
+        from v2.models.enums import TipoPrograma, AreaPrograma
+        otro = Programa(nombre="Excel y Power BI", tipo=TipoPrograma.CURSO_CORTO,
+                        area=AreaPrograma.INFORMATICA, duracion_semestres=1, activo=True)
+        session.add(otro)
+        session.flush()
+        session.add(Materia(programa_id=otro.id, nombre="Power BI", codigo="PBI", semestre=1,
+                            creditos=1, politica_id=politica_base100.id, activo=True))
+        session.commit()
+        return otro
+
+    def test_otro_programa_cuenta_como_inscripcion(self, tmp_path, session, programa,
+                                                    materias_con_previaturas, politica_base100, monkeypatch):
+        otro = self._segunda_carrera(session, politica_base100)
+        from contextlib import contextmanager
+        import v2.scripts.generar_planilla_migracion as modulo
+
+        @contextmanager
+        def sesion_de_test():
+            yield session
+        monkeypatch.setattr(modulo, "get_db_session", sesion_de_test)
+        ruta = completar_malla(generar(str(tmp_path / "p.xlsx"), 2026))
+
+        escribir(ruta, HOJAS["alumnos"], [ENCABEZADO_ALUMNOS_CON_OTRO], desde=2)
+        escribir(ruta, HOJAS["alumnos"], [self._alumno(programa.nombre, otro.nombre, "COMPLETADA")])
+        escribir(ruta, HOJAS["historial"], [
+            ("41234567", otro.nombre, "PBI", "APROBADA", 90, 2024, 1, None),
+        ])
+
+        errores, avisos = problemas_de(ruta)
+        assert errores == [], [str(e) for e in errores]
+        assert any("segundo programa" in str(a) for a in avisos)
+
+    def test_programa_con_tipeo_sugiere_el_correcto(self, planilla_vacia, programa):
+        mal = programa.nombre.replace("Programador", "Programdor")
+        escribir(planilla_vacia, HOJAS["alumnos"], [self._alumno(mal)])
         errores, _ = problemas_de(planilla_vacia)
-        assert any("Una sola por alumno y materia" in str(e) for e in errores)
+        assert any(f"¿Es '{programa.nombre}'?" in str(e) for e in errores), [str(e) for e in errores]
+
+    def test_guiones_son_vacio(self, planilla_vacia, programa):
+        """Bedelia pone '--' donde no hay mail."""
+        escribir(planilla_vacia, HOJAS["alumnos"], [self._alumno(programa.nombre, email="--")])
+        errores, _ = problemas_de(planilla_vacia)
+        assert not [e for e in errores if "email" in str(e).lower()]
+
+    def test_cuenta_de_prueba_sin_cedula(self, planilla_vacia, programa):
+        escribir(planilla_vacia, HOJAS["alumnos"], [
+            (None, "Ejemplo", "Estudiante", "estudiante.ejemplo@ctcsalto.edu.uy", None, None, None,
+             programa.nombre, 2023, "ACTIVA", None),
+        ])
+        errores, _ = problemas_de(planilla_vacia)
+        assert any("cuenta de prueba" in str(e) for e in errores)
+
+    def test_semestre_del_plan_en_el_historial(self, planilla_vacia, programa):
+        """Bedelia puso el semestre del plan (3, 1.5...) y no el del año: se acepta."""
+        escribir(planilla_vacia, HOJAS["alumnos"], [self._alumno(programa.nombre)])
+        escribir(planilla_vacia, HOJAS["historial"], [
+            ("41234567", programa.nombre, "P1_T", "APROBADA", 78, 2024, 3, None),
+            ("41234567", programa.nombre, "P2_T", "CURSANDO", None, 2026, 1.5, None),
+        ])
+        errores, _ = problemas_de(planilla_vacia)
+        assert errores == [], [str(e) for e in errores]
+
+    def test_segundo_docente_no_corre_las_columnas(self, planilla_vacia, programa):
+        escribir(planilla_vacia, HOJAS["alumnos"], [self._alumno(programa.nombre)])
+        escribir(planilla_vacia, HOJAS["docentes"], [
+            ("30000001", "Uno", "Docente", None, None, None, "SI", None),
+            ("30000002", "Dos", "Docente", None, None, None, "SI", None),
+        ])
+        escribir(planilla_vacia, HOJAS["dictado"], [ENCABEZADO_DICTADO_DOS_DOCENTES], desde=2)
+        escribir(planilla_vacia, HOJAS["dictado"], [
+            (programa.nombre, "P1_T", 2026, 1, "30000001", "TITULAR", "30000002", "TITULAR",
+             "18:00 a 21:00", "Laboratorio 1", 25, None),
+        ])
+        errores, _ = problemas_de(planilla_vacia)
+        assert errores == [], [str(e) for e in errores]
+
+    def test_segundo_docente_desconocido_es_error(self, planilla_vacia, programa):
+        escribir(planilla_vacia, HOJAS["docentes"], [("30000001", "Uno", "Docente", None, None, None, "SI", None)])
+        escribir(planilla_vacia, HOJAS["dictado"], [ENCABEZADO_DICTADO_DOS_DOCENTES], desde=2)
+        escribir(planilla_vacia, HOJAS["dictado"], [
+            (programa.nombre, "P1_T", 2026, 1, "30000001", "TITULAR", "39999999", "TITULAR",
+             None, None, None, None),
+        ])
+        errores, _ = problemas_de(planilla_vacia)
+        assert any("39999999" in str(e) and "segundo docente" in str(e) for e in errores)
+
+    def test_dictado_sin_docente_es_aviso(self, planilla_vacia, programa):
+        escribir(planilla_vacia, HOJAS["dictado"], [
+            (programa.nombre, "P1_T", 2026, 1, None, None, None, None, None, None),
+        ])
+        errores, avisos = problemas_de(planilla_vacia)
+        assert not [e for e in errores if "docente" in str(e)], [str(e) for e in errores]
+        assert any("Sin docente asignado" in str(a) for a in avisos)
+
+    def test_curso_corto_con_nc_y_guiones(self, planilla_vacia, programa):
+        """En el plan, los cursos cortos traen semestre 'NC' y creditos '--': no faltan."""
+        from openpyxl import load_workbook
+        wb = load_workbook(planilla_vacia)
+        ws = wb[HOJAS["plan"]]
+        ultima = ws.max_row + 1
+        for col, valor in enumerate([programa.nombre, "CC1", "Curso corto de prueba", "NC", "--", "SI"], start=1):
+            ws.cell(row=ultima, column=col, value=valor)
+        wb.save(planilla_vacia)
+        completar_malla(planilla_vacia)
+
+        errores, _ = problemas_de(planilla_vacia)
+        assert not [e for e in errores if "Curso corto de prueba" in str(e) or "CC1" in str(e)], \
+            [str(e) for e in errores]
+
+    def test_misma_materia_en_dos_planes_no_es_repetida(self, planilla_vacia, programa):
+        from openpyxl import load_workbook
+        wb = load_workbook(planilla_vacia)
+        ws = wb[HOJAS["plan"]]
+        ws.cell(row=2, column=8, value="Plan")
+        filas = [r for r in range(3, ws.max_row + 1) if ws.cell(row=r, column=3).value]
+        for r in filas:
+            ws.cell(row=r, column=8, value=2022)
+        # la misma primera materia, ahora del plan 2011
+        ultima = ws.max_row + 1
+        for col in range(1, 8):
+            ws.cell(row=ultima, column=col, value=ws.cell(row=filas[0], column=col).value)
+        # sin codigo, para que se busque por nombre. Ojo: ws.cell(..., value=None) no
+        # borra la celda en openpyxl, hay que asignar .value
+        ws.cell(row=ultima, column=2).value = None
+        ws.cell(row=ultima, column=8, value=2011)
+        wb.save(planilla_vacia)
+        completar_malla(planilla_vacia)
+
+        errores, avisos = problemas_de(planilla_vacia)
+        assert not [e for e in errores if "no se puede repetir" in str(e)], [str(e) for e in errores]
+        assert any("planes" in str(a) and "2011" in str(a) and "2022" in str(a) for a in avisos),             [str(a) for a in avisos]

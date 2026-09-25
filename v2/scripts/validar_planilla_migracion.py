@@ -18,6 +18,7 @@ Sale con codigo 1 si hay errores. Los avisos no lo hacen fallar.
 No lee ni escribe la base: trabaja solo sobre el archivo.
 """
 import argparse
+import difflib
 import re
 import sys
 from collections import defaultdict
@@ -52,6 +53,11 @@ ALIAS_ESTADOS_HISTORIAL = {
     "REVALIDA": "REVALIDADA",
     "REVÁLIDA": "REVALIDADA",
 }
+
+# Como escribe bedelia "no tiene" (un mail) o "no corresponde" (el semestre o
+# los creditos de un curso corto). Visto en la planilla devuelta el 25/09/2026.
+VACIOS = {"--", "-", "---", "—"}
+NO_CORRESPONDE = {"NC", "N/C", "NO CORRESPONDE"}
 
 RE_DOCUMENTO = re.compile(r"^\d{6,10}$")
 RE_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -89,7 +95,15 @@ class Validador:
         self.programas_de_alumno: Dict[str, Set[str]] = defaultdict(set)
         self.documentos_alumnos: Set[str] = set()
         self.documentos_docentes: Set[str] = set()
+        # Estan en 1-Alumnos pero su fila tiene un error: el historial no tiene
+        # que decir "no esta", sino "arreglar su fila primero".
+        self.documentos_con_error: Set[str] = set()
         self.previas_de: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
+        # Administracion agrego una columna "Plan" en el plan de estudios: una
+        # misma carrera trae materias de varios planes (AP 2007, 2011, 2020,
+        # 2022). programa -> planes, y (programa, nombre) -> plan elegido.
+        self.planes_de_programa: Dict[str, Set[str]] = defaultdict(set)
+        self.plan_por_nombre: Dict[Tuple[str, str], str] = {}
 
     # ── Utilidades ───────────────────────────────────────────────────────────
 
@@ -105,7 +119,33 @@ class Validador:
             return ""
         if isinstance(valor, float) and valor.is_integer():
             return str(int(valor))
-        return str(valor).strip()
+        texto = str(valor).strip()
+        return "" if texto in VACIOS else texto
+
+    @staticmethod
+    def _no_corresponde(valor) -> bool:
+        """'--' o 'NC': el campo no aplica (por ejemplo, el semestre de un curso corto)."""
+        texto = "" if valor is None else str(valor).strip().upper()
+        return texto in VACIOS or texto in NO_CORRESPONDE
+
+    def _encabezados(self, clave: str) -> List[str]:
+        """
+        Los titulos de columna de una hoja, normalizados. Sirve para reconocer
+        las columnas que agrego administracion sin depender de la posicion.
+        """
+        nombre = HOJAS[clave]
+        if nombre not in self.wb.sheetnames:
+            return []
+        fila = next(self.wb[nombre].iter_rows(min_row=PRIMERA_FILA - 1, max_row=PRIMERA_FILA - 1,
+                                               values_only=True), ())
+        return [normalizar(str(v)) if v is not None else "" for v in fila]
+
+    @staticmethod
+    def _sugerir(texto: str, opciones) -> str:
+        """' ¿Es 'X'?' si hay un nombre parecido. Para los tipeos de nombres de carrera y materia."""
+        por_normalizado = {normalizar(o): o for o in opciones}
+        cercanos = difflib.get_close_matches(normalizar(texto), list(por_normalizado), n=1, cutoff=0.75)
+        return f" ¿Es '{por_normalizado[cercanos[0]]}'?" if cercanos else ""
 
     def _documento(self, valor) -> str:
         """Normaliza la cedula: solo digitos. Es la clave que une las hojas."""
@@ -186,7 +226,10 @@ class Validador:
                 f"hay que aclarar cual en la columna Programa"
             )
 
-        return None, f"no esta en la hoja '{HOJAS['plan']}', ni por codigo ni por nombre"
+        nombres = [d["nombre"] for d in self.materias.values()
+                   if not programa or normalizar(d["programa"]) == normalizar(programa)]
+        return None, (f"no esta en la hoja '{HOJAS['plan']}', ni por codigo ni por nombre."
+                      f"{self._sugerir(texto, nombres)}").rstrip(".")
 
     def _opcion(self, hoja: str, fila: int, valor, campo: str,
                 opciones: List[str]) -> Optional[str]:
@@ -210,10 +253,14 @@ class Validador:
         nombres_vistos: Dict[Tuple[str, str], int] = {}
         incompletas: List[Tuple[int, str, str]] = []
 
+        encabezados = self._encabezados("plan")
+        col_plan = encabezados.index("plan") if "plan" in encabezados else None
+
         for fila, datos in self._filas("plan"):
             programa, codigo, nombre, semestre, creditos, dictando, _ = (
                 list(datos) + [None] * 7
             )[:7]
+            plan = self._texto(datos[col_plan]) if col_plan is not None and col_plan < len(datos) else ""
 
             programa = self._texto(programa)
             codigo = self._texto(codigo).upper()
@@ -228,36 +275,49 @@ class Validador:
 
             nombre_normalizado = normalizar(nombre)
             clave_nombre = (normalizar(programa), nombre_normalizado)
-            if clave_nombre in nombres_vistos:
+            # Con la columna Plan, la misma materia puede estar en varios planes
+            # de una carrera. Solo es repetida si se repite dentro del mismo plan.
+            clave_repetida = (normalizar(programa), plan, nombre_normalizado)
+            if clave_repetida in nombres_vistos:
                 self.error(
                     hoja, fila,
-                    f"'{nombre}' ya aparece en '{programa}' en la fila "
-                    f"{nombres_vistos[clave_nombre]}. Dentro de una carrera el "
+                    f"'{nombre}' ya aparece en '{programa}'"
+                    f"{f' (plan {plan})' if plan else ''} en la fila "
+                    f"{nombres_vistos[clave_repetida]}. Dentro de un plan el "
                     f"nombre no se puede repetir.",
                 )
                 continue
-            nombres_vistos[clave_nombre] = fila
+            nombres_vistos[clave_repetida] = fila
 
             if codigo:
-                if codigo in codigos_vistos:
+                # Unico dentro del plan: la misma materia repite codigo en cada plan
+                clave_codigo = (codigo, plan)
+                if clave_codigo in codigos_vistos:
                     self.error(
                         hoja, fila,
                         f"El codigo '{codigo}' ya aparece en la fila "
-                        f"{codigos_vistos[codigo]}. Tiene que ser unico.",
+                        f"{codigos_vistos[clave_codigo]}"
+                        f"{f' (plan {plan})' if plan else ''}. Tiene que ser unico.",
                     )
                     continue
-                codigos_vistos[codigo] = fila
+                codigos_vistos[clave_codigo] = fila
 
             # El semestre y los creditos son obligatorios en el modelo; el
             # codigo no. Las filas precargadas desde la malla llegan sin
             # semestre ni creditos y son decenas: se acumulan y se informan
             # juntas, porque ochenta lineas identicas no le sirven a nadie.
+            # "NC" y "--" son "no corresponde" (cursos cortos): no faltan.
+            # Los semestres ".5" son talleres entre dos semestres (1.5, 2.5).
             faltan = []
-            if not self._texto(semestre):
+            if self._no_corresponde(semestre):
+                semestre = None
+            elif not self._texto(semestre):
                 faltan.append("semestre")
             else:
                 self._entero(hoja, fila, semestre, "el semestre del plan", 1, 20)
-            if not self._texto(creditos):
+            if self._no_corresponde(creditos):
+                pass
+            elif not self._texto(creditos):
                 faltan.append("creditos")
             else:
                 self._entero(hoja, fila, creditos, "los creditos", 0, 500)
@@ -266,19 +326,42 @@ class Validador:
 
             self._opcion(hoja, fila, dictando, "si se sigue dictando", SI_NO)
 
-            clave = codigo or f"{programa}::{nombre_normalizado}"
+            if codigo and plan:
+                clave = f"{codigo}::{plan}"
+            elif codigo:
+                clave = codigo
+            else:
+                clave = (f"{programa}::{plan}::{nombre_normalizado}" if plan
+                         else f"{programa}::{nombre_normalizado}")
             self.materias[clave] = {
                 "programa": programa,
                 "nombre": nombre,
                 "codigo": codigo,
                 "semestre": semestre,
+                "plan": plan,
                 "fila": fila,
             }
             self.programas.add(programa)
-            if codigo:
+            if plan:
+                self.planes_de_programa[programa].add(plan)
+            # Por codigo, igual que por nombre: gana el plan mas reciente
+            if codigo and (codigo not in self.por_codigo
+                           or plan > self.materias[self.por_codigo[codigo]].get("plan", "")):
                 self.por_codigo[codigo] = clave
-            self.por_nombre[clave_nombre] = clave
-            self.nombres_ambiguos[nombre_normalizado].append(clave)
+
+            # Por nombre, dentro de una carrera, gana el plan mas reciente: las
+            # otras hojas no dicen de que plan es cada fila. Ver el aviso de abajo.
+            anterior = self.por_nombre.get(clave_nombre)
+            if anterior is None:
+                self.por_nombre[clave_nombre] = clave
+                self.plan_por_nombre[clave_nombre] = plan
+                self.nombres_ambiguos[nombre_normalizado].append(clave)
+            elif plan > self.plan_por_nombre[clave_nombre]:
+                self.nombres_ambiguos[nombre_normalizado] = [
+                    clave if c == anterior else c for c in self.nombres_ambiguos[nombre_normalizado]
+                ]
+                self.por_nombre[clave_nombre] = clave
+                self.plan_por_nombre[clave_nombre] = plan
 
         if incompletas:
             detalle = "; ".join(
@@ -293,6 +376,18 @@ class Validador:
                 f"que vienen de la malla ya definida y solo necesitan el semestre "
                 f"del plan y los creditos: {detalle}",
             )
+
+        for programa, planes in sorted(self.planes_de_programa.items()):
+            if len(planes) > 1:
+                self.aviso(
+                    hoja, None,
+                    f"'{programa}' trae materias de {len(planes)} planes "
+                    f"({', '.join(sorted(planes))}). Las otras hojas no dicen de que plan "
+                    f"es cada fila, asi que por ahora cada materia se busca por nombre en "
+                    f"el plan mas reciente que la tiene. Como se cargan los planes viejos "
+                    f"en el portal esta pendiente de definir: no hace falta cambiar nada "
+                    f"en la planilla.",
+                )
 
         if not self.materias:
             self.error(hoja, None, "No hay ninguna materia cargada.")
@@ -390,6 +485,13 @@ class Validador:
         nombres_por_documento: Dict[str, str] = {}
         sin_documento: List[Tuple[int, str]] = []
         anio_actual = datetime.now().year
+        # Administracion agrego "Otro Programa" y su "Estado en la carrera" al
+        # final, para los alumnos que estan en dos cursos. Se toman como una
+        # inscripcion mas (equivale a repetir la fila con el otro programa).
+        encabezados = self._encabezados("alumnos")
+        col_otro = next((i for i, e in enumerate(encabezados) if e.startswith("otro programa")), None)
+        col_otro_estado = col_otro + 1 if col_otro is not None else None
+        segundos_programas = 0
 
         for fila, datos in self._filas("alumnos"):
             (documento, apellido, nombre, email, _personal, _tel,
@@ -431,6 +533,7 @@ class Validador:
             programa = self._texto(programa)
             if not programa:
                 self.error(hoja, fila, "Falta el programa.")
+                self.documentos_con_error.add(documento)
                 continue
 
             # Contra el plan y no contra la base: asi bedelia puede correr el
@@ -440,9 +543,10 @@ class Validador:
                 self.error(
                     hoja, fila,
                     f"El programa '{programa}' no aparece en la hoja "
-                    f"'{HOJAS['plan']}'. Si es una carrera nueva, hay que cargar "
-                    f"sus materias ahi primero.",
+                    f"'{HOJAS['plan']}'.{self._sugerir(programa, self.programas)} Si es "
+                    f"una carrera nueva, hay que cargar sus materias ahi primero.",
                 )
+                self.documentos_con_error.add(documento)
                 continue
 
             clave = (documento, programa)
@@ -461,9 +565,37 @@ class Validador:
             self.documentos_alumnos.add(documento)
             self.programas_de_alumno[documento].add(programa)
 
+            otro = self._texto(datos[col_otro]) if col_otro is not None and col_otro < len(datos) else ""
+            if otro:
+                if otro not in self.programas:
+                    self.error(
+                        hoja, fila,
+                        f"El otro programa '{otro}' no aparece en la hoja "
+                        f"'{HOJAS['plan']}'.{self._sugerir(otro, self.programas)}",
+                    )
+                elif otro == programa:
+                    self.aviso(hoja, fila, f"'Otro Programa' repite el programa principal ('{otro}').")
+                else:
+                    estado_otro = datos[col_otro_estado] if col_otro_estado < len(datos) else None
+                    self._opcion(hoja, fila, estado_otro, "el estado en el otro programa", ESTADOS_CARRERA)
+                    self.programas_de_alumno[documento].add(otro)
+                    segundos_programas += 1
+
+        if segundos_programas:
+            self.aviso(
+                hoja, None,
+                f"{segundos_programas} alumnos estan en un segundo programa (columna 'Otro "
+                f"Programa'). Se toman como una inscripcion mas. Esa columna no trae año "
+                f"de ingreso: el importador va a usar el año de la primera materia de ese "
+                f"programa en el historial.",
+            )
+
         if sin_documento:
+            def marca(quien):
+                return " (parece una cuenta de prueba: borrar la fila)" if re.search(
+                    r"test|prueba|ejemplo", quien, re.I) else ""
             muestra = "; ".join(
-                f"fila {fila}: {quien}" for fila, quien in sin_documento[:10]
+                f"fila {fila}: {quien}{marca(quien)}" for fila, quien in sin_documento[:10]
             )
             if len(sin_documento) > 10:
                 muestra += f"; y {len(sin_documento) - 10} mas"
@@ -514,7 +646,13 @@ class Validador:
 
     def validar_historial(self):
         hoja = HOJAS["historial"]
-        vistas: Dict[Tuple[str, str], int] = {}
+        # Bedelia cargo todas las cursadas de cada materia, no solo el estado de
+        # hoy (planilla del 25/09/2026): se aceptan varias filas por alumno y
+        # materia, y el estado actual es el de la mas reciente (año, y ante
+        # empate, la fila de mas abajo). Una fila identica a otra es un aviso.
+        vistas: Dict[Tuple[str, str, str, str, str], int] = {}
+        mas_reciente: Dict[Tuple[str, str], Tuple[int, int]] = {}
+        errores_por_fila_de_alumno: Dict[str, int] = defaultdict(int)
         anio_actual = datetime.now().year
         # documento -> {codigo: estado}, para el chequeo de cadenas
         estados: Dict[str, Dict[str, str]] = defaultdict(dict)
@@ -531,11 +669,14 @@ class Validador:
                 continue
 
             if documento not in self.documentos_alumnos:
-                self.error(
-                    hoja, fila,
-                    f"El documento {documento} no esta en la hoja '{HOJAS['alumnos']}'. "
-                    f"Todo alumno del historial tiene que estar cargado ahi primero.",
-                )
+                if documento in self.documentos_con_error:
+                    errores_por_fila_de_alumno[documento] += 1
+                else:
+                    self.error(
+                        hoja, fila,
+                        f"El documento {documento} no esta en la hoja '{HOJAS['alumnos']}'. "
+                        f"Todo alumno del historial tiene que estar cargado ahi primero.",
+                    )
                 continue
 
             resuelto, falla = self._resolver_materia(codigo, self._texto(programa))
@@ -544,16 +685,16 @@ class Validador:
                 continue
             codigo = resuelto
 
-            clave = (documento, codigo)
-            if clave in vistas:
-                self.error(
+            clave_fila = (documento, codigo, self._texto(anio), self._texto(semestre),
+                          self._texto(estado).upper())
+            if clave_fila in vistas:
+                self.aviso(
                     hoja, fila,
-                    f"{documento} ya tiene una fila para "
-                    f"'{self._mostrar(codigo)}' (fila {vistas[clave]}). "
-                    f"Una sola por alumno y materia.",
+                    f"Repite la fila {vistas[clave_fila]} ({documento}, "
+                    f"'{self._mostrar(codigo)}', mismo año y estado). ¿Esta dos veces?",
                 )
                 continue
-            vistas[clave] = fila
+            vistas[clave_fila] = fila
 
             # La materia tiene que ser de una carrera en la que el alumno este
             programa_materia = self.materias[codigo]["programa"]
@@ -578,7 +719,13 @@ class Validador:
             valor_estado = self._opcion(hoja, fila, estado, "el estado", ESTADOS_HISTORIAL)
             if valor_estado is None:
                 continue
-            estados[documento][codigo] = valor_estado
+            try:
+                orden = (int(float(self._texto(anio))) if self._texto(anio) else 0, fila)
+            except ValueError:
+                orden = (0, fila)
+            if orden >= mas_reciente.get((documento, codigo), (-1, -1)):
+                mas_reciente[(documento, codigo)] = orden
+                estados[documento][codigo] = valor_estado
 
             if self._texto(nota):
                 texto_nota = self._texto(nota).replace(",", ".")
@@ -598,8 +745,20 @@ class Validador:
                     "escolaridad va a salir sin fecha.",
                 )
 
+            # Bedelia puso el semestre del plan (1 a 6, y 1.5, 2.5... para los
+            # talleres), no el del año. Es informativo: se acepta cualquiera.
             if self._texto(semestre):
-                self._entero(hoja, fila, semestre, "el semestre", 1, 2)
+                self._entero(hoja, fila, semestre, "el semestre", 1, 20)
+
+        # Un solo error por alumno cuya fila en 1-Alumnos esta mal, en vez de uno
+        # por cada materia suya: se arregla en un lugar y se van todos.
+        for documento, cantidad in sorted(errores_por_fila_de_alumno.items()):
+            self.error(
+                hoja, None,
+                f"{documento} tiene {cantidad} filas en el historial que no se pueden "
+                f"revisar porque su fila en '{HOJAS['alumnos']}' tiene un error (ver "
+                f"arriba). Arreglando esa fila se revisan solas.",
+            )
 
         self._revisar_cadenas(estados)
 
@@ -642,11 +801,25 @@ class Validador:
         anio_actual = datetime.now().year
         vistos: Set[Tuple[str, int, int, str]] = set()
 
+        # Administracion agrego un segundo docente (documento y rol) despues del
+        # primero, para las materias con dos docentes: corre el resto de las
+        # columnas dos lugares. Se reconoce por el titulo repetido "Rol".
+        encabezados = self._encabezados("dictado")
+        dos_docentes = sum(1 for e in encabezados if e.startswith("rol")) >= 2
+        fuera_de_rango = 0
+
         for fila, datos in self._filas("dictado"):
-            (programa, codigo, anio, semestre, documento, rol,
-             _horario, _salon, cupo, _obs) = (list(datos) + [None] * 10)[:10]
+            datos = list(datos) + [None] * 12
+            if dos_docentes:
+                (programa, codigo, anio, semestre, documento, rol, documento_2, rol_2,
+                 _horario, _salon, cupo, _obs) = datos[:12]
+            else:
+                (programa, codigo, anio, semestre, documento, rol,
+                 _horario, _salon, cupo, _obs) = datos[:10]
+                documento_2 = rol_2 = None
 
             documento = self._documento(documento)
+            documento_2 = self._documento(documento_2)
 
             if not self._texto(codigo):
                 self.error(hoja, fila, "Falta la materia.")
@@ -657,18 +830,24 @@ class Validador:
                 continue
             codigo = resuelto
 
-            if documento and documento not in self.documentos_docentes:
-                self.error(
-                    hoja, fila,
-                    f"El documento {documento} no esta en la hoja "
-                    f"'{HOJAS['docentes']}'.",
-                )
-            elif not documento:
-                self.error(hoja, fila, "Falta el documento del docente.")
+            for doc, rol_doc, cual in ((documento, rol, "el docente"), (documento_2, rol_2, "el segundo docente")):
+                if doc and doc not in self.documentos_docentes:
+                    self.error(
+                        hoja, fila,
+                        f"El documento {doc} ({cual}) no esta en la hoja "
+                        f"'{HOJAS['docentes']}'.",
+                    )
+                if doc:
+                    self._opcion(hoja, fila, rol_doc, f"el rol de {cual}", ROLES_DOCENTE)
+            if not documento:
+                # Una materia que se dicta sin docente asignado todavia no impide
+                # importarla: el docente se asigna despues desde el portal.
+                self.aviso(hoja, fila, "Sin docente asignado. Se puede asignar despues desde el portal.")
 
             valor_anio = self._entero(hoja, fila, anio, "el año", 1990, anio_actual + 2)
-            valor_semestre = self._entero(hoja, fila, semestre, "el semestre", 1, 2)
-            self._opcion(hoja, fila, rol, "el rol del docente", ROLES_DOCENTE)
+            valor_semestre = self._entero(hoja, fila, semestre, "el semestre", 1, 20)
+            if (valor_semestre and valor_semestre > 2) or (valor_anio and valor_anio < anio_actual):
+                fuera_de_rango += 1
 
             if self._texto(cupo):
                 self._entero(hoja, fila, cupo, "el cupo maximo", 1, 500)
@@ -682,6 +861,15 @@ class Validador:
                         f"{valor_anio}/S{valor_semestre}.",
                     )
                 vistos.add(clave)
+
+        if fuera_de_rango:
+            self.aviso(
+                hoja, None,
+                f"{fuera_de_rango} filas tienen un semestre mayor a 2 o un año anterior a "
+                f"{anio_actual}. Parece que el año y el semestre son los del plan, no el año "
+                f"lectivo y el semestre en que se dicta. Esta hoja es para lo que se dicta "
+                f"ahora ({anio_actual}): confirmar con bedelia que quiso poner.",
+            )
 
     # ── Ejecucion ────────────────────────────────────────────────────────────
 
@@ -711,6 +899,13 @@ def main() -> int:
     parser.add_argument("archivo", help="Planilla .xlsx devuelta por bedelia")
     parser.add_argument("--reporte", help="Guarda el detalle en un .txt para reenviar")
     args = parser.parse_args()
+
+    # En Windows, redirigir la salida a un archivo la deja en cp1252 y los
+    # acentos salen como '?'. Visto con la planilla del 25/09/2026.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 
     validador = Validador(args.archivo)
     problemas = validador.correr()
