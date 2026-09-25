@@ -166,6 +166,34 @@ de corte; así las filas de la planilla, cuya última instancia ya está en el
 histórico, no se cuentan dos veces. Las que vienen como `CURSANDO` sí van a
 contar cuando el portal las cierre. Ver `v2/services/promedio_escolaridad.py`.
 
+**Cómo llenó bedelía `6-Dictado actual` (25/09/2026):** no como "lo que se
+dicta este semestre" sino como **quién dicta cada materia del plan vigente**:
+en `Año` puso el año del plan (Analista 2022, TGDE 2025) y en `Semestre` el
+semestre de la materia en el plan. El importador tiene que tomar esa hoja como
+la **asignación docente por materia**, y sacar **qué se dicta ahora** de las
+filas `CURSANDO` 2026 del historial: con esas crea las instancias de cursado
+del semestre y les pone el docente de la hoja 6.
+
+**Decisiones de bedelía sobre la planilla completa (25/09/2026):**
+- **Proyecto Integrador Final** (Analista Programador): se trata como la
+  última materia del **semestre 5**. Es la que el plan 2022 tenía como
+  "Integrador - Analista programador" (código `INT`); queda con el nombre que
+  usa bedelía.
+- **Examen Integrador** de TGDE: igual, la última materia (semestre 5 del
+  plan 2025).
+- **Algoritmos 2** ya no existe en Analista Programador y **Programación WEB**
+  (un curso de CTC Minas, que cerró) ya no existe: no se cargan. Lo cursado en
+  eso queda solo en el legajo histórico.
+- **Segundo curso:** un alumno puede estar en una carrera y además en un curso
+  (Comunicación Efectiva, Excel y Power BI…). Va en `Otro Programa` de
+  `1-Alumnos`, y el importador lo toma como una inscripción más.
+- **Cédula:** es obligatoria para **alumnos**, porque es la clave que une las
+  hojas y la que vincula al alumno con su legajo histórico y su escolaridad.
+  Para **docentes** el portal no la necesita (`usuario.documento` admite nulo
+  y el ingreso es con la cuenta de Google), pero la planilla une el dictado
+  con el docente por cédula. Un docente sin cédula que no dicta nada puede
+  quedar afuera y cargarse cuando dicte.
+
 `A_EXAMEN` está aunque parezca un detalle: hay alumnos que arrastran materias
 con derecho a examen durante años, y si eso se pierde en la migración quedan
 como si nunca las hubieran cursado.
