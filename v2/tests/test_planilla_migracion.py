@@ -622,14 +622,21 @@ class TestPlanDelAlumno:
              None, None, None, plan),
         ])
 
-    def test_sin_plan_es_error_con_la_lista(self, dos_planes, programa):
+    def test_sin_plan_va_al_mas_reciente(self, dos_planes, programa):
+        """
+        Bedelia (25/09/2026): los alumnos actuales estan todos en el plan
+        vigente, aunque hayan empezado en uno viejo. Sin plan, el mas reciente.
+        """
         escribir(dos_planes, HOJAS["alumnos"], [
             ("41234567", "Perez", "Ana", None, None, None, None, programa.nombre, 2015, "ACTIVA", None),
         ])
-        errores, _ = problemas_de(dos_planes)
-        falta = [e for e in errores if "no dicen en que plan estan" in str(e)]
-        assert len(falta) == 1
-        assert "Perez, Ana" in str(falta[0]) and "ingreso 2015" in str(falta[0])
+        escribir(dos_planes, HOJAS["historial"], [
+            ("41234567", programa.nombre, "P1_T", "APROBADA", 75, 2025, 1, None),
+        ])
+        errores, avisos = problemas_de(dos_planes)
+        assert errores == [], [str(e) for e in errores]
+        assert any("no dicen el plan" in str(a) and "(2022)" in str(a) for a in avisos), \
+            [str(a) for a in avisos]
 
     def test_con_la_columna_plan(self, dos_planes, programa):
         self._con_plan(dos_planes, programa.nombre, 2011)

@@ -397,9 +397,11 @@ pierde si no se reimporta.
       ("Analista Programador (Plan 2020)"), decidido el 25/09/2026. Sin cambios
       de esquema. El promedio de la escolaridad junta los planes de la carrera.
       Detalle y lo que tiene que hacer el importador en `docs/MIGRACION_DATOS.md`.
-- [ ] Semestres `.5` en el plan de estudios (talleres entre semestres):
-      `materia.semestre` es entero. Decidir si 1.5 va como 1 o como 2, o si se
-      propone un cambio de esquema.
+- [x] Semestres `.5` (talleres): **se redondean para abajo** (1.5 → 1,
+      Genexus 4.5 → 4). Decidido el 25/09/2026: el taller se paga con el
+      semestre anterior. Sin cambio de esquema.
+- [x] Plan de cada alumno: **todos en el plan vigente** (AP 2022, TGDE el de
+      este año), confirmado por bedelía. Sin plan explícito, el más reciente.
 - [ ] Hoja "Dictado actual": el año y el semestre parecen ser los del plan y no
       el año lectivo. Preguntar a bedelía qué quiso cargar.
 - [x] **Vigencia del derecho a examen en cursos independientes: NO VENCE.**

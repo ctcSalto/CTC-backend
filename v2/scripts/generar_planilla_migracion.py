@@ -273,9 +273,8 @@ def _hoja_alumnos(wb: Workbook, nombres_programas: List[str]) -> None:
         wb, "1-Alumnos", columnas,
         nota="Una fila por alumno. Si un alumno cursa dos carreras, una fila por carrera "
              "(mismo documento repetido). El email institucional es con el que entra al "
-             "portal: si no lo tiene todavia, dejalo vacio y se lo creamos. PLAN: el año "
-             "del plan en que esta, solo si la carrera tiene varios (Analista Programador: "
-             "2007, 2011, 2020 o 2022).",
+             "portal: si no lo tiene todavia, dejalo vacio y se lo creamos. PLAN: solo si "
+             "el alumno esta en un plan que no es el actual; vacio = el plan actual.",
     )
 
 

@@ -391,3 +391,20 @@ class TestPlanesComoProgramas:
         assert r.promedio == 45.0
         # Desde el programa viejo, el mismo numero: es la misma carrera
         assert pe.promedio_escolaridad(alumno.id, viejo.id, session).promedio == 45.0
+
+
+class TestSemestreYPlanPorDefecto:
+    def test_los_talleres_van_con_el_semestre_anterior(self):
+        from v2.services.planes import semestre_del_plan
+        assert semestre_del_plan(1.5) == 1
+        assert semestre_del_plan("2,5") == 2
+        assert semestre_del_plan(4.5) == 4        # Genexus
+        assert semestre_del_plan(3) == 3
+        assert semestre_del_plan("NC") is None
+        assert semestre_del_plan(None) is None
+
+    def test_sin_plan_el_mas_reciente(self):
+        from v2.services.planes import plan_por_defecto
+        assert plan_por_defecto({"2007", "2011", "2020", "2022"}) == "2022"
+        assert plan_por_defecto({"2022", "2025"}) == "2025"
+        assert plan_por_defecto(set()) is None

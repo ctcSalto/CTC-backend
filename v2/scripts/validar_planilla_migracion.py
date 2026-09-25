@@ -32,7 +32,7 @@ from v2.scripts.generar_planilla_migracion import (
     ESTADOS_CARRERA, ESTADOS_HISTORIAL, ROLES_DOCENTE, SI_NO, TIPOS_PREVIATURA,
 )
 from v2.scripts.malla_inicial import normalizar
-from v2.services.planes import separar_plan
+from v2.services.planes import separar_plan, plan_por_defecto
 
 HOJAS = {
     "alumnos": "1-Alumnos",
@@ -629,20 +629,13 @@ class Validador:
             for item in sin_plan:
                 por_carrera[item[3]].append(item)
             for programa, items in sorted(por_carrera.items()):
-                muestra = "; ".join(
-                    f"fila {f}: {quien}{f' (ingreso {anio})' if anio else ''}"
-                    for f, quien, anio, _ in items[:20]
-                )
-                if len(items) > 20:
-                    muestra += f"; y {len(items) - 20} mas"
-                self.error(
+                planes = self.planes_de_programa[programa]
+                self.aviso(
                     hoja, None,
-                    f"{len(items)} alumnos de '{programa}' no dicen en que plan estan, y la "
-                    f"carrera tiene varios ({', '.join(sorted(self.planes_de_programa[programa]))}). "
-                    f"Cada plan es un programa aparte en el portal, asi que sin el plan no se "
-                    f"pueden inscribir. Agregar una columna 'Plan' al final de esta hoja con el "
-                    f"año del plan (o escribirlo en el programa: '{programa} (Plan "
-                    f"{max(self.planes_de_programa[programa])})'): {muestra}",
+                    f"{len(items)} alumnos de '{programa}' no dicen el plan: se toman del "
+                    f"mas reciente ({plan_por_defecto(planes)}). La carrera tiene "
+                    f"{', '.join(sorted(planes))}. Si alguno esta en un plan viejo, ponerlo "
+                    f"en una columna 'Plan' o en el programa ('{programa} (Plan 2020)').",
                 )
 
         if sin_documento:
@@ -671,7 +664,10 @@ class Validador:
             return
         planes = self.planes_de_programa[programa]
         if not plan:
+            # Sin plan se toma el mas reciente: bedelia confirmo que los alumnos
+            # actuales estan en el plan vigente (ver planes.plan_por_defecto)
             sin_plan.append((fila, quien, anio, programa))
+            self.plan_de_alumno[(documento, programa)] = plan_por_defecto(planes)
         elif plan not in planes:
             self.error(
                 hoja, fila,

@@ -14,8 +14,9 @@ sufijo. Lo que es "de la carrera" y no del plan —el promedio de la escolaridad
 que bedelia calcula con todos los planes juntos— se agrupa por el nombre sin el
 sufijo: carrera_de().
 """
+import math
 import re
-from typing import Optional, Tuple
+from typing import Iterable, Optional, Tuple
 
 # "X (Plan 2020)", "X - Plan 2020", "X – plan 2020", "X Plan 2020"
 _RE_PLAN = re.compile(r"\s*(?:\(\s*plan\s+(\d{4})\s*\)|[-–]?\s*plan\s+(\d{4}))\s*$", re.IGNORECASE)
@@ -39,3 +40,34 @@ def nombre_programa(carrera: str, plan: Optional[str]) -> str:
     """El nombre del programa de un plan. Sin plan, el de la carrera tal cual."""
     carrera = carrera.strip()
     return f"{carrera} (Plan {plan})" if plan else carrera
+
+
+def plan_por_defecto(planes: Iterable[str]) -> Optional[str]:
+    """
+    El plan de un alumno que no lo dice: el mas reciente de la carrera.
+
+    Bedelia (25/09/2026): todos los alumnos de Analista Programador estan en el
+    plan 2022, incluso los que empezaron en planes viejos, porque cortaron y
+    retomaron con el actual. Los de TGDE, en el mismo plan, el de este año. Si
+    alguna vez un alumno esta en un plan viejo, se pone explicito.
+    """
+    planes = [p for p in planes if p]
+    return max(planes) if planes else None
+
+
+def semestre_del_plan(valor) -> Optional[int]:
+    """
+    El semestre de una materia en el plan, como entero (materia.semestre).
+
+    Los talleres vienen como 1.5, 2.5...: van entre dos semestres. Se redondea
+    para abajo, decidido con bedelia el 25/09/2026: el alumno paga el taller
+    junto con el semestre anterior (el 1.5 se paga con el semestre 1). Genexus
+    4.5 queda en 4. "NC" (cursos cortos, no corresponde) es None.
+    """
+    if valor is None:
+        return None
+    texto = str(valor).strip().replace(",", ".")
+    try:
+        return math.floor(float(texto))
+    except ValueError:
+        return None
