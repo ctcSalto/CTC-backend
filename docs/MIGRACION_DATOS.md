@@ -126,10 +126,16 @@ solo plan no llevan sufijo. Helpers en `v2/services/planes.py`.
 - **Qué agrupa por carrera y no por plan:** el promedio de la escolaridad
   (bedelía lo calcula con todos los planes juntos). `promedio_escolaridad`
   junta las cursadas de todos los programas de la misma carrera.
-- **Qué tiene que dar bedelía:** el plan de cada alumno de esas carreras
-  (columna `Plan` al final de `1-Alumnos`, o dentro del nombre del programa).
-  Con los datos de la planilla no se puede deducir: en 39 de 52 alumnos no
-  hay ningún indicio. El validador lo exige.
+- **El plan de cada alumno:** bedelía confirmó (25/09/2026) que **todos los
+  alumnos actuales están en el plan vigente** (Analista Programador 2022, TGDE
+  el de este año), incluso los que empezaron en planes viejos, porque cortaron
+  y retomaron con el actual. Sin plan explícito se toma el más reciente
+  (`planes.plan_por_defecto`); si algún alumno está en uno viejo, va en la
+  columna `Plan` de `1-Alumnos` o en el nombre del programa.
+- **Materias de planes viejos en el historial** (las filas con "Plan 2020" en
+  Observaciones): son de antes de retomar. El importador las tiene que llevar
+  a la materia del mismo nombre en el plan del alumno si existe (equivalencia)
+  y, si no, al programa del plan viejo.
 - **Historial:** cada materia se busca en el plan del alumno; si la fila dice
   otro plan (en Observaciones, "Plan 2011"), en ese. **Previaturas y dictado**
   no dicen el plan: se toman del más reciente.
@@ -139,8 +145,10 @@ solo plan no llevan sufijo. Helpers en `v2/services/planes.py`.
   código los planes viejos. El programa "Analista Programador" que ya existe en
   develop (la malla del plan actual) pasa a llamarse "Analista Programador
   (Plan 2022)".
-- **Pendiente:** los semestres `.5` (talleres entre dos semestres, 1.5, 2.5)
-  no entran en `materia.semestre`, que es entero.
+- **Semestres `.5`** (los talleres, que van entre dos semestres): se
+  **redondean para abajo** (`planes.semestre_del_plan`), decidido con bedelía
+  el 25/09/2026: el alumno paga el taller junto con el semestre anterior. El
+  Taller de Genexus (4.5) queda en el 4.
 
 **Oportunidades de examen según el tipo de programa (bedelía, 23/09/2026):**
 las materias de una **carrera** tienen hasta **5** oportunidades; los **cursos
