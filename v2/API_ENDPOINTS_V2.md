@@ -628,6 +628,14 @@ Verificar progreso de egreso en un programa.
 - `cumple` exige las dos cosas: llegar a `creditos_requeridos` **y** no tener
   materias pendientes.
 
+### GET `/mi-avance?programa_id={id}`
+Avance del alumno en una carrera: las materias activas del plan repartidas en
+`aprobadas`, `cursando`, `a_examen` y `pendientes` (cada una en una sola lista),
+mas `aprobadas_otros_planes` y un `resumen` con creditos y porcentaje.
+- **Response 200:** `AvanceCarreraRead` (`v2/models/avance.py`). Forma completa y
+  notas para el cliente en `docs/FRONTEND_ENDPOINTS_V2.md`.
+- **403** si no esta inscripto al programa (en cualquier estado).
+
 ---
 
 ### GET `/mi-historico`
@@ -1427,6 +1435,10 @@ Verificar si un alumno cumple requisitos de egreso.
 - **Response 200:** identica a
   [`GET /v2/portal/estudiante/mi-egreso`](#get-mi-egresoprograma_idid)
   (mismo servicio). Ver ahi la forma completa y las notas para el cliente.
+
+### GET `/avance/{alumno_id}?programa_id={id}`
+Avance de cualquier alumno en una carrera. Rol `administrativo`.
+- **Response 200:** identica a `GET /v2/portal/estudiante/mi-avance` (mismo servicio).
 
 ### POST `/{inscripcion_id}/revalidar`
 Revalidar (convalidar) una materia. Cambia estado a `revalidada`, otorga creditos.

@@ -7,6 +7,7 @@ from database.database import get_session
 from v2.services import V2Services, get_v2_services
 from v2.auth.dependencies import require_docente_or_admin, require_administrativo
 from v2.models.usuario import UsuarioRead
+from v2.models.avance import AvanceCarreraRead
 from v2.models.inscripcion_materia import (
     InscripcionMateriaRead,
     MarcarInasistenciaRequest,
@@ -163,6 +164,21 @@ async def verificar_egreso(
         return v2_services.egresoService.verificar_egreso(
             alumno_id, programa_id, session
         )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/avance/{alumno_id}", response_model=AvanceCarreraRead, summary="Avance de un alumno en una carrera")
+async def avance_alumno(
+    alumno_id: int,
+    programa_id: int = Query(..., description="ID del programa"),
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """Mismo resultado que /v2/portal/estudiante/mi-avance, para cualquier alumno"""
+    try:
+        return v2_services.avanceService.avance(alumno_id, programa_id, session)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

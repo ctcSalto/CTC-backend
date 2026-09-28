@@ -15,6 +15,7 @@ from v2.models.inscripcion_examen import InscripcionExamenRead
 from v2.models.documento_usuario import DocumentoUsuarioRead
 from v2.models.enums import TipoDocumento
 from v2.models.historico import LegajoHistoricoRead
+from v2.models.avance import AvanceCarreraRead
 
 router = APIRouter(
     prefix="/v2/portal/estudiante",
@@ -535,6 +536,38 @@ async def mi_egreso(
         return v2_services.egresoService.verificar_egreso(
             alumno.id, programa_id, session
         )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get(
+    "/mi-avance",
+    response_model=AvanceCarreraRead,
+    summary="Mi avance en una carrera",
+    description="Las materias activas del plan repartidas en aprobadas, cursando, a_examen y "
+                "pendientes (cada una en una sola lista). Las pendientes dicen si hoy cumple las "
+                "previaturas. Lo aprobado en otros planes de la misma carrera va aparte.",
+)
+async def mi_avance(
+    programa_id: int = Query(..., description="ID del programa (el plan de la carrera)"),
+    current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    from v2.models.inscripcion_programa import InscripcionPrograma
+
+    # Cualquier estado: un alumno con la carrera suspendida tambien ve su avance
+    inscripto = session.exec(
+        select(InscripcionPrograma.id).where(
+            InscripcionPrograma.alumno_id == alumno.id,
+            InscripcionPrograma.programa_id == programa_id,
+        )
+    ).first()
+    if inscripto is None:
+        raise HTTPException(status_code=403, detail="No estas inscripto en este programa")
+    try:
+        return v2_services.avanceService.avance(alumno.id, programa_id, session)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

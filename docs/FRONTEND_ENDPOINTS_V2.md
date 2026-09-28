@@ -535,6 +535,72 @@ los creditos se cuentan **una sola vez**.
 `cumple` exige las dos cosas: llegar a `creditos_requeridos` **y** no tener
 materias pendientes.
 
+### GET `/mi-avance?programa_id={id}`
+
+**Qué aprobó, qué cursa, qué tiene que rendir y qué le falta** en una carrera.
+Reparte las materias activas del plan en cuatro listas, **sin repetir**: cada
+materia aparece en una sola.
+
+| Lista | Qué entra | Campos propios |
+|---|---|---|
+| `aprobadas` | APROBADO, EXONERADO o REVALIDADA | `nota_final` |
+| `cursando` | una inscripción CURSANDO | `faltas`, `nota_curso` |
+| `a_examen` | curso aprobado, examen pendiente | `rendiciones_usadas`, `max_oportunidades`, `nota_curso` |
+| `pendientes` | nunca cursada, reprobada, abandonada o perdida por faltas | `estado` (el último, o `null` si nunca la cursó), `cumple_previaturas`, `previaturas_faltantes` |
+| `aprobadas_otros_planes` | lo aprobado en **otros planes** de la misma carrera | `programa` (el nombre del plan) |
+
+- Con varias inscripciones a una materia (recursadas) manda la más fuerte:
+  aprobada > cursando > a examen > el resto. Una aprobación vieja gana sobre una
+  recursada en curso.
+- `cumple_previaturas` usa la misma regla que la inscripción: cadena completa y
+  excepciones de bedelía del año. `previaturas_faltantes` trae los mensajes tal
+  cual los mostraría el POST.
+- **Cada plan es un programa aparte.** Lo aprobado en un plan viejo va en
+  `aprobadas_otros_planes` y **no descuenta pendientes**: las equivalencias entre
+  planes no están definidas. Conviene mostrarlo aparte ("aprobadas en el plan
+  2020").
+- Créditos y porcentaje con el mismo criterio que `/mi-egreso`.
+- **403** si el alumno no está inscripto al programa (cualquier estado: con la
+  carrera suspendida también lo ve).
+
+```json
+{
+  "alumno_id": 12,
+  "programa_id": 1,
+  "programa_nombre": "Analista Programador (Plan 2022)",
+  "resumen": {
+    "materias_totales": 14, "aprobadas": 3, "cursando": 2, "a_examen": 1, "pendientes": 8,
+    "creditos_obtenidos": 3, "creditos_requeridos": 14, "porcentaje_avance": 21.43
+  },
+  "aprobadas": [
+    { "materia_id": 1, "nombre": "Programacion 1", "codigo": "PROG1", "semestre": 1, "creditos": 1,
+      "inscripcion_id": 40, "estado": "exonerado", "anio_lectivo": 2025, "nota_curso": 90.0, "nota_final": 90.0 }
+  ],
+  "cursando": [
+    { "materia_id": 2, "nombre": "Programacion 2", "codigo": "PROG2", "semestre": 2, "creditos": 1,
+      "inscripcion_id": 55, "estado": "cursando", "anio_lectivo": 2026, "faltas": 2 }
+  ],
+  "a_examen": [
+    { "materia_id": 3, "nombre": "Base de Datos 1", "codigo": "BD1", "semestre": 1, "creditos": 1,
+      "inscripcion_id": 41, "estado": "a_examen", "anio_lectivo": 2025, "nota_curso": 75.0,
+      "rendiciones_usadas": 1, "max_oportunidades": 5 }
+  ],
+  "pendientes": [
+    { "materia_id": 7, "nombre": "Programación 3", "codigo": "PROG3", "semestre": 3, "creditos": 1,
+      "inscripcion_id": null, "estado": null, "cumple_previaturas": false,
+      "previaturas_faltantes": ["Debe aprobar Programacion 2"] }
+  ],
+  "aprobadas_otros_planes": [
+    { "materia_id": 31, "nombre": "Programacion 1", "codigo": "PROG1-2020", "semestre": 1, "creditos": 1,
+      "inscripcion_id": 12, "estado": "aprobado", "anio_lectivo": 2021, "nota_final": 80.0,
+      "programa": "Analista Programador (Plan 2020)" }
+  ]
+}
+```
+
+Los campos que no corresponden a la lista vienen en `null` (y
+`previaturas_faltantes` en `[]`).
+
 ---
 
 ### GET `/mi-historico`
@@ -695,9 +761,10 @@ Para la UI:
 ```http
 GET /v2/admin/inscripciones/escolaridad/{alumno_id}?programa_id={id}
 GET /v2/admin/inscripciones/verificar-egreso/{alumno_id}?programa_id={id}
+GET /v2/admin/inscripciones/avance/{alumno_id}?programa_id={id}
 ```
 
-**Respuestas identicas** a `/mi-escolaridad` y `/mi-egreso` — mismo servicio,
+**Respuestas identicas** a `/mi-escolaridad`, `/mi-egreso` y `/mi-avance` — mismo servicio,
 mismo schema. Los tipos y los componentes se reusan tal cual.
 
 Ese `{alumno_id}` es el id del **perfil de alumno**, no el de usuario. Sale de
