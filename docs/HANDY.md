@@ -62,6 +62,10 @@ llegó y se procesó); se consultó a Handy y respondieron con las de arriba.
 > prueba **aprobó** (Mastercard `5123…0008`, cobro 14, UYU 100): Handy mandó
 > el aviso (`Status=1`), el webhook de develop lo aceptó y el cobro quedó
 > `pagado`. Integración validada de punta a punta en testing.
+>
+> **29/09/2026, con inscripción:** cobro 15, del alumno de prueba 4 por el curso
+> Comunicación Efectiva (programa 120). Aprobó, el webhook lo aceptó y creó la
+> inscripción 413 (activa, 2026). Los dos avisos llegaron desde `34.192.193.146`.
 
 > Ojo al pegar estos números en un mail o chat corporativo: la DLP de Google
 > Workspace los detecta como tarjetas reales y frena el mensaje.

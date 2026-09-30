@@ -484,6 +484,12 @@ Tocó datos que ya estaban (de prueba):
 ese estado. Ver "Propuesto: valores de enum que faltan" más abajo. Una vez
 agregado, se vuelve a correr el importador y entra solo esa fila.
 
+### Pruebas de Handy en develop (29/09/2026)
+
+Datos de prueba, **no replicar**: cobros 14 y 15 (PAGADO, sandbox de Handy) y la
+**inscripción a programa 413** (alumno de prueba 4, "Estudiante Test", en
+Comunicación Efectiva), creada por el pago aprobado del cobro 15.
+
 ### Base temporal creada y borrada
 
 Para la verificación de esquema del 06/08/2026 se creó la base
