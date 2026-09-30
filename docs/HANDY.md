@@ -58,6 +58,11 @@ llegó y se procesó); se consultó a Handy y respondieron con las de arriba.
 > *"Merchant certificate has expired"*: el comercio de pruebas tiene el
 > certificado vencido en Plexo. Hasta que Handy lo renueve, ninguna aprueba.
 
+> **29/09/2026: funciona.** Soporte arregló el sandbox y el primer pago de
+> prueba **aprobó** (Mastercard `5123…0008`, cobro 14, UYU 100): Handy mandó
+> el aviso (`Status=1`), el webhook de develop lo aceptó y el cobro quedó
+> `pagado`. Integración validada de punta a punta en testing.
+
 > Ojo al pegar estos números en un mail o chat corporativo: la DLP de Google
 > Workspace los detecta como tarjetas reales y frena el mensaje.
 
