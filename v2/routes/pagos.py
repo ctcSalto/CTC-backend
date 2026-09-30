@@ -23,7 +23,7 @@ from v2.auth.dependencies import (
     require_administrativo, require_estudiante, get_current_usuario,
 )
 from v2.models.usuario import UsuarioRead
-from v2.models.pago import PagoCreate, PagoRead, PagoNotificacionRead
+from v2.models.pago import PagoCreate, PagoRead, PagoNotificacionRead, PagoConciliacion
 from v2.models.enums import ProveedorPago
 from v2.models.alumno import Alumno
 from sqlmodel import select
@@ -188,6 +188,57 @@ async def notificaciones_de_pago(
         select(PagoNotificacion).where(PagoNotificacion.pago_id == pago_id)
         .order_by(PagoNotificacion.fecha_recepcion)
     ).all())
+
+
+# ── Acciones de bedelia ──────────────────────────────────────────────────────
+
+@router.post(
+    "/v2/admin/pagos/{pago_id}/conciliar",
+    response_model=PagoRead,
+    summary="Conciliar a mano un cobro cuyo aviso se perdio",
+    description="Handy no reintenta los avisos: si el servidor no estaba cuando "
+                "mando el resultado, el cobro queda INICIADO para siempre. Bedelia "
+                "lo verifica en el panel de Handy y lo cierra aca con el estado real "
+                "(PAGADO, FALLIDO o DEVUELTO) y un motivo. Pasa por la misma maquina "
+                "de estados que un aviso real; si queda PAGADO, habilita la "
+                "inscripcion. Queda registrado quien lo hizo y por que.",
+)
+async def conciliar_pago(
+    pago_id: int,
+    data: PagoConciliacion,
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    try:
+        return v2_services.pagoService.conciliar_manual(pago_id, data, current_usuario, session)
+    except ValueError as e:
+        if "no encontrado" in str(e):
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/v2/admin/pagos/{pago_id}/devolver",
+    response_model=PagoRead,
+    summary="Pedir a Handy la devolucion de un cobro",
+    description="Solo para pagos en PAGADO. Handy acepta el pedido y responde "
+                "el resultado despues por webhook: el pago pasa a DEVUELTO recien "
+                "cuando llega ese aviso. Restricciones de Handy: una sola vez por "
+                "venta, solo tarjeta, tope UYU 10.000 / USD 250.",
+)
+async def devolver_pago(
+    pago_id: int,
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    try:
+        return v2_services.pagoService.devolver(pago_id, current_usuario, session)
+    except ValueError as e:
+        if "no encontrado" in str(e):
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ── Informes ─────────────────────────────────────────────────────────────────

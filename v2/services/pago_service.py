@@ -18,6 +18,12 @@ endpoint de consulta (docs/HANDY_RESPUESTAS.md). Entonces:
    "misma transicion" y se acepta sin efecto. Un aviso que pide una transicion
    invalida (PAGADO -> INICIADO) se rechaza y queda registrado.
 
+4. Lo que Handy no avisa lo cierra bedelia a mano, con registro. Un aviso
+   perdido no se recupera solo: bedelia lo ve en el informe de pendientes,
+   lo verifica en el panel de Handy y lo concilia con conciliar_manual. Eso
+   pasa por la misma maquina de estados que un aviso real y deja una
+   PagoNotificacion con origen "conciliacion_manual" y quien lo hizo.
+
 EL PAGO HABILITA LA INSCRIPCION
 -------------------------------
 Al pasar a PAGADO, si el pago tiene alumno y programa, se crea la
@@ -34,7 +40,8 @@ from zoneinfo import ZoneInfo
 from sqlmodel import Session, select, col
 
 from database.services.filter.filters import BaseServiceWithFilters
-from v2.models.pago import Pago, PagoNotificacion, PagoCreate
+from v2.models.pago import Pago, PagoNotificacion, PagoCreate, PagoConciliacion
+from v2.models.usuario import UsuarioRead
 from v2.models.inscripcion_programa import InscripcionPrograma
 from v2.models.programa import Programa
 from v2.models.alumno import Alumno
@@ -68,6 +75,13 @@ ESTADO_HANDY = {
 # vez de generar veinte links. Pasado este tiempo se considera abandonado y se
 # genera uno nuevo.
 VENTANA_REUSO = timedelta(minutes=30)
+
+# Handy solo devuelve hasta estos montos, una vez por venta y solo tarjeta
+# (manual v2.0). Se chequea aca para dar un mensaje claro antes de llamar.
+TOPE_DEVOLUCION = {858: Decimal("10000"), 840: Decimal("250")}
+
+# Lo que bedelia puede cargar a mano: lo que puede ver en el panel de Handy
+ESTADOS_CONCILIABLES = {EstadoPago.PAGADO, EstadoPago.FALLIDO, EstadoPago.DEVUELTO}
 
 
 class ResultadoNotificacion:
@@ -399,6 +413,115 @@ class PagoService(BaseServiceWithFilters[Pago]):
             return datetime.fromisoformat(str(valor).replace("Z", "+00:00"))
         except (ValueError, TypeError):
             return None
+
+    # ── Conciliacion manual ───────────────────────────────────────────────────
+
+    def conciliar_manual(
+        self, pago_id: int, data: PagoConciliacion, usuario: UsuarioRead, session: Session,
+    ) -> Pago:
+        """
+        Cierra a mano un cobro cuyo aviso se perdio, despues de verificarlo en
+        el panel de Handy. Pasa por la misma maquina de estados que un aviso
+        real (una transicion invalida se rechaza igual) y, si queda PAGADO,
+        habilita la inscripcion igual que lo haria el webhook.
+
+        Queda registrado como una PagoNotificacion aceptada con origen
+        "conciliacion_manual", el usuario y el motivo: es la evidencia de por
+        que cambio el estado sin aviso del proveedor.
+        """
+        pago = session.get(Pago, pago_id)
+        if not pago:
+            raise ValueError(f"Pago {pago_id} no encontrado")
+        if data.estado not in ESTADOS_CONCILIABLES:
+            raise ValueError(
+                f"Solo se puede conciliar a {', '.join(e.value for e in ESTADOS_CONCILIABLES)}"
+            )
+        if data.estado == pago.estado:
+            raise ValueError(f"El pago ya esta en {pago.estado.value}")
+        if data.estado not in TRANSICIONES[pago.estado]:
+            raise ValueError(
+                f"Transicion invalida: {pago.estado.value} -> {data.estado.value}"
+            )
+
+        registro = PagoNotificacion(
+            pago_id=pago.id,
+            proveedor=pago.proveedor,
+            referencia_externa=pago.referencia_externa,
+            cuerpo={
+                "origen": "conciliacion_manual",
+                "usuario_id": usuario.id,
+                "usuario_email": usuario.email,
+                "estado_anterior": pago.estado.value,
+                "estado": data.estado.value,
+                "motivo": data.motivo,
+                "proveedor_id": data.proveedor_id,
+            },
+            aceptada=True,
+        )
+        session.add(registro)
+
+        if data.proveedor_id:
+            pago.proveedor_id = data.proveedor_id
+        resultado = self._transicionar(
+            pago, data.estado, session, estado_proveedor="conciliacion_manual",
+        )
+        if not resultado.aceptada:   # no deberia pasar: ya se valido arriba
+            session.rollback()
+            raise ValueError(resultado.motivo)
+        return resultado.pago
+
+    # ── Devolucion ────────────────────────────────────────────────────────────
+
+    def devolver(self, pago_id: int, usuario: UsuarioRead, session: Session) -> Pago:
+        """
+        Le pide a Handy la devolucion de un cobro acreditado. El estado NO
+        cambia aca: Handy responde si acepto el pedido, y el resultado real
+        llega despues por el webhook (cuerpo con Success), que es el que pasa
+        el pago a DEVUELTO. Mientras tanto queda estado_proveedor =
+        "devolucion_solicitada" para no pedirla dos veces.
+
+        Restricciones de Handy: una sola vez por venta, solo tarjeta, tope
+        UYU 10.000 / USD 250.
+        """
+        pago = session.get(Pago, pago_id)
+        if not pago:
+            raise ValueError(f"Pago {pago_id} no encontrado")
+        if pago.estado != EstadoPago.PAGADO:
+            raise ValueError(f"Solo se devuelve un pago en PAGADO; este esta en {pago.estado.value}")
+        if pago.estado_proveedor == "devolucion_solicitada":
+            raise ValueError("La devolucion ya se pidio; Handy la resuelve por webhook")
+        tope = TOPE_DEVOLUCION.get(pago.moneda)
+        if tope is not None and Decimal(pago.monto_total) > tope:
+            raise ValueError(
+                f"Handy no devuelve mas de {tope} en moneda {pago.moneda}; "
+                f"este pago es de {pago.monto_total}. Hay que hacerlo por fuera."
+            )
+
+        try:
+            respuesta = self.handy.devolver_pago(pago.referencia_externa, self.callback_url())
+        except (HandyError, ValueError) as e:
+            raise ValueError(f"Handy rechazo la devolucion: {e}")
+
+        registro = PagoNotificacion(
+            pago_id=pago.id,
+            proveedor=pago.proveedor,
+            referencia_externa=pago.referencia_externa,
+            cuerpo={
+                "origen": "solicitud_devolucion",
+                "usuario_id": usuario.id,
+                "usuario_email": usuario.email,
+                "respuesta_handy": respuesta if isinstance(respuesta, dict) else str(respuesta),
+            },
+            aceptada=True,
+        )
+        session.add(registro)
+
+        pago.estado_proveedor = "devolucion_solicitada"
+        pago.fecha_actualizacion = datetime.now(get_uruguay_tz())
+        session.add(pago)
+        session.commit()
+        session.refresh(pago)
+        return pago
 
     # ── Consultas ─────────────────────────────────────────────────────────────
 

@@ -163,3 +163,119 @@ aparecer. Los dos casos tienen test.
 Es exactamente el tipo de cosa que solo se descubre contra la API real, y la
 razon por la que el paso siguiente —el webhook de entrada— tambien hay que
 probarlo de verdad y no solo con el doble.
+
+---
+
+## Prueba de punta a punta del webhook (16/09/2026)
+
+Con el backend de develop publicado y las variables de Handy cargadas, se
+crearon dos cobros de $100 contra testing y se pagaron desde el navegador con
+las dos tarjetas del manual.
+
+| | Cobro 1 (Mastercard) | Cobro 2 (Cabal) |
+|---|---|---|
+| Link generado | ✅ | ✅ |
+| Aviso recibido en el webhook | ✅ a los 4 min | ✅ a 1 min 38 s |
+| IP de origen | `34.192.193.146` | `34.192.193.146` |
+| Cuerpo | igual al manual, campo por campo | igual |
+| Monto y moneda contra nuestro registro | coinciden | coinciden |
+| `PurchaseData.Status` | **2 (fallido)** | **2 (fallido)** |
+| Emisor resuelto (`IssuerName`) | `ARGENTA SPAARBANK` | `BANCO CREDICOOP` |
+| Estado final del cobro | `fallido` | `fallido` |
+
+**Lo nuestro está validado:** Handy alcanza el webhook con el segmento
+secreto, el cuerpo tiene la forma esperada, la validación de monto/moneda y
+la máquina de estados funcionan contra un aviso real. La rama de aprobación
+(`Status = 1`) es el mismo código y está cubierta por tests con este mismo
+cuerpo.
+
+**Lo que no se pudo probar:** un pago aprobado. El sandbox rechazó las dos
+tarjetas que el propio manual publica como de prueba, con BINs que resuelve a
+bancos belgas y argentinos. Es el *"el ambiente de pruebas de los medios de
+pago no siempre funciona correctamente"* del manual. Se les consulta y se
+pide el secret de producción (ver HANDY_CONSULTAS.md, segundo mail).
+
+Dos datos que no estaban en ningún lado y ahora sí:
+
+- **Handy llama desde `34.192.193.146`** (AWS, us-east-1) — al menos hoy, en
+  testing. Dijeron que no publican IPs fijas, así que no sirve para filtrar,
+  pero sí para reconocer un aviso legítimo en los logs.
+- **Latencia del aviso:** entre 1,5 y 4 minutos después de que el comprador
+  termina en la página de Handy. El frontend no puede esperar el resultado en
+  la misma pantalla: tiene que mostrar "estamos confirmando el pago" y
+  consultar `GET /v2/portal/estudiante/pagos` después.
+
+---
+
+## Respuesta al segundo mail (17/09/2026): tarjetas nuevas
+
+Handy respondió el mismo día con tarjetas de prueba **actualizadas** (las del
+manual v2.0 ya no sirven): Visa `4111 1111 1111 1111`, Visa
+`4456 5300 0000 1096` y Mastercard `5123 4500 0000 0008`, con cualquier CVV y
+vencimiento. Y un dato que no estaba en el manual: el sandbox de tarjetas es
+el de **Mastercard Gateway (MPGS)**; de su documentación se pueden sacar más.
+Están en `HANDY.md`.
+
+---
+
+## Intentos 3 y 4 con las tarjetas nuevas (18/09/2026): certificado vencido
+
+Con las tarjetas que mandó Handy pasó lo mismo: `Status = 2`. La Visa
+terminada en 1096 pasó la autenticación 3DS (OTP de sandbox `1234`, en
+Cardinal Commerce) y fue rechazada igual; la 4111 también, incluso mandando
+el cobro **sin `InvoiceNumber`** para descartar una colisión de factura en el
+comercio de prueba compartido.
+
+La página de resultado de Handy dio el motivo que el webhook no trae:
+
+> **Security Data : Merchant certificate has expired.**
+
+Es el certificado del comercio de pruebas (`Plexo UY 001` / *"Comercio
+pruebas boton de pago v2"*) en Plexo. Ninguna transacción de ese comercio
+puede aprobar hasta que Handy lo renueve. No hay nada que hacer de nuestro
+lado; se les pidió que lo renueven o den otro secret de testing (tercer mail
+en `HANDY_CONSULTAS.md`).
+
+| Cobro | Tarjeta | InvoiceNumber | 3DS | Resultado |
+|---|---|---|---|---|
+| 1 | Mastercard del manual | 1 | — | rechazada |
+| 2 | Cabal del manual | 2 | — | rechazada |
+| 3 | Visa …1096 (nueva) | 3 | OTP ok | rechazada |
+| 4 | Visa …1111 (nueva) | ninguno | — | rechazada |
+
+Dos cosas más que se vieron y sirven para producción:
+
+- El comprador ve **"Plexo UY 001"** como nombre del comercio en la pantalla
+  de 3DS. En producción va a aparecer lo que Handy/Plexo tengan configurado
+  para CTC; conviene confirmarlo y avisarlo en la pantalla de pago del portal.
+- Con tarjetas reales el alumno va a pasar por 3DS (SMS del banco). Es parte
+  de la latencia y otra razón para que el frontend no espere el resultado en
+  la misma pantalla.
+
+---
+
+## Reintento del 22/09/2026: ahora falla antes, "vinculo vencido"
+
+Handy pidio volver a probar. El resultado cambio, pero sigue sin poder
+completarse un pago:
+
+| | 18 y 21/09 | 22/09 |
+|---|---|---|
+| Formulario de tarjeta | aparecia | **no aparece** |
+| 3DS | se superaba | no se llega |
+| Mensaje | "Security Data : Merchant certificate has expired" | "El vinculo de compra se ha vencido" |
+| Donde falla | al autorizar en Plexo | al **iniciar la sesion** (redirige a `/?plexoLoading=true`, HTTP 400 en consola) |
+
+**No es un vencimiento por tiempo:** se abrio un link 20 segundos despues de
+generarlo, con dos links distintos, y ya decia vencido. `POST /payments`
+sigue respondiendo 200 con el link. Referencias: `d6ab8580-...`,
+`cc3f8125-...`, `7f2d8cb3-...`.
+
+### Pendiente de preguntar: cuanto dura un link
+
+El mensaje de Handy dice textual *"los vinculos de compra se vencen despues
+de un tiempo"*. **No esta en el manual cuanto.** Importa: `VENTANA_REUSO` en
+`pago_service.py` reutiliza un intento abierto de hasta 30 minutos, y si el
+TTL de Handy es menor le estariamos devolviendo al alumno un link ya muerto.
+Cuando el sandbox funcione, preguntar el TTL y ajustar esa ventana a algo
+menor.

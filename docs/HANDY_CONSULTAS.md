@@ -163,3 +163,107 @@ Según qué contesten a las dos primeras, cambia el diseño:
 En los tres casos hace falta la tabla de intentos de pago: es lo que permite
 contrastar el `TransactionExternalId`, el monto y la moneda contra lo que
 nosotros originamos.
+
+---
+
+## Segundo mail — consulta por las tarjetas de prueba (17/09/2026)
+
+Se decidió **no** pedir todavía el secret de producción: Handy lo entrega
+cuando confirmemos que testing funciona, y sin un pago aprobado esa
+confirmación no la podemos dar. Primero que respondan por el sandbox.
+
+**Para:** `integraciones@handy.uy`
+**Asunto:** Integración Botón de Pago CTC Salto — consulta por tarjetas de prueba en testing
+
+```
+Estimados,
+
+Les escribimos de CTC Salto (Centro de Tecnologías de la Comunicación), en
+seguimiento al intercambio del 10/09 sobre la integración del Botón de Pago
+v2.0.
+
+Ya tenemos la integración implementada contra el ambiente de testing:
+
+  - Creación del link de pago (POST /payments) con el merchant secret de
+    testing: correcta.
+  - Recepción del callback en nuestro CallbackUrl: correcta, con el cuerpo tal
+    como lo describe el manual (TransactionExternalId, PurchaseData,
+    InstrumentData).
+
+Lo que no pudimos completar es un pago APROBADO. Hicimos dos pagos de $100
+con las tarjetas de prueba del manual y en los dos casos el callback llegó
+con PurchaseData.Status = 2:
+
+  - Mastercard 5203 9481 0002 3450 (12/26, CVV 045): rechazada,
+    IssuerName "ARGENTA SPAARBANK"
+  - Cabal 5896 5720 9999 9991 (03/80, CVV 450): rechazada,
+    IssuerName "BANCO CREDICOOP"
+
+Referencias (TransactionExternalId) por si les sirve para revisar:
+  2425a602-ffd0-4e0f-985a-cb1dd5c64384
+  954ba6c4-6203-4f81-a7cb-4261d589e40c
+
+¿Es esperable que el sandbox rechace esas tarjetas hoy? ¿Hay otras tarjetas
+de prueba, o algún dato adicional que deba ir para que apruebe? Necesitamos
+ver un pago aprobado en testing antes de darles la confirmación de que la
+integración funciona.
+
+Quedamos atentos. Muchas gracias.
+
+Saludos cordiales,
+
+[Nombre]
+[Cargo]
+Centro de Tecnologías de la Comunicación — Salto
+```
+
+Cuando el sandbox apruebe un pago, se manda el tercer mail: confirmación + pedido
+del secret de producción por esta misma vía (respuesta 5 de Handy). Las
+dudas comerciales van a Lucía Regueiro; con ella todavía no se habló.
+
+---
+
+## Tercer mail — el comercio de pruebas tiene el certificado vencido (18/09/2026)
+
+Handy respondió al segundo mail con tarjetas nuevas; con esas tampoco
+aprueba. La página de resultado muestra *"Security Data : Merchant
+certificate has expired"*: es el comercio de pruebas, no nosotros.
+
+**Para:** `integraciones@handy.uy`
+**Asunto:** Botón de Pago — el comercio de pruebas rechaza todo: "Merchant certificate has expired"
+
+```
+Estimados,
+
+Gracias por las tarjetas actualizadas. Las probamos, y también las del
+manual, pero en el ambiente de testing ninguna transacción aprueba: la
+página de resultado muestra en todos los casos
+
+    "El proceso de pago no pudo ser realizado.
+     Security Data : Merchant certificate has expired."
+
+y el callback llega con PurchaseData.Status = 2. Con la Visa terminada en
+1096 pasamos la autenticación 3DS (OTP) y el rechazo fue igual, así que
+parece ser el certificado del comercio de pruebas ("Plexo UY 001" /
+"Comercio pruebas boton de pago v2") en Plexo, no las tarjetas.
+
+Referencias (TransactionExternalId) de los cuatro intentos, por si les
+sirve para verificarlo:
+  2425a602-ffd0-4e0f-985a-cb1dd5c64384   (16/09)
+  954ba6c4-6203-4f81-a7cb-4261d589e40c   (16/09)
+  d1c6874e-8bba-4697-b5f2-a970d76086c4   (18/09)
+  ea8acd07-a2a9-4523-acaa-82066ad18365   (18/09)
+
+¿Pueden renovar el certificado del comercio de pruebas, o indicarnos otro
+merchant secret de testing que esté operativo? Nos avisan y repetimos la
+prueba enseguida.
+
+De nuestro lado, la creación del link y la recepción del callback ya
+funcionan; lo único que nos falta ver es una aprobación.
+
+Saludos cordiales,
+
+[Nombre]
+[Cargo]
+Centro de Tecnologías de la Comunicación — Salto
+```

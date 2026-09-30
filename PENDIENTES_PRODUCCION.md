@@ -852,6 +852,26 @@ PLAZO_BAJA_EXAMEN_HORAS=24
 ESCOLARIDAD_FECHA_CORTE=2026-10-01
 ```
 
+### Handy — estado al 16/09/2026
+
+- ✅ Testing validado de punta a punta contra develop: el link se genera y el
+  webhook recibe y procesa los avisos reales (dos cobros, ambos rechazados por
+  el sandbox de tarjetas, `Status = 2`). Detalle en `docs/HANDY_RESPUESTAS.md`.
+- ⏳ Consultado a Handy por el sandbox (`docs/HANDY_CONSULTAS.md`, segundo
+  mail). El secret de producción **se pide recién cuando haya un pago
+  aprobado en testing**: es la condición que puso Handy.
+- Para salir a producción: cargar `HANDY_MERCHANT_SECRET` de producción,
+  `HANDY_BASE_URL=https://api.payments.handy.uy/api/v2`, un
+  `HANDY_WEBHOOK_SECRETO` **distinto** al de develop, y hacer **un pago real de
+  monto mínimo** antes de habilitarlo a los alumnos: es la única forma de ver
+  la rama de aprobación contra Handy.
+- Los cobros de prueba quedaron en la base de develop (ids 1 a 8, `fallido` o
+  `iniciado`). No hay que replicarlos.
+- ⚠️ **Preguntar a Handy cuanto dura un link de pago.** Su pagina dice que los
+  vinculos "se vencen despues de un tiempo" y el manual no dice cuanto.
+  `VENTANA_REUSO` (30 min) en `pago_service.py` tiene que ser menor que ese
+  TTL, o el portal va a devolver links muertos.
+
 ### Handy — Botón de Pago (nuevas)
 
 ```bash
