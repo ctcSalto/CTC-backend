@@ -15,6 +15,10 @@ from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_en
 from routes.mercadopago import mercadopago
 from routes.google import google_test, google_analytics
 V2_ENABLED = os.getenv("V2_ENABLED", "false").lower() == "true"
+# Los endpoints de pagos (Handy) funcionan igual, pero no se publican en /docs ni
+# en /docs-scalar hasta que se decida mostrarlos a frontend: se prende con la
+# variable, sin tocar codigo. El webhook no se publica nunca (ver v2/routes/pagos.py).
+V2_PAGOS_EN_DOCS = os.getenv("V2_PAGOS_EN_DOCS", "false").lower() == "true"
 
 if V2_ENABLED:
     from v2.routes import auth_google as v2_auth_google
@@ -313,7 +317,7 @@ if V2_ENABLED:
     app.include_router(v2_admin_excepciones.router)
     app.include_router(v2_admin_mesas_examen.router)
     app.include_router(v2_admin_historico.router)
-    app.include_router(v2_pagos.router)
+    app.include_router(v2_pagos.router, include_in_schema=V2_PAGOS_EN_DOCS)
     app.include_router(v2_inicio.router)
 
 # CORS

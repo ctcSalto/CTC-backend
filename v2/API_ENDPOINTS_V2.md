@@ -1584,6 +1584,10 @@ Eliminar documento (soft delete). **Response 204**
 
 ## 16.b Pagos (Handy)
 
+> **Ocultos en `/docs` y `/docs-scalar`** mientras `V2_PAGOS_EN_DOCS` no sea
+> `true` (default `false`). Funcionan igual: solo no se publican. El webhook no se
+> publica nunca.
+
 Cobro de programas con el Botón de Pago de Handy. Hoy es el único proveedor
 implementado; el modelo es agnóstico y MercadoPago puede entrar después sin
 cambiar el esquema.

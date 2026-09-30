@@ -881,6 +881,11 @@ ESCOLARIDAD_FECHA_CORTE=2026-10-01
 ### Handy — Botón de Pago (nuevas)
 
 ```bash
+# Los endpoints de pagos funcionan igual, pero no aparecen en /docs ni en
+# /docs-scalar hasta que se decida mostrarlos a frontend. Default: false.
+# El webhook no se publica nunca, con o sin esta variable.
+V2_PAGOS_EN_DOCS=false
+
 # Testing: https://api.payments.arriba.uy/api/v2 con el secret publicado en el
 # manual (c80c2dca-ee4f-4cec-ace0-850747a5dcfa), que es compartido y publico.
 # Produccion: https://api.payments.handy.uy/api/v2 con el secret que entrega
