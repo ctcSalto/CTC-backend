@@ -267,3 +267,50 @@ Saludos cordiales,
 [Cargo]
 Centro de Tecnologías de la Comunicación — Salto
 ```
+
+---
+
+## Mail 4 — pago aprobado en testing, pedido de credenciales de producción (29/09/2026)
+
+Soporte arregló el sandbox y el 29/09 el primer pago de prueba aprobó de punta
+a punta. Con eso se cumple lo que habíamos esperado para pedir producción. Sin
+números de tarjeta en el cuerpo (la DLP de Workspace frena el mail).
+
+**Para:** `integraciones@handy.uy`
+**Asunto:** Botón de Pago CTC Salto — pago aprobado en testing, pasaje a producción
+
+```
+Hola, ¿cómo están?
+
+Gracias por la ayuda con el ambiente de pruebas. Volvimos a probar y el
+pago se aprobó de punta a punta:
+
+  Fecha: 29/09/2026
+  Identificador de compra en Handy: 9c53c66e70fa415e930ac082ec9a3226
+  TransactionExternalId: ab42dac3-fc7a-44c3-8425-b9242221f262
+  Monto: UYU 100
+
+El callback llegó a nuestro backend con Status = 1, lo validamos contra
+nuestro registro (referencia, monto y moneda) y el cobro quedó acreditado.
+
+Con esto queremos pasar a producción:
+
+1. ¿Nos pueden enviar el merchant-secret-key de producción? ¿Qué necesitan
+   de nuestra parte para dar de alta el comercio (datos del comercio, RUT,
+   cuenta de acreditación, contrato)?
+
+2. ¿Cuánto tiempo es válido el link de pago (el sessionId de
+   pago.arriba.uy / pago.handy.uy) desde que se crea? ¿Se puede configurar?
+   Lo necesitamos para saber cuándo generar uno nuevo si el alumno no paga
+   enseguida.
+
+3. En producción, ¿los callbacks salen siempre desde las mismas IPs? En
+   testing los recibimos desde 34.192.193.146. Si hay un rango fijo, lo
+   usaríamos para aceptar solo avisos que vengan de Handy.
+
+Quedamos atentos. Saludos cordiales,
+
+[Nombre]
+[Cargo]
+Centro de Tecnologías de la Comunicación — Salto
+```

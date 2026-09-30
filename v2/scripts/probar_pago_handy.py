@@ -11,6 +11,9 @@ Uso:
     python -m v2.scripts.probar_pago_handy --monto 250           otro monto (UYU)
     python -m v2.scripts.probar_pago_handy --estado <referencia> estado del cobro y avisos recibidos
     python -m v2.scripts.probar_pago_handy --pendientes          cobros sin resolucion
+    python -m v2.scripts.probar_pago_handy --alumno-id 5 --programa-id 12
+                                                                 cobro de un alumno por un programa:
+                                                                 al quedar pagado lo inscribe
     python -m v2.scripts.probar_pago_handy --evidencia           ademas guarda request y response
                                                                  en evidencia/handy_<ref>.md
     python -m v2.scripts.probar_pago_handy --estado <ref> --evidencia
@@ -52,7 +55,9 @@ from sqlmodel import select
 import external_services.handy_api.client as handy_modulo
 from database.database import get_db_session
 from v2.models.pago import Pago, PagoNotificacion, PagoCreate
-from v2.models.enums import ProveedorPago
+from v2.models.enums import EstadoInscripcionPrograma, ProveedorPago
+from v2.models.inscripcion_programa import InscripcionPrograma
+from v2.models.programa import Programa
 from v2.services.pago_service import PagoService
 
 VARIABLES = ["DATABASE_URL", "BASE_URL", "HANDY_BASE_URL", "HANDY_MERCHANT_SECRET", "HANDY_WEBHOOK_SECRETO"]
@@ -161,8 +166,27 @@ def verificar_entorno() -> bool:
     return True
 
 
+def avisar_inscripcion_previa(alumno_id: int, programa_id: int):
+    """
+    Si el alumno ya tiene una inscripcion ACTIVA al programa, el pago se vincula
+    a esa y no se crea otra (_habilitar_inscripcion). Mejor saberlo antes de
+    pagar, para no leer "no creo la inscripcion" como una falla.
+    """
+    with get_db_session() as session:
+        previa = session.exec(select(InscripcionPrograma).where(
+            InscripcionPrograma.alumno_id == alumno_id,
+            InscripcionPrograma.programa_id == programa_id,
+            InscripcionPrograma.estado == EstadoInscripcionPrograma.ACTIVA,
+        )).first()
+        if previa:
+            print(f"\nOjo: el alumno {alumno_id} ya tiene la inscripcion {previa.id} ACTIVA a ese "
+                  f"programa. El pago se va a vincular a esa, no va a crear una nueva.")
+
+
 def crear(monto: Decimal, email: str | None, concepto: str, sin_factura: bool = False,
-          evidencia: bool = False):
+          evidencia: bool = False, alumno_id: int | None = None, programa_id: int | None = None):
+    if alumno_id and programa_id:
+        avisar_inscripcion_previa(alumno_id, programa_id)
     capturas = capturar_http() if evidencia else []
     servicio = PagoService()
     if sin_factura:
@@ -184,9 +208,13 @@ def crear(monto: Decimal, email: str | None, concepto: str, sin_factura: bool = 
             monto_gravado=(monto / Decimal("1.22")).quantize(Decimal("0.01")),
             concepto=concepto,
             email_comprador=email,
+            alumno_id=alumno_id,
+            programa_id=programa_id,
         ), session)
 
         print(f"\nCobro creado: id={pago.id}  estado={pago.estado.value}")
+        if alumno_id or programa_id:
+            print(f"Alumno:       {alumno_id or '-'}   Programa: {programa_id or '-'}")
         print(f"Referencia:   {pago.referencia_externa}")
         print(f"\nLink de pago:\n  {pago.url_pago}")
         if evidencia:
@@ -212,7 +240,16 @@ def estado(referencia: str, evidencia: bool = False):
         print(f"  medio_pago          {pago.medio_pago}")
         print(f"  fecha_creacion      {pago.fecha_creacion}")
         print(f"  fecha_pago          {pago.fecha_pago}")
+        print(f"  alumno / programa   {pago.alumno_id or '-'} / {pago.programa_id or '-'}")
         print(f"  inscripcion         {pago.inscripcion_programa_id}")
+        if pago.inscripcion_programa_id:
+            insc = session.get(InscripcionPrograma, pago.inscripcion_programa_id)
+            prog = session.get(Programa, insc.programa_id) if insc else None
+            if insc:
+                print(f"      -> {prog.nombre if prog else insc.programa_id}  estado={insc.estado.value}  "
+                      f"anio_ingreso={insc.anio_ingreso}  fecha={insc.fecha_inscripcion:%Y-%m-%d %H:%M}")
+        elif pago.estado.value == "pagado" and pago.alumno_id and pago.programa_id:
+            print("      -> PAGADO con alumno y programa pero SIN inscripcion: revisar los logs del backend")
 
         avisos = session.exec(
             select(PagoNotificacion).where(PagoNotificacion.pago_id == pago.id)
@@ -272,6 +309,10 @@ def main():
     parser.add_argument("--pendientes", action="store_true", help="Listar cobros sin resolucion")
     parser.add_argument("--evidencia", action="store_true",
                         help="Guardar request/response (y luego el callback) en evidencia/handy_<ref>.md")
+    parser.add_argument("--alumno-id", type=int, default=None,
+                        help="Perfil de alumno (alumno.id, no usuario.id) al que se le cobra")
+    parser.add_argument("--programa-id", type=int, default=None,
+                        help="Programa que paga: al quedar PAGADO lo inscribe")
     parser.add_argument("--sin-factura", action="store_true",
                         help="No mandar InvoiceNumber (descarta rechazos por factura repetida en el comercio de prueba)")
     args = parser.parse_args()
@@ -288,7 +329,7 @@ def main():
         sys.exit(1)
     try:
         crear(args.monto, args.email, args.concepto, sin_factura=args.sin_factura,
-              evidencia=args.evidencia)
+              evidencia=args.evidencia, alumno_id=args.alumno_id, programa_id=args.programa_id)
     except ValueError as e:
         print(f"\nERROR: {e}")
         sys.exit(1)
