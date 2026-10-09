@@ -1,4 +1,5 @@
 from sqlmodel import SQLModel, Field, Relationship
+from sqlalchemy import Column, JSON
 from datetime import date, datetime
 from typing import Optional, List, TYPE_CHECKING
 from enum import Enum
@@ -53,6 +54,15 @@ class CareerBase(SQLModel):
     startClasses: Optional[date] = Field(default=None, description="Próximo inicio de clases")
     certificationType: Optional[str] = Field(default=None, description="Tipo certificación")
 
+
+# Archivos descargables de la oferta (programa, plan de estudios, folletos...).
+# Pedido de dirección (08/10/2026). Es una lista de URLs publicas: los archivos
+# se guardan en la VPS y se sirven en GET /careers/files/{careerId}/{nombre}.
+# No se editan por PUT: se agregan y se quitan con sus propios endpoints, que
+# validan el tipo y borran el archivo del disco. Ver
+# database/services/career_files_service.py.
+DESCRIPCION_FILES = "URLs publicas de los archivos descargables (PDF, Word, Excel...)"
+
 # Modelo para la tabla (con relaciones)
 class Career(CareerBase, table=True):
     careerId: Optional[int] = Field(default=None, primary_key=True, description="ID único de la carrera")
@@ -62,6 +72,10 @@ class Career(CareerBase, table=True):
     published: bool = Field(default=False, description="Estado de publicación")
     creator: int = Field(foreign_key="user.userId", description="ID del usuario creador")
     modifier: Optional[int] = Field(default=None, foreign_key="user.userId", description="ID del usuario modificador")
+    files: List[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]"),
+        description=DESCRIPCION_FILES,
+    )
     
     # Relaciones
     creator_user: Optional["User"] = Relationship(
@@ -170,6 +184,7 @@ class CareerRead(CareerBase):
     creator_user: Optional["UserRead"] = None
     modifier_user: Optional["UserRead"] = None
     testimonies: List["TestimonyRead"] = []
+    files: List[str] = Field(default_factory=list, description=DESCRIPCION_FILES)
     
 class CareerFilterResponse(SQLModel):
     careerId: Optional[int] = None
@@ -188,6 +203,7 @@ class CareerFilterResponse(SQLModel):
     cost: Optional[str] = None
     startClasses: Optional[date] = None
     certificationType: Optional[str] = None
+    files: Optional[List[str]] = None
     
 class CareerFilterWithCountResponse(SQLModel):
     data: List[CareerFilterResponse] = []
@@ -201,6 +217,7 @@ class CareerReadSimple(CareerBase):
     published: bool
     creator: int
     modifier: Optional[int] = None
+    files: List[str] = Field(default_factory=list, description=DESCRIPCION_FILES)
     
 class CareerSimple(SQLModel):
     """Modelo minimalista de carrera para endpoints públicos"""
@@ -216,6 +233,7 @@ class CareerSimple(SQLModel):
     cost: Optional[str] = None
     startClasses: Optional[date] = None
     certificationType: Optional[str] = None
+    files: List[str] = Field(default_factory=list, description=DESCRIPCION_FILES)
     
 class CarrerDropdown(SQLModel):
     """Modelo para dropdown de carreras (id, name)"""
@@ -251,6 +269,7 @@ class CareerReadOptimized(CareerBase):
     
     # Testimonios sin referencia circular
     testimonies: List[TestimonyForCareer] = []
+    files: List[str] = Field(default_factory=list, description=DESCRIPCION_FILES)
 
 # Modelo para respuestas de lista (sin algunos campos sensibles si es necesario)
 class CareerInList(SQLModel):
@@ -266,6 +285,7 @@ class CareerInList(SQLModel):
     duration: Optional[str] = None
     cost: Optional[str] = None
     startClasses: Optional[date] = None
+    files: List[str] = Field(default_factory=list, description=DESCRIPCION_FILES)
     
     
 from .user import UserRead

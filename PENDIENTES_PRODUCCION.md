@@ -127,6 +127,7 @@ verificó ahí. En orden de cadena:
 | 19 | `a7b8c9d0e1f2` | Tablas `historico_plan`, `historico_alumno`, `historico_resultado` (legajo de la planilla de escolaridades) | v2 |
 | 20 | `a6b7c8d9e0f1` | Tablas `pago` y `pago_notificacion` (Handy) | v2 |
 | 21 | `b8c9d0e1f2a3` | Revisión de merge de 19 y 20. **No-op**: no toca nada | — |
+| 22 | `c9d0e1f2a3b4` | **`career.files`** (JSON, `'[]'` por defecto): archivos descargables de la oferta | **v1 — tabla que producción usa hoy** |
 
 > **Ojo con la 18.** Es la única que toca una tabla de **v1**, o sea del sitio
 > público que ya está en producción con datos reales. Las demás son todas
@@ -626,6 +627,28 @@ propuesta, con el motivo y el impacto, y esperar la decisión.
 
 ---
 
+### 22. `c9d0e1f2a3b4_career_files` — Archivos descargables de la oferta académica
+
+> ⚠️ **Aplicar ANTES de desplegar el código.** Toca la tabla `career` de **v1**,
+> la del sitio público. El código nuevo lee `career.files` en todas las
+> consultas de carreras: con el código desplegado y la columna sin crear, se
+> cae toda la oferta académica (500). Al revés no pasa nada: el código viejo
+> ignora la columna. Lo mismo vale para develop.
+
+Pedido de dirección (08/10/2026): que la web ofrezca para descargar el programa,
+el plan de estudios y otros archivos de cada carrera o curso.
+
+- Una columna JSON con la lista de URLs. Las carreras existentes quedan con `[]`:
+  no hay que cargar nada al aplicarla. `downgrade` la borra.
+- Los archivos van a disco, en `OFERTA_ARCHIVOS_PATH` (default
+  `DOCUMENTOS_BASE_PATH/oferta_academica`, o sea **dentro del volumen de
+  documentos que ya existe**: no hace falta otro). Sin volumen, Easypanel los
+  borra en cada despliegue.
+- Las URLs se arman con `BASE_URL`: tiene que ser la URL pública del backend.
+- Endpoints: `POST /careers/{id}/files` y `DELETE /careers/{id}/files?url=` (admin),
+  `GET /careers/files/{id}/{nombre}` (público), y `POST /careers/create` acepta
+  `files` opcionales. Todas las respuestas de carreras devuelven `files`.
+
 ### 20. `a6b7c8d9e0f1_pagos` — Tablas de pagos
 
 > ✅ **Aprobada, escrita y aplicada en develop** (`f4a5b6c7d8e9` → `a6b7c8d9e0f1`).
@@ -801,6 +824,15 @@ valores de un enum), así que el `downgrade` queda vacío.
 ```bash
 DOCUMENTOS_BASE_PATH=/var/ctc/documentos
 DOCUMENTOS_MAX_SIZE_MB=10
+```
+
+### Archivos de la oferta académica (nuevas, opcionales)
+```bash
+# Default: DOCUMENTOS_BASE_PATH/oferta_academica (el mismo volumen). Solo hace
+# falta si se quieren en otro lado, y entonces tiene que ser un volumen.
+OFERTA_ARCHIVOS_PATH=/var/ctc/documentos/oferta_academica
+OFERTA_ARCHIVOS_MAX_MB=20
+# BASE_URL ya existe: es con lo que se arman las URLs publicas de los archivos.
 ```
 
 ### Notificaciones por email
