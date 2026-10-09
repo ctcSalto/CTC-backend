@@ -182,3 +182,42 @@ class TestEndpoints:
     def test_carrera_inexistente(self, cliente):
         r = cliente.http.post("/careers/9999/files", files=[("files", ("a.pdf", PDF, "application/pdf"))])
         assert r.status_code == 404
+
+    def test_reordenar_y_quitar_de_paso(self, cliente):
+        c = cliente
+        urls = c.http.post(f"/careers/{c.career_id}/files", files=[
+            ("files", (f"a{i}.pdf", PDF, "application/pdf")) for i in range(3)]).json()["files"]
+        r = c.http.put(f"/careers/{c.career_id}/files", json={"files": [urls[2], urls[0]]})
+        assert r.status_code == 200 and r.json()["files"] == [urls[2], urls[0]]
+        # La que no vino se borro del disco
+        assert c.http.get(urls[1].replace("http://testserver", "")).status_code == 404
+        assert c.http.get(urls[0].replace("http://testserver", "")).status_code == 200
+
+    def test_reordenar_no_acepta_urls_ajenas_ni_repetidas(self, cliente):
+        c = cliente
+        url, = c.http.post(f"/careers/{c.career_id}/files",
+                           files=[("files", ("a.pdf", PDF, "application/pdf"))]).json()["files"]
+        assert c.http.put(f"/careers/{c.career_id}/files", json={"files": [url, "https://otro/x.pdf"]}).status_code == 400
+        assert c.http.put(f"/careers/{c.career_id}/files", json={"files": [url, url]}).status_code == 400
+
+    def test_reemplazar_en_la_misma_posicion(self, cliente):
+        c = cliente
+        urls = c.http.post(f"/careers/{c.career_id}/files", files=[
+            ("files", ("viejo.pdf", PDF, "application/pdf")),
+            ("files", ("otro.pdf", PDF, "application/pdf"))]).json()["files"]
+        r = c.http.put(f"/careers/{c.career_id}/files/replace", params={"url": urls[0]},
+                       files={"file": ("Plan nuevo.docx", DOCX, "application/octet-stream")})
+        assert r.status_code == 200, r.text
+        nuevas = r.json()["files"]
+        assert nuevas[1] == urls[1] and nuevas[0].endswith("_plan_nuevo.docx")
+        assert c.http.get(urls[0].replace("http://testserver", "")).status_code == 404
+        assert c.http.get(nuevas[0].replace("http://testserver", "")).status_code == 200
+
+    def test_reemplazar_con_un_tipo_invalido_no_toca_nada(self, cliente):
+        c = cliente
+        url, = c.http.post(f"/careers/{c.career_id}/files",
+                           files=[("files", ("a.pdf", PDF, "application/pdf"))]).json()["files"]
+        r = c.http.put(f"/careers/{c.career_id}/files/replace", params={"url": url},
+                       files={"file": ("trucho.pdf", b"<html></html>", "application/pdf")})
+        assert r.status_code == 400
+        assert c.http.get(url.replace("http://testserver", "")).status_code == 200

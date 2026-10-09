@@ -9,6 +9,7 @@ from database.models.career import Area, CareerType, CareerCreate, CareerRead, C
 from database.models.user import UserRead
 from database.services.auth.dependencies import require_admin_role
 from database.services.career_files_service import ArchivoInvalido, MAX_ARCHIVOS_POR_CARRERA
+from pydantic import BaseModel, Field as PydanticField
 from exceptions import AppException
 
 from utils.logger import show
@@ -1095,6 +1096,80 @@ async def remove_career_file(
         services.careerFilesService.borrar(career_id, nombre)
     services.cacheService.invalidate_all_careers()
     show(f"Carrera {career_id}: archivo quitado por {current_user.email}")
+    return actualizada
+
+
+class CareerFilesOrden(BaseModel):
+    files: List[str] = PydanticField(
+        ..., description="Las URLs actuales en el orden deseado. Las que no esten se borran.")
+
+
+@router.put("/{career_id}/files", response_model=CareerRead,
+            summary="Reordenar los archivos de una carrera (solo admins)")
+async def reorder_career_files(
+    career_id: int,
+    orden: CareerFilesOrden,
+    current_user: UserRead = Depends(require_admin_role),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> CareerRead:
+    """
+    Deja la lista `files` en el orden recibido. Solo acepta URLs que ya tenga la
+    carrera (no sirve para agregar: para eso es el POST); las que falten se
+    quitan y se borran del disco.
+    """
+    career = services.careerService.get_career_by_id(career_id, session)
+    if not career:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrera no encontrada")
+    actuales = list(career.files or [])
+    ajenas = [u for u in orden.files if u not in actuales]
+    if ajenas:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Estas URLs no son archivos de la carrera: {', '.join(ajenas)}")
+    if len(set(orden.files)) != len(orden.files):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Hay URLs repetidas")
+
+    actualizada = services.careerService.set_files(career_id, orden.files, session)
+    for url in actuales:
+        if url not in orden.files:
+            nombre = services.careerFilesService.nombre_de_url(career_id, url)
+            if nombre:
+                services.careerFilesService.borrar(career_id, nombre)
+    services.cacheService.invalidate_all_careers()
+    show(f"Carrera {career_id}: archivos reordenados por {current_user.email}")
+    return actualizada
+
+
+@router.put("/{career_id}/files/replace", response_model=CareerRead,
+            summary="Reemplazar un archivo de una carrera (solo admins)")
+async def replace_career_file(
+    career_id: int,
+    url: str = Query(..., description="La URL del archivo a reemplazar, tal como figura en `files`"),
+    file: UploadFile = File(..., description="El archivo nuevo: mismos tipos que al agregar"),
+    current_user: UserRead = Depends(require_admin_role),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> CareerRead:
+    """El archivo nuevo queda en la misma posicion; el anterior se borra del disco."""
+    career = services.careerService.get_career_by_id(career_id, session)
+    if not career:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrera no encontrada")
+    actuales = list(career.files or [])
+    if url not in actuales:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Esa URL no esta en los archivos de la carrera")
+    # Se valida contra el total sin el que sale: reemplazar no suma
+    archivos = await _validar_archivos([file], services, ya_tiene=len(actuales) - 1)
+    if not archivos:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se recibio ningun archivo")
+
+    nueva, = services.careerFilesService.guardar(career_id, archivos)
+    actualizada = services.careerService.set_files(
+        career_id, [nueva if u == url else u for u in actuales], session)
+    nombre = services.careerFilesService.nombre_de_url(career_id, url)
+    if nombre:
+        services.careerFilesService.borrar(career_id, nombre)
+    services.cacheService.invalidate_all_careers()
+    show(f"Carrera {career_id}: archivo reemplazado por {current_user.email}")
     return actualizada
 
 

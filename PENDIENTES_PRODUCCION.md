@@ -645,7 +645,8 @@ el plan de estudios y otros archivos de cada carrera o curso.
   documentos que ya existe**: no hace falta otro). Sin volumen, Easypanel los
   borra en cada despliegue.
 - Las URLs se arman con `BASE_URL`: tiene que ser la URL pública del backend.
-- Endpoints: `POST /careers/{id}/files` y `DELETE /careers/{id}/files?url=` (admin),
+- Endpoints: `POST /careers/{id}/files`, `DELETE /careers/{id}/files?url=`,
+  `PUT /careers/{id}/files` (reordenar) y `PUT /careers/{id}/files/replace?url=` (admin),
   `GET /careers/files/{id}/{nombre}` (público), y `POST /careers/create` acepta
   `files` opcionales. Todas las respuestas de carreras devuelven `files`.
 
