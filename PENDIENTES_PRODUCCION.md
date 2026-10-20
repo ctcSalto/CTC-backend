@@ -914,6 +914,11 @@ ESCOLARIDAD_FECHA_CORTE=2026-10-01
 ### Handy — Botón de Pago (nuevas)
 
 ```bash
+# Interruptor de la pasarela: sin esto en true los endpoints de pagos (webhook
+# incluido) no se registran. En produccion queda en false hasta que Handy entre;
+# en develop va en true para que el webhook siga andando. Default: false.
+V2_PAGOS_ENABLED=false
+
 # Los endpoints de pagos funcionan igual, pero no aparecen en /docs ni en
 # /docs-scalar hasta que se decida mostrarlos a frontend. Default: false.
 # El webhook no se publica nunca, con o sin esta variable.

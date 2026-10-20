@@ -1584,6 +1584,10 @@ Eliminar documento (soft delete). **Response 204**
 
 ## 16.b Pagos (Handy)
 
+> **Desactivados** mientras `V2_PAGOS_ENABLED` no sea `true` (default `false`):
+> sin la variable las rutas de abajo no existen (404). En producción la pasarela
+> todavía no entra.
+>
 > **Ocultos en `/docs` y `/docs-scalar`** mientras `V2_PAGOS_EN_DOCS` no sea
 > `true` (default `false`). Funcionan igual: solo no se publican. El webhook no se
 > publica nunca.
