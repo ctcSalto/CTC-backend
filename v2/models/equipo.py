@@ -5,7 +5,7 @@ from uuid import uuid4
 if TYPE_CHECKING:
     from v2.models.materia_instancia_evaluacion import MateriaInstanciaEvaluacion
     from v2.models.calificacion import Calificacion
-    from v2.models.usuario import Usuario
+    from v2.models.alumno import Alumno
 
 
 class Equipo(SQLModel, table=True):
@@ -31,11 +31,11 @@ class EquipoMiembro(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     equipo_id: int = Field(foreign_key="equipo.id", description="Equipo al que pertenece")
-    usuario_id: int = Field(foreign_key="usuario.id", description="Estudiante miembro")
+    alumno_id: int = Field(foreign_key="alumno.id", description="Alumno miembro")
 
     # Relaciones
     equipo: Optional["Equipo"] = Relationship(back_populates="miembros")
-    usuario: Optional["Usuario"] = Relationship(back_populates="equipos")
+    alumno: Optional["Alumno"] = Relationship(back_populates="equipos")
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ class EquipoMiembro(SQLModel, table=True):
 class EquipoCreate(SQLModel):
     instancia_evaluacion_id: int
     nombre: str = Field(max_length=100)
-    miembros_ids: list[int] = []
+    miembros_ids: list[int] = Field(default=[], description="IDs de alumno (no de usuario)")
 
 
 class EquipoRead(SQLModel):
@@ -59,7 +59,7 @@ class EquipoConMiembros(EquipoRead):
 class EquipoMiembroRead(SQLModel):
     id: int
     equipo_id: int
-    usuario_id: int
+    alumno_id: int
 
 
 EquipoConMiembros.model_rebuild()

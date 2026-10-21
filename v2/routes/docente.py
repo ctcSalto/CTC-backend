@@ -11,6 +11,8 @@ from v2.auth.dependencies import require_docente_or_admin
 from v2.models.usuario import UsuarioRead
 from v2.models.calificacion import CalificacionRead, CalificacionBatchItem
 from v2.models.docente_materia import DocenteMateria
+from v2.models.profesor import Profesor
+from v2.models.alumno import Alumno
 from v2.models.inscripcion_materia import InscripcionMateria, InscripcionMateriaRead
 from v2.models.instancia_cursado import InstanciaCursado
 from v2.models.equipo import EquipoCreate
@@ -26,24 +28,31 @@ router = APIRouter(
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _validar_docente_instancia_cursado(docente_id: int, instancia_cursado_id: int, session: Session):
-    """Valida que el docente esté asignado a la instancia de cursado."""
+def _validar_docente_instancia_cursado(usuario_id: int, instancia_cursado_id: int, session: Session):
+    """
+    Valida que el docente esté asignado a la instancia de cursado.
+    Recibe el id de usuario (viene del JWT) y navega al perfil de profesor,
+    que es a quien referencia la asignación.
+    """
     asignacion = session.exec(
-        select(DocenteMateria).where(
-            DocenteMateria.docente_id == docente_id,
+        select(DocenteMateria)
+        .join(Profesor, DocenteMateria.profesor_id == Profesor.id)
+        .where(
+            Profesor.usuario_id == usuario_id,
             DocenteMateria.instancia_cursado_id == instancia_cursado_id,
         )
     ).first()
     return asignacion is not None
 
 
-def _validar_docente_materia(docente_id: int, materia_id: int, session: Session):
+def _validar_docente_materia(usuario_id: int, materia_id: int, session: Session):
     """Valida que el docente esté asignado a alguna instancia de la materia."""
     asignacion = session.exec(
         select(DocenteMateria)
+        .join(Profesor, DocenteMateria.profesor_id == Profesor.id)
         .join(InstanciaCursado, DocenteMateria.instancia_cursado_id == InstanciaCursado.id)
         .where(
-            DocenteMateria.docente_id == docente_id,
+            Profesor.usuario_id == usuario_id,
             InstanciaCursado.materia_id == materia_id,
         )
     ).first()
@@ -90,6 +99,9 @@ async def mi_perfil(
             "cargo": perfil_profesor.cargo.value if perfil_profesor.cargo else None,
             "dedicacion": perfil_profesor.dedicacion.value if perfil_profesor.dedicacion else None,
             "especialidad": perfil_profesor.especialidad,
+            # Si dicta actualmente. El "activo" de nivel usuario va aparte, en la
+            # raiz de la respuesta, y es el que controla el acceso al sistema.
+            "activo": perfil_profesor.activo,
         } if perfil_profesor else None,
     }
 
@@ -140,9 +152,10 @@ async def mis_materias(
 
     asignaciones = session.exec(
         select(DocenteMateria)
+        .join(Profesor, DocenteMateria.profesor_id == Profesor.id)
         .join(InstanciaCursado, DocenteMateria.instancia_cursado_id == InstanciaCursado.id)
         .where(
-            DocenteMateria.docente_id == current_usuario.id,
+            Profesor.usuario_id == current_usuario.id,
             InstanciaCursado.anio_lectivo == anio_lectivo,
         )
     ).all()
@@ -171,6 +184,46 @@ async def mis_materias(
     return resultado
 
 
+@router.get("/mi-historico-materias")
+async def mi_historico_materias(
+    anio_lectivo: Optional[int] = Query(
+        default=None, description="Filtra por año lectivo. Sin este parámetro devuelve todos los años"
+    ),
+    current_usuario: UsuarioRead = Depends(require_docente_or_admin),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """Historico completo de materias dictadas por el docente, de la mas reciente a la mas antigua"""
+    profesor = session.exec(
+        select(Profesor).where(Profesor.usuario_id == current_usuario.id)
+    ).first()
+    if not profesor:
+        return []
+    return v2_services.docenteMateriaService.get_historico_materias(
+        profesor.id, session, anio_lectivo=anio_lectivo
+    )
+
+
+@router.get("/mi-historico-examenes")
+async def mi_historico_examenes(
+    anio: Optional[int] = Query(
+        default=None, description="Filtra por año de la fecha del examen. Sin este parámetro devuelve todos"
+    ),
+    current_usuario: UsuarioRead = Depends(require_docente_or_admin),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """Historico de examenes en los que el docente integro el tribunal"""
+    profesor = session.exec(
+        select(Profesor).where(Profesor.usuario_id == current_usuario.id)
+    ).first()
+    if not profesor:
+        return []
+    return v2_services.docenteMateriaService.get_historico_examenes(
+        profesor.id, session, anio=anio
+    )
+
+
 @router.get("/instancia-cursado/{instancia_cursado_id}/alumnos")
 async def alumnos_instancia(
     instancia_cursado_id: int,
@@ -194,11 +247,13 @@ async def alumnos_instancia(
     resultado = []
     for insc in inscripciones:
         usuario = session.exec(
-            select(Usuario).where(Usuario.id == insc.usuario_id)
+            select(Usuario)
+            .join(Alumno, Alumno.usuario_id == Usuario.id)
+            .where(Alumno.id == insc.alumno_id)
         ).first()
         resultado.append({
             "inscripcion_id": insc.id,
-            "usuario_id": insc.usuario_id,
+            "alumno_id": insc.alumno_id,
             "nombre": usuario.nombre if usuario else "",
             "apellido": usuario.apellido if usuario else "",
             "estado": insc.estado.value,
@@ -301,13 +356,14 @@ async def cargar_calificacion(
 
     try:
         return v2_services.calificacionService.guardar_calificacion(
-            docente_id=current_usuario.id,
+            cargado_por_id=current_usuario.id,
             inscripcion_id=data.inscripcion_id,
             instancia_evaluacion_id=data.instancia_evaluacion_id,
             nota=data.nota,
             session=session,
             equipo_id=data.equipo_id,
             observaciones=data.observaciones,
+            instancia_cursado_id=instancia_cursado_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -328,10 +384,11 @@ async def cargar_calificaciones_batch(
             raise HTTPException(status_code=403, detail="No esta asignado a esta instancia de cursado")
 
     return v2_services.calificacionService.guardar_batch(
-        docente_id=current_usuario.id,
+        cargado_por_id=current_usuario.id,
         instancia_evaluacion_id=data.instancia_evaluacion_id,
         calificaciones=data.calificaciones,
         session=session,
+        instancia_cursado_id=instancia_cursado_id,
     )
 
 
@@ -351,10 +408,11 @@ async def cargar_nota_final_directa(
 
     try:
         return v2_services.calificacionService.cargar_nota_final_directa(
-            docente_id=current_usuario.id,
+            cargado_por_id=current_usuario.id,
             inscripcion_id=data.inscripcion_id,
             nota=data.nota,
             session=session,
+            instancia_cursado_id=instancia_cursado_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -521,6 +579,33 @@ async def marcar_ausente_docente(
             session=session,
         )
     except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/materia/{materia_id}/examenes/instancia/{instancia_examen_id}/cerrar-acta")
+async def cerrar_acta_docente(
+    materia_id: int,
+    instancia_examen_id: int,
+    current_usuario: UsuarioRead = Depends(require_docente_or_admin),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """
+    Cerrar el acta (docente o admin): los inscriptos sin nota pasan a AUSENTE
+    (NSP) y el examen queda FINALIZADO. Solo examenes de la materia indicada.
+    """
+    from v2.models.enums import RolUsuario
+    if current_usuario.rol != RolUsuario.ADMINISTRATIVO:
+        if not _validar_docente_materia(current_usuario.id, materia_id, session):
+            raise HTTPException(status_code=403, detail="No esta asignado a esta materia")
+
+    try:
+        return v2_services.inscripcionExamenService.cerrar_acta(
+            instancia_examen_id, session, materia_id=materia_id,
+        )
+    except ValueError as e:
+        if "no encontrada" in str(e):
+            raise HTTPException(status_code=404, detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))
 
 

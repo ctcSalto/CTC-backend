@@ -106,6 +106,7 @@ class InstanciaCursadoService(BaseServiceWithFilters[InstanciaCursado]):
             "materia_nombre": materia.nombre if materia else "",
             "materia_codigo": materia.codigo if materia else "",
             "anio_lectivo": instancia.anio_lectivo,
+            "semestre": instancia.semestre,
             "salon": instancia.salon,
             "horario": instancia.horario,
             "fecha_inicio": instancia.fecha_inicio.isoformat() if instancia.fecha_inicio else None,
@@ -133,6 +134,7 @@ class InstanciaCursadoService(BaseServiceWithFilters[InstanciaCursado]):
         from v2.models.materia_instancia_evaluacion import MateriaInstanciaEvaluacion
         from v2.models.calificacion import Calificacion
         from v2.models.usuario import Usuario
+        from v2.models.alumno import Alumno
         from v2.models.materia import Materia
 
         instancia = session.get(InstanciaCursado, instancia_id)
@@ -158,7 +160,9 @@ class InstanciaCursadoService(BaseServiceWithFilters[InstanciaCursado]):
         alumnos = []
         for insc in inscripciones:
             usuario = session.exec(
-                select(Usuario).where(Usuario.id == insc.usuario_id)
+                select(Usuario)
+                .join(Alumno, Alumno.usuario_id == Usuario.id)
+                .where(Alumno.id == insc.alumno_id)
             ).first()
 
             # Calificaciones por evaluación
@@ -177,7 +181,7 @@ class InstanciaCursadoService(BaseServiceWithFilters[InstanciaCursado]):
 
             alumnos.append({
                 "inscripcion_id": insc.id,
-                "usuario_id": insc.usuario_id,
+                "alumno_id": insc.alumno_id,
                 "nombre": usuario.nombre if usuario else "",
                 "apellido": usuario.apellido if usuario else "",
                 "estado": insc.estado.value,

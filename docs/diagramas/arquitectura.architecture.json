@@ -1,0 +1,325 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Backend CTC",
+    "subtitle": "Un backend, dos subsistemas y sus integraciones",
+    "output": "docs/diagramas/arquitectura.html",
+    "quality_profile": "standard",
+    "viewBox": [
+      1120,
+      560
+    ],
+    "views": [
+      {
+        "id": "cobro",
+        "label": "Cobro de un curso",
+        "focus": [
+          "portal",
+          "api",
+          "postgres",
+          "handy"
+        ],
+        "note": "El alumno inicia el pago en el portal, el backend le pide el link a Handy, y el aviso de pago vuelve por webhook."
+      },
+      {
+        "id": "academico",
+        "label": "Portal Academico",
+        "focus": [
+          "portal",
+          "api",
+          "postgres",
+          "redis",
+          "google",
+          "moodle"
+        ],
+        "note": "Login con Google restringido al dominio institucional, sesiones y blacklist en Redis, inscripciones en Moodle."
+      },
+      {
+        "id": "sitio",
+        "label": "Sitio publico",
+        "focus": [
+          "sitio",
+          "admin",
+          "api",
+          "postgres",
+          "supabase",
+          "mercadopago"
+        ],
+        "note": "Carreras, testimonios y noticias. Las imagenes van a Supabase. MercadoPago queda integrado aunque hoy no se use."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "sitio",
+      "type": "frontend",
+      "label": "Sitio publico",
+      "sublabel": "ctcsalto.edu.uy",
+      "pos": [
+        220,
+        60
+      ],
+      "size": [
+        138,
+        68
+      ]
+    },
+    {
+      "id": "admin",
+      "type": "frontend",
+      "label": "Panel admin",
+      "sublabel": "SvelteKit en /admin",
+      "brand": "svelte",
+      "pos": [
+        402,
+        60
+      ],
+      "size": [
+        138,
+        68
+      ]
+    },
+    {
+      "id": "portal",
+      "type": "frontend",
+      "label": "Portal Academico",
+      "sublabel": "alumnos y docentes",
+      "pos": [
+        584,
+        60
+      ],
+      "size": [
+        138,
+        68
+      ]
+    },
+    {
+      "id": "redis",
+      "type": "database",
+      "label": "Redis",
+      "sublabel": "cache y blacklist",
+      "brand": "redis",
+      "pos": [
+        220,
+        240
+      ],
+      "size": [
+        138,
+        68
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Backend CTC",
+      "sublabel": "FastAPI: v1 + v2",
+      "brand": "fastapi",
+      "pos": [
+        402,
+        240
+      ],
+      "size": [
+        138,
+        68
+      ]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "v1 y v2, una base",
+      "brand": "postgresql",
+      "pos": [
+        402,
+        420
+      ],
+      "size": [
+        138,
+        68
+      ]
+    },
+    {
+      "id": "crm",
+      "type": "external",
+      "label": "CRM AloStudio",
+      "sublabel": "planificado",
+      "pos": [
+        766,
+        240
+      ],
+      "size": [
+        138,
+        68
+      ]
+    },
+    {
+      "id": "handy",
+      "type": "cloud",
+      "label": "Handy",
+      "sublabel": "pagos, webhook",
+      "pos": [
+        38,
+        420
+      ],
+      "size": [
+        138,
+        68
+      ]
+    },
+    {
+      "id": "mercadopago",
+      "type": "cloud",
+      "label": "MercadoPago",
+      "sublabel": "integrado, sin uso",
+      "pos": [
+        220,
+        420
+      ],
+      "size": [
+        138,
+        68
+      ]
+    },
+    {
+      "id": "moodle",
+      "type": "cloud",
+      "label": "Moodle",
+      "sublabel": "cursos y usuarios",
+      "pos": [
+        584,
+        420
+      ],
+      "size": [
+        138,
+        68
+      ]
+    },
+    {
+      "id": "supabase",
+      "type": "cloud",
+      "label": "Supabase",
+      "sublabel": "imagenes",
+      "brand": "supabase",
+      "pos": [
+        766,
+        420
+      ],
+      "size": [
+        138,
+        68
+      ]
+    },
+    {
+      "id": "google",
+      "type": "cloud",
+      "label": "Google Workspace",
+      "sublabel": "OAuth y cuentas, via n8n",
+      "brand": "google-cloud",
+      "pos": [
+        948,
+        420
+      ],
+      "size": [
+        138,
+        68
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "sitio-api",
+      "from": "sitio",
+      "to": "api",
+      "label": "REST v1",
+      "labelDy": -24
+    },
+    {
+      "id": "admin-api",
+      "from": "admin",
+      "to": "api",
+      "label": "REST v1",
+      "labelDy": 24
+    },
+    {
+      "id": "portal-api",
+      "from": "portal",
+      "to": "api",
+      "label": "REST v2 + JWT",
+      "variant": "emphasis",
+      "labelDy": -24
+    },
+    {
+      "id": "api-redis",
+      "from": "api",
+      "to": "redis",
+      "label": "cache",
+      "labelDy": -24
+    },
+    {
+      "id": "api-postgres",
+      "from": "api",
+      "to": "postgres",
+      "label": "SQLModel",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "api-crm",
+      "from": "api",
+      "to": "crm",
+      "label": "webhooks y MCP",
+      "variant": "dashed",
+      "labelDy": -24
+    },
+    {
+      "id": "api-handy",
+      "from": "api",
+      "to": "handy",
+      "label": "crea link / recibe webhook",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "orthogonal-v"
+    },
+    {
+      "id": "api-mercadopago",
+      "from": "api",
+      "to": "mercadopago",
+      "label": "sin uso",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "orthogonal-v"
+    },
+    {
+      "id": "api-moodle",
+      "from": "api",
+      "to": "moodle",
+      "label": "inscribe alumnos",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "orthogonal-v"
+    },
+    {
+      "id": "api-supabase",
+      "from": "api",
+      "to": "supabase",
+      "label": "sube imagenes",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "orthogonal-v"
+    },
+    {
+      "id": "api-google",
+      "from": "api",
+      "to": "google",
+      "label": "OAuth, OU, cuentas",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "orthogonal-v"
+    }
+  ]
+}

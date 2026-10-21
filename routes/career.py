@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Depends, Query
+from fastapi.responses import FileResponse
 from sqlmodel import Session
 from typing import List, Optional
 from datetime import datetime
@@ -7,6 +8,8 @@ from database.services.filter.filters import Filter
 from database.models.career import Area, CareerType, CareerCreate, CareerRead, CareerSimple,  CareerUpdate, CareerInList, CareerReadOptimized, CarrerDropdown, CareerCreateForm
 from database.models.user import UserRead
 from database.services.auth.dependencies import require_admin_role
+from database.services.career_files_service import ArchivoInvalido, MAX_ARCHIVOS_POR_CARRERA
+from pydantic import BaseModel, Field as PydanticField
 from exceptions import AppException
 
 from utils.logger import show
@@ -52,11 +55,15 @@ def get_career_areas(current_user: UserRead = Depends(require_admin_role)) -> Li
 async def create_career(
     career_form: CareerCreateForm = Depends(CareerCreateForm.as_form),
     image: UploadFile = File(...),
+    files: List[UploadFile] = File(default=[], description="Archivos descargables (opcional): PDF, Word, Excel..."),
     current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> CareerRead:
     """Crear una nueva carrera (solo admins)"""
+    # Los archivos se validan antes de crear nada: uno invalido no deja una
+    # carrera creada a medias
+    archivos = await _validar_archivos(files, services, ya_tiene=0)
     try:
         creator = current_user.userId
         
@@ -103,6 +110,10 @@ async def create_career(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error al crear la carrera"
             )
+
+        if archivos:
+            urls = services.careerFilesService.guardar(new_career.careerId, archivos)
+            new_career = services.careerService.set_files(new_career.careerId, urls, session)
 
         # Invalidate all career caches
         services.cacheService.invalidate_all_careers()
@@ -994,6 +1005,7 @@ async def delete_career(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Carrera no encontrada"
             )
+        services.careerFilesService.borrar_todos(career_id)
 
         # Invalidate all career caches
         services.cacheService.invalidate_all_careers()
@@ -1009,6 +1021,179 @@ async def delete_career(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error interno del servidor: {str(e)}"
         )
+
+# ── Archivos descargables ────────────────────────────────────────────────────
+# Pedido de direccion (08/10/2026): el programa, el plan de estudios, folletos.
+# Se guardan en la VPS y se sirven publicos. Ver database/services/career_files_service.py.
+
+async def _validar_archivos(files: List[UploadFile], services: Services, ya_tiene: int) -> list:
+    """Lee y valida todos antes de guardar ninguno. 400 con el motivo si alguno no sirve."""
+    files = [f for f in (files or []) if f is not None and (f.filename or "")]
+    if ya_tiene + len(files) > MAX_ARCHIVOS_POR_CARRERA:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Una carrera puede tener hasta {MAX_ARCHIVOS_POR_CARRERA} archivos "
+                   f"(ya tiene {ya_tiene}).",
+        )
+    validados = []
+    for f in files:
+        try:
+            validados.append(services.careerFilesService.validar(await f.read(), f.filename))
+        except ArchivoInvalido as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return validados
+
+
+@router.post("/{career_id}/files", response_model=CareerRead,
+             summary="Agregar archivos descargables a una carrera (solo admins)")
+async def add_career_files(
+    career_id: int,
+    files: List[UploadFile] = File(..., description="Uno o varios: PDF, Word, Excel, PowerPoint, OpenDocument o imagen"),
+    current_user: UserRead = Depends(require_admin_role),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> CareerRead:
+    """
+    Agrega los archivos al final de la lista `files` de la carrera. El tipo se
+    valida por el contenido, no por el nombre. Si alguno no se acepta no se
+    guarda ninguno.
+    """
+    career = services.careerService.get_career_by_id(career_id, session)
+    if not career:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrera no encontrada")
+    actuales = list(career.files or [])
+    archivos = await _validar_archivos(files, services, ya_tiene=len(actuales))
+    if not archivos:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se recibio ningun archivo")
+
+    urls = services.careerFilesService.guardar(career_id, archivos)
+    actualizada = services.careerService.set_files(career_id, actuales + urls, session)
+    services.cacheService.invalidate_all_careers()
+    show(f"Carrera {career_id}: {len(urls)} archivos agregados por {current_user.email}")
+    return actualizada
+
+
+@router.delete("/{career_id}/files", response_model=CareerRead,
+               summary="Quitar un archivo de una carrera (solo admins)")
+async def remove_career_file(
+    career_id: int,
+    url: str = Query(..., description="La URL tal como figura en `files`"),
+    current_user: UserRead = Depends(require_admin_role),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> CareerRead:
+    """Saca la URL de la lista y borra el archivo del disco."""
+    career = services.careerService.get_career_by_id(career_id, session)
+    if not career:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrera no encontrada")
+    actuales = list(career.files or [])
+    if url not in actuales:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Esa URL no esta en los archivos de la carrera")
+
+    actualizada = services.careerService.set_files(career_id, [u for u in actuales if u != url], session)
+    nombre = services.careerFilesService.nombre_de_url(career_id, url)
+    if nombre:
+        services.careerFilesService.borrar(career_id, nombre)
+    services.cacheService.invalidate_all_careers()
+    show(f"Carrera {career_id}: archivo quitado por {current_user.email}")
+    return actualizada
+
+
+class CareerFilesOrden(BaseModel):
+    files: List[str] = PydanticField(
+        ..., description="Las URLs actuales en el orden deseado. Las que no esten se borran.")
+
+
+@router.put("/{career_id}/files", response_model=CareerRead,
+            summary="Reordenar los archivos de una carrera (solo admins)")
+async def reorder_career_files(
+    career_id: int,
+    orden: CareerFilesOrden,
+    current_user: UserRead = Depends(require_admin_role),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> CareerRead:
+    """
+    Deja la lista `files` en el orden recibido. Solo acepta URLs que ya tenga la
+    carrera (no sirve para agregar: para eso es el POST); las que falten se
+    quitan y se borran del disco.
+    """
+    career = services.careerService.get_career_by_id(career_id, session)
+    if not career:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrera no encontrada")
+    actuales = list(career.files or [])
+    ajenas = [u for u in orden.files if u not in actuales]
+    if ajenas:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Estas URLs no son archivos de la carrera: {', '.join(ajenas)}")
+    if len(set(orden.files)) != len(orden.files):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Hay URLs repetidas")
+
+    actualizada = services.careerService.set_files(career_id, orden.files, session)
+    for url in actuales:
+        if url not in orden.files:
+            nombre = services.careerFilesService.nombre_de_url(career_id, url)
+            if nombre:
+                services.careerFilesService.borrar(career_id, nombre)
+    services.cacheService.invalidate_all_careers()
+    show(f"Carrera {career_id}: archivos reordenados por {current_user.email}")
+    return actualizada
+
+
+@router.put("/{career_id}/files/replace", response_model=CareerRead,
+            summary="Reemplazar un archivo de una carrera (solo admins)")
+async def replace_career_file(
+    career_id: int,
+    url: str = Query(..., description="La URL del archivo a reemplazar, tal como figura en `files`"),
+    file: UploadFile = File(..., description="El archivo nuevo: mismos tipos que al agregar"),
+    current_user: UserRead = Depends(require_admin_role),
+    services: Services = Depends(get_services),
+    session: Session = Depends(get_session)
+) -> CareerRead:
+    """El archivo nuevo queda en la misma posicion; el anterior se borra del disco."""
+    career = services.careerService.get_career_by_id(career_id, session)
+    if not career:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrera no encontrada")
+    actuales = list(career.files or [])
+    if url not in actuales:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Esa URL no esta en los archivos de la carrera")
+    # Se valida contra el total sin el que sale: reemplazar no suma
+    archivos = await _validar_archivos([file], services, ya_tiene=len(actuales) - 1)
+    if not archivos:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se recibio ningun archivo")
+
+    nueva, = services.careerFilesService.guardar(career_id, archivos)
+    actualizada = services.careerService.set_files(
+        career_id, [nueva if u == url else u for u in actuales], session)
+    nombre = services.careerFilesService.nombre_de_url(career_id, url)
+    if nombre:
+        services.careerFilesService.borrar(career_id, nombre)
+    services.cacheService.invalidate_all_careers()
+    show(f"Carrera {career_id}: archivo reemplazado por {current_user.email}")
+    return actualizada
+
+
+@router.get("/files/{career_id}/{nombre}", summary="Descargar un archivo de la oferta (publico)",
+            response_class=FileResponse)
+async def get_career_file(
+    career_id: int,
+    nombre: str,
+    services: Services = Depends(get_services),
+):
+    """
+    Publico: es lo que enlaza el sitio. Los PDF y las imagenes se abren en el
+    navegador; el resto se descarga con el nombre original.
+    """
+    encontrado = services.careerFilesService.ruta(career_id, nombre)
+    if not encontrado:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archivo no encontrado")
+    ruta, tipo, en_navegador, para_descargar = encontrado
+    return FileResponse(
+        ruta, media_type=tipo, filename=para_descargar,
+        content_disposition_type="inline" if en_navegador else "attachment",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "public, max-age=3600"},
+    )
+
 
 @router.get("/stats/count", response_model=dict)
 async def get_career_stats(

@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from sqlmodel import Session
 from datetime import timedelta
 from database.database import Services, get_services, get_session
-from database.models.user import UserCreate, UserLogin, Token, UserRead, UserReadFilters, UserUpdate, UserFilterWithCountResponse
+from database.models.user import UserCreate, UserLogin, Token, UserRead, UserReadFilters, UserUpdate, UserFilterWithCountResponse, UserRole
 
 from database.services.filter.filters import Filter
 from database.services.auth.dependencies import get_current_user, require_admin_role, HTTPAuthorizationCredentials, security
@@ -22,26 +22,46 @@ async def create_first_user(
         services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> UserRead:
-    """Crea el primer usuario administrador"""
+    """
+    Crea el primer usuario administrador, solo si la base esta vacia.
+
+    Las credenciales salen de FIRST_ADMIN_EMAIL / FIRST_ADMIN_PASSWORD. Antes
+    estaban hardcodeadas (admin@gmail.com / Admin@123), lo que significaba que
+    cualquiera que lograra dejar la tabla de usuarios vacia podia crear un admin
+    con credenciales publicas y entrar. Ese era el segundo eslabon de la cadena
+    que empezaba en el viejo `GET /reset-database`.
+    """
     try:
-        
+
         users = services.userService.get_all_users(session)
         if users:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Ya existen usuarios en la base de datos"
             )
+
+        admin_email = os.getenv("FIRST_ADMIN_EMAIL")
+        admin_password = os.getenv("FIRST_ADMIN_PASSWORD")
+        if not admin_email or not admin_password:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Bootstrap no configurado. Definir FIRST_ADMIN_EMAIL y "
+                    "FIRST_ADMIN_PASSWORD en el entorno antes de crear el primer admin."
+                ),
+            )
+
         # Crear el primer usuario administrador
         first_user_data = UserCreate(
-            email="admin@gmail.com",
-            password="Admin@123",
-            rol="admin",
+            email=admin_email,
+            password=admin_password,
+            rol=UserRole.ADMIN,
             name="Admin",
             lastname="User",
-            document="12345678",
-            phone="12345678"
+            document=os.getenv("FIRST_ADMIN_DOCUMENT", "00000000"),
+            phone=os.getenv("FIRST_ADMIN_PHONE", "00000000"),
         )
-        
+
         first_user = services.userService.create_user(first_user_data, session)
         if not first_user:
             raise HTTPException(
@@ -61,12 +81,25 @@ async def create_first_user(
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def register_user(
     user_data: UserCreate,
-    #current_user: UserRead = Depends(require_admin_role),
     services: Services = Depends(get_services),
     session: Session = Depends(get_session)
 ) -> UserRead:
-    """Registra un nuevo usuario"""
+    """
+    Registra un nuevo usuario. Siempre con rol STUDENT.
+
+    El `rol` que llegue en el body se ignora deliberadamente. Este endpoint es
+    publico (la dependencia de admin estaba comentada) y `UserCreate.rol` es un
+    campo que el cliente puede setear: la combinacion permitia que cualquiera
+    hiciera POST con `"rol": "admin"` y se convirtiera en administrador del CMS
+    en un solo request, sin ninguna precondicion.
+
+    Si hace falta crear administradores, tiene que ser desde un endpoint que
+    exija `require_admin_role` — no desde el registro publico.
+    """
     try:
+        # Forzar rol STUDENT: nunca confiar en el rol que manda el cliente
+        user_data = user_data.model_copy(update={"rol": UserRole.STUDENT})
+
         # Verificar si ya existe usuario con ese email
         if services.userService.user_exists_by_email(user_data.email, session):
             raise HTTPException(

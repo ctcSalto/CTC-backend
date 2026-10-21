@@ -15,9 +15,15 @@ from v2.services.inscripcion_programa_service import InscripcionProgramaService
 from v2.services.instancia_cursado_service import InstanciaCursadoService
 from v2.services.instancia_examen_service import InstanciaExamenService
 from v2.services.egreso_service import EgresoService
+from v2.services.avance_service import AvanceService
 from v2.services.local_file_service import LocalFileService
 from v2.services.email_service import EmailService
 from v2.services.notification_service import NotificationService
+from v2.services.proximos_eventos_service import ProximosEventosService
+from v2.services.excepcion_previatura_service import ExcepcionPreviaturaService
+from v2.services.mesa_examen_service import MesaExamenService
+from v2.services.historico_service import HistoricoService
+from v2.services.pago_service import PagoService
 
 
 class V2Services:
@@ -28,6 +34,10 @@ class V2Services:
         self.programaService = ProgramaService()
         self.materiaService = MateriaService()
         self.previaturaService = PreviaturaService()
+        self.excepcionPreviaturaService = ExcepcionPreviaturaService()
+        self.mesaExamenService = MesaExamenService()
+        self.historicoService = HistoricoService()
+        self.pagoService = PagoService()
         self.instanciaEvaluacionService = InstanciaEvaluacionService()
         self.docenteMateriaService = DocenteMateriaService()
         self.periodoInscripcionService = PeriodoInscripcionService()
@@ -39,9 +49,11 @@ class V2Services:
         self.inscripcionProgramaService = InscripcionProgramaService()
         self.instanciaCursadoService = InstanciaCursadoService()
         self.egresoService = EgresoService()
+        self.avanceService = AvanceService()
         self.localFileService = LocalFileService()
         self.emailService = EmailService()
         self.notificationService = NotificationService()
+        self.proximosEventosService = ProximosEventosService()
 
 
 _v2_services: V2Services | None = None

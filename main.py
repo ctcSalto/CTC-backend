@@ -15,6 +15,14 @@ from routes.moodle import moodle_user, moodle_category, moodle_course, moodle_en
 from routes.mercadopago import mercadopago
 from routes.google import google_test, google_analytics
 V2_ENABLED = os.getenv("V2_ENABLED", "false").lower() == "true"
+# Los endpoints de pagos (Handy) funcionan igual, pero no se publican en /docs ni
+# en /docs-scalar hasta que se decida mostrarlos a frontend: se prende con la
+# variable, sin tocar codigo. El webhook no se publica nunca (ver v2/routes/pagos.py).
+V2_PAGOS_EN_DOCS = os.getenv("V2_PAGOS_EN_DOCS", "false").lower() == "true"
+# La pasarela de pago (Handy) no entra todavia en produccion: sin V2_PAGOS_ENABLED=true
+# los endpoints de pagos (webhook incluido) ni se registran. Las tablas y el servicio
+# quedan; la inscripcion no depende del pago.
+V2_PAGOS_ENABLED = os.getenv("V2_PAGOS_ENABLED", "false").lower() == "true"
 
 if V2_ENABLED:
     from v2.routes import auth_google as v2_auth_google
@@ -36,10 +44,15 @@ if V2_ENABLED:
         admin_documentos as v2_admin_documentos,
         admin_notificaciones as v2_admin_notificaciones,
         admin_usuarios as v2_admin_usuarios,
+        admin_excepciones as v2_admin_excepciones,
+        admin_mesas_examen as v2_admin_mesas_examen,
+        admin_historico as v2_admin_historico,
+        pagos as v2_pagos,
+        inicio as v2_inicio,
     )
 
 from pages.welcome import html
-from database.database import reset_database, create_db_and_tables
+from database.database import create_db_and_tables
 
 from zoneinfo import ZoneInfo
 from datetime import datetime
@@ -66,11 +79,26 @@ def get_uruguay_tz():
     tz_name = os.getenv('TIME_ZONE', 'America/Montevideo')
     return ZoneInfo(tz_name)
 
+# Resultado del arranque del scheduler, para reportarlo en /health.
+#
+# Distingue tres situaciones que no son lo mismo: "corriendo", "deshabilitado
+# a proposito" (el scheduler solo corre en produccion) y "fallo". Un unico
+# booleano diria ok=True en desarrollo, donde en realidad no hay ningun job
+# programado, y ese campo tiene que ser confiable para servir de algo.
+ESTADO_SCHEDULER = {"estado": "sin_iniciar", "error": None}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     startup_success = False
     try:
+        # Antes que nada: configuracion critica. Si falta SECRET_KEY en produccion
+        # no se arranca, en vez de servir firmando tokens con el literal publico
+        # del repositorio.
+        from utils.config_guard import exigir_configuracion_critica
+        exigir_configuracion_critica()
+
         print("[..] [STARTUP] Iniciando configuración de base de datos...")
         from database.database import engine, get_services, get_db_session
         from sqlalchemy import text
@@ -104,12 +132,35 @@ async def lifespan(app: FastAPI):
         # Iniciar scheduler para tareas programadas
         print("[..] [STARTUP] Iniciando scheduler de tareas programadas...")
         try:
-            from utils.scheduler import start_scheduler
+            from utils.scheduler import start_scheduler, scheduler
             start_scheduler()
-            print("[OK] [STARTUP] Scheduler iniciado exitosamente")
+            # start_scheduler() sale sin hacer nada fuera de produccion, y sin
+            # error. Se consulta el scheduler real para no reportar "ok" cuando
+            # en verdad no hay ningun job programado.
+            if scheduler.running:
+                ESTADO_SCHEDULER.update({"estado": "corriendo", "error": None})
+                print(f"[OK] [STARTUP] Scheduler corriendo con {len(scheduler.get_jobs())} tareas")
+            else:
+                ESTADO_SCHEDULER.update({"estado": "deshabilitado", "error": None})
+                print("[..] [STARTUP] Scheduler deshabilitado (solo corre en production)")
         except Exception as scheduler_error:
-            print(f"[WARN] [STARTUP] Error iniciando scheduler (no crítico): {scheduler_error}")
-            # No lanzamos el error porque el scheduler no es crítico para el startup
+            # NO es "no crítico". Este mensaje decía eso y por eso faltó
+            # apscheduler en requirements durante tres meses sin que nadie lo
+            # notara: la app respondía sana y ningún job corría, incluido el
+            # keepalive que evita que se pause el proyecto de Supabase.
+            #
+            # No se corta el arranque —la API sirve igual sin jobs— pero el fallo
+            # queda registrado y se expone en /health, que es lo que mira el
+            # monitoreo.
+            ESTADO_SCHEDULER.update({"estado": "error", "error": str(scheduler_error)})
+            print("=" * 70)
+            print("[ERROR] [STARTUP] EL SCHEDULER NO ARRANCO. LAS TAREAS")
+            print("[ERROR] [STARTUP] PROGRAMADAS NO VAN A EJECUTARSE.")
+            print(f"[ERROR] [STARTUP] Motivo: {scheduler_error}")
+            print("[ERROR] [STARTUP] Sin jobs quedan sin correr, entre otros, el")
+            print("[ERROR] [STARTUP] keepalive de Supabase y los recordatorios a alumnos.")
+            print("[ERROR] [STARTUP] Ver GET /health -> scheduler")
+            print("=" * 70)
 
         # Pre-fetch inicial de datos de Google Analytics (en thread para no bloquear startup)
         try:
@@ -180,22 +231,19 @@ async def scalar_docs():
 def root():
     return html
 
-@app.get("/generate-permanent-token")
-def generate_permanent_token():
-    return ""
-
-@app.get("/reset-database")
-def reset_db():
-    reset_database()
-    return {"message": "Database reset successfully"}
-
 @app.get("/health")
 async def health():
+    # `status` se mantiene en OK aunque el scheduler este caido: si devolviera
+    # error, el health check del orquestador reiniciaria el contenedor en loop
+    # por algo que no impide servir la API. El detalle va en su propio campo,
+    # que es donde el monitoreo lo puede ver sin tirar abajo el deploy.
     return {
         "status": "OK",
         "version": app.version,
         "time": datetime.now(get_uruguay_tz()).isoformat(),
-        "timezone": os.getenv('TIME_ZONE', 'UTC')
+        "timezone": os.getenv('TIME_ZONE', 'UTC'),
+        # estado: corriendo | deshabilitado | error | sin_iniciar
+        "scheduler": dict(ESTADO_SCHEDULER),
     }
 
 @app.get("/scheduler/status")
@@ -270,6 +318,12 @@ if V2_ENABLED:
     app.include_router(v2_admin_documentos.router)
     app.include_router(v2_admin_notificaciones.router)
     app.include_router(v2_admin_usuarios.router)
+    app.include_router(v2_admin_excepciones.router)
+    app.include_router(v2_admin_mesas_examen.router)
+    app.include_router(v2_admin_historico.router)
+    if V2_PAGOS_ENABLED:
+        app.include_router(v2_pagos.router, include_in_schema=V2_PAGOS_EN_DOCS)
+    app.include_router(v2_inicio.router)
 
 # CORS
 app.add_middleware(

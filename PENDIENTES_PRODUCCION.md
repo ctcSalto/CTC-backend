@@ -1,212 +1,1190 @@
-# Pendientes antes de mergear bedelia -> main
+# Pendientes de producción
 
-## Migraciones de base de datos
+> **Estado (Julio 2026):** las migraciones 1–12 ya se aplicaron. Las **13, 14 y 15 se
+> aplicaron y verificaron en DEVELOP** (ver abajo), pero **siguen pendientes en
+> PRODUCCIÓN**. El histórico de las aplicadas está al final, como referencia de rollback.
+>
+> **Corrida en develop (13 + 14):** partió de `e578594a9f4b` y llegó a `b7e2c9f14a30`
+> sin abortar. Verificado: las 5 columnas renombradas, 0 huérfanos, **0 filas perdidas**
+> (6 inscripciones / 2 miembros de equipo / 1 asignación docente / 8 calificaciones /
+> 12 usuarios intactos), backfill creó 2 alumnos y 1 profesor, `usuario.email` acepta
+> NULL, los 8 índices presentes, y el ORM + el endpoint `/v2/portal/proximos-eventos`
+> responden bien contra el esquema migrado para los tres roles.
+>
+> Esto era el dry-run contra un Postgres real que faltaba: la migración 13 ya no es
+> código sin probar. Para producción vale el mismo checklist, con sus propios counts
+> previos (prod tiene más datos que develop).
 
-**IMPORTANTE:** Las migraciones deben aplicarse en la BD de produccion (puerto 5432) ANTES de mergear el PR a main. Si el codigo se despliega sin las tablas, la app crashea al intentar importar los modelos v2.
+---
 
-### Migracion requerida
+## 🔴 URGENTE — El scheduler NO corre en producción
+
+**Verificado el 31/07/2026 contra producción:**
 
 ```bash
-# 1. Asegurarse de que DATABASE_URL apunta a produccion (puerto 5432)
-# 2. Ejecutar la migracion
-alembic upgrade head
+curl -s https://backend-backend-ctc.vtu0xl.easypanel.host/scheduler/status
+# {"status":"error","error":"No module named 'apscheduler'"}
 ```
 
-**Migraciones (en orden):**
+El módulo no está instalado en el servidor. **Ningún job programado corre desde el
+4 de mayo de 2026**, fecha del commit `7c14b08` ("Add: portal academico v2 completo"),
+que borró `apscheduler==3.11.2` de `requirements.txt` — con toda probabilidad al
+regenerar el archivo desde un venv que no lo tenía.
 
-1. `c80c0cfd30d6_v2_tablas_academicas` — Crea 15 tablas nuevas del portal academico:
-   - `usuario`, `programa`, `materia`, `politica_calificacion`, `politica_examen`
-   - `materia_instancia_evaluacion`, `previatura`, `docente_materia`
-   - `inscripcion_materia`, `calificacion`, `equipo`, `equipo_miembro`
-   - `periodo_inscripcion_materia`, `periodo_examen`, `inscripcion_examen`
+Pasó desapercibido porque `main.py` atrapa el error y lo loguea como **"no crítico"**:
 
-2. `d1a2b3c4d5e6_v2_refactor_portal_academico` — Refactor completo:
-   - Tablas nuevas: `alumno`, `profesor`, `administrativo_perfil`, `inscripcion_programa`, `instancia_cursado`, `instancia_examen`, `docente_instancia_examen`
-   - Columnas nuevas en tablas existentes (id_rastreo, campos de usuario, etc.)
-   - Data migration: crea instancias_cursado desde materia_id+anio_lectivo existentes
-   - DROP TABLE `periodo_examen`
+```
+[WARN] [STARTUP] Error iniciando scheduler (no crítico): No module named 'apscheduler'
+```
 
-3. `e2f3g4h5i6j7_agregar_faltas` — Sistema de faltas:
-   - `instancia_cursado.faltas_maximas` (int nullable)
-   - `inscripcion_materia.faltas` (int default 0)
+La app levanta sana (`/health` responde 200) con el scheduler muerto.
 
-4. `f3g4h5i6j7k8_seed_previaturas` — **Carga inicial de previaturas:**
-   - Previaturas de **Analista Programador** (9 materias con previas + Integrador requiere TODAS las demas)
-   - Previaturas de **Tecnico en Gestion y Direccion de Empresas** (18 materias con previas)
-   - Resuelve por nombre de materia dentro de cada programa
-   - **REQUISITO:** Los programas y materias deben existir en la BD antes de correr esta migracion
+**Jobs caídos desde entonces:**
 
-5. `a1b2c3d4e5f6_agregar_columnas_usuario_v2` — **Columnas faltantes en usuario:**
-   - Columnas nuevas (todas nullable, sin romper datos existentes):
-     - `usuario`: `email_personal` (varchar), `fecha_nacimiento` (date), `domicilio` (varchar 200), `eliminado` (bool default false), `fecha_eliminacion` (datetime), `id_rastreo` (varchar)
-   - Usa `_column_exists()` — si una columna ya existe en la BD, la ignora sin error
+| Job | Frecuencia | Impacto |
+|---|---|---|
+| `supabase_keepalive` | Diario 00:30 | Existe **específicamente** para que Supabase no pause el proyecto free |
+| `actualizar_fotos_perfil_moodle` | Domingos 02:00 | Fotos de perfil desactualizadas |
+| `prefetch_analytics_data` | Cada 4 h | Analytics sin cache precalentado |
+| `recordatorio_examenes` | Diario 08:00 | Ningún alumno recibió recordatorio de examen |
+| `recordatorio_cierre_inscripcion` | Diario 09:00 | Ningún aviso de cierre de inscripción |
 
-7. `4d769166125d_agregar_campos_planilla_admin_y_tabla_` — **Fase 1: Campos planilla admin + documentos:**
-   - Tabla nueva: `documento_usuario` (almacenamiento de archivos de alumnos/profesores)
-   - Enum nuevo: `TipoDocumento` (formula_69a, escolaridad, constancia_convenio, cedula, titulo, otro)
-   - Columnas nuevas (todas nullable, sin romper datos existentes):
-     - `usuario`: `fecha_nacimiento` (date), `domicilio` (varchar 200)
-     - `programa`: `certificacion` (varchar 100), `horas_totales` (int)
-     - `materia`: `horas_semanales` (int), `horas_totales` (int)
-     - `profesor`: `carga_horaria_semanal` (int)
-     - `inscripcion_programa`: `fecha_baja` (datetime), `motivo_baja` (varchar 255)
-     - `inscripcion_examen`: `fecha_baja` (datetime)
-     - `inscripcion_materia`: `fecha_baja` (datetime)
-   - Usa `_safe_add_column()` — si una columna ya existe en la BD, la ignora sin error
+**Arreglo:** ya está en el repo (`apscheduler==3.11.2` y su transitiva `tzlocal==5.4.4`
+restauradas en `requirements.txt`). **Solo tiene efecto al redeployar**, porque el
+servidor instala desde ese archivo.
 
-8. `087c21eff7fd_fase2_rendiciones_bajas_revalida` — **Fase 2: Rendiciones, bajas soft-delete, revalida:**
-   - Columnas nuevas (todas con server_default, sin romper datos existentes):
-     - `politica_examen`: `max_oportunidades` (int, default 5) — maximo de veces que se puede rendir un examen
-     - `inscripcion_examen`: `numero_rendicion` (int, default 1) — numero de rendicion (1ra, 2da, etc.)
-     - `inscripcion_materia`: `motivo_revalida` (varchar 255, nullable) — motivo de revalida
-   - Usa `_safe_add_column()` — si una columna ya existe en la BD, la ignora sin error
-   - **Cambios de comportamiento (no requieren migracion):**
-     - Desinscripcion de materia ahora usa soft-delete (estado ABANDONO + fecha_baja) en vez de borrar
-     - Desinscripcion de examen ahora usa soft-delete (estado BAJA + fecha_baja) con plazo de 72hs
-     - Inscripcion a examen valida max_oportunidades y asigna numero_rendicion automaticamente
-     - Calificacion de examen reprobado verifica si se agotaron las rendiciones (cambia materia a REPROBADO)
-     - Nuevo endpoint de revalida: `POST /v2/admin/inscripciones/{id}/revalidar`
+- [ ] Redeployar producción con el `requirements.txt` corregido
+- [ ] Verificar: `curl -s https://backend-backend-ctc.vtu0xl.easypanel.host/scheduler/status`
+      debe devolver `"status": "running"` con **7 jobs**
+- [ ] Revisar el estado del proyecto en Supabase por si el keepalive ausente lo pausó
+- [x] ~~Evaluar que el `except` de `main.py` no siga llamando "no crítico" a un scheduler
+      caído~~ — **RESUELTO.** Ya no dice "no crítico": loguea un bloque de error
+      inconfundible explicando qué queda sin correr, y **`GET /health` ahora expone el
+      estado del scheduler**, que es donde el monitoreo lo va a ver.
 
-9. `b2c3d4e5f6g7_fase5_notificaciones` — **Fase 5: sistema de notificaciones por email:**
-   - Tabla nueva: `notificacion_log` (registro de todos los emails enviados, con `id_rastreo` para trazabilidad)
-   - Columna nueva: `inscripcion_materia.notificacion_calificacion_enviada` (bool, default false)
-   - Esta migracion estaba aplicada en desarrollo pero no se habia documentado aqui; se detecto al
-     encontrar dos heads simultaneos en el historial de Alembic (ver migracion 10)
+  ```json
+  "scheduler": { "estado": "corriendo", "error": null }
+  ```
 
-10. `4fd4c9f395dd_merge_heads_usuario_v2_y_notificaciones` — **Merge de heads:**
-    - Migracion no-op (no toca esquema). Las migraciones 5 (`a1b2c3d4e5f6`) y 9 (`b2c3d4e5f6g7`)
-      se crearon ambas con el mismo padre (`087c21eff7fd`), generando dos heads divergentes en vez
-      de una cadena lineal. Esto rompia `alembic revision --autogenerate` (autogenerate no detecta
-      el estado real combinado) y podia generar ambigüedad en `alembic upgrade head`.
-    - **Importante:** si la BD de produccion ya tiene aplicada la migracion 5 (`a1b2c3d4e5f6`) pero
-      NO la 9 (`b2c3d4e5f6g7`), hay que correr `alembic upgrade head` normalmente (aplica 9 y luego
-      el merge). Si por algun motivo ya estuvieran ambas aplicadas via SQL manual, verificar con
-      `alembic current` y usar `alembic stamp` si hace falta alinear el historial.
+  `estado` distingue `corriendo` / `deshabilitado` (fuera de producción no arranca a
+  propósito) / `error` / `sin_iniciar`. Se consulta el scheduler real en vez de asumir
+  que "no hubo excepción" significa "está corriendo": en desarrollo `start_scheduler()`
+  sale sin hacer nada y sin error, y un booleano habría reportado OK sin ningún job.
 
-11. `bad9dad1cc40_agregar_tabla_testimony_video` — **Videos en testimonios (INTERMEDIA, ver migración 12):**
-    - Crea la tabla `testimony_video`. Fue reemplazada por la migración 12 antes de llegar a producción.
-    - **En producción:** aplicar igualmente (`alembic upgrade head` la aplica en cadena); la migración 12 la elimina de inmediato.
+  **`status` sigue en `"OK"` aunque el scheduler falle**, a propósito: si devolviera
+  error, el health check de Easypanel reiniciaría el contenedor en loop por algo que no
+  impide servir la API.
 
-12. `e578594a9f4b_reemplazar_testimony_video_por_videoUrl_en_testimony` — **Simplificación de videos en testimonios:**
-    - Elimina la tabla `testimony_video` (relación 1-N descartada antes del primer despliegue)
-    - Agrega columna `testimony.videoUrl` (varchar 500, nullable)
-    - Un testimonio es texto (`text`) o video (`videoUrl`), no ambos ni múltiples videos
-    - Los endpoints `POST/PUT/DELETE /testimonies/{id}/videos` fueron eliminados
-    - `TestimonyRead` y `TestimonyPublic` incluyen `videoUrl: Optional[str]` en lugar de `videos: List`
+---
 
-**Riesgo:** Las migraciones 1-3 crean/modifican tablas. La migracion 4 inserta datos (previaturas). La migracion 5 agrega columnas a usuario. Las migraciones 7 y 8 agregan columnas nullable/con defaults (sin impacto en datos existentes). La migracion 9 crea una tabla nueva y una columna con default (sin impacto). La migracion 10 es no-op (solo ordena el historial). Las migraciones 11 y 12 se aplican en cadena: crean y eliminan `testimony_video`, y agregan `testimony.videoUrl` (nullable, sin impacto en datos existentes).
+## Estado de V2 en producción
 
-**Nota sobre `alembic/env.py`:** se detecto que el archivo no importaba `Career`, `Testimony` ni `News` en su `target_metadata`, lo cual hacia que `alembic revision --autogenerate` marcara esas tablas como "removidas" (¡riesgo real de DROP TABLE accidental si se aceptaba un autogenerate sin revisar el diff!). Se corrigio agregando esos imports. **Cualquier autogenerate futuro debe revisarse a mano antes de aplicarse** — el diff todavia puede traer ruido de tablas legacy (`author`, `profile`, `post`, `example`) que existen en algunas BDs pero no en los modelos actuales.
+**`V2_ENABLED=false` en producción** (verificado el 31/07/2026: `GET /v2/auth/me`
+devuelve `404`, o sea que las rutas v2 no están montadas).
 
-### Checklist de deploy
+**Esto es intencional.** El portal académico todavía no se usa en producción; el
+frontend está integrando contra el backend de **develop**. Se habilita cuando esté
+todo listo.
 
-- [ ] Verificar que los programas "Analista Programador" y "Tecnico en Gestion y Direccion de Empresas" existen en tabla `programa`
-- [ ] Verificar que las materias de ambos programas existen en tabla `materia` con los nombres correctos
-- [ ] Aplicar migraciones en BD produccion (`alembic upgrade head` con DATABASE_URL de prod)
-- [ ] Verificar que las tablas se crearon (`\dt` en psql)
-- [ ] Verificar que las previaturas se insertaron (`SELECT count(*) FROM previatura`)
-- [ ] Verificar que la tabla `documento_usuario` se creo (`\d documento_usuario`)
-- [ ] Verificar columnas nuevas: `SELECT fecha_nacimiento, domicilio FROM usuario LIMIT 1`
-- [ ] Crear directorio de documentos: `sudo mkdir -p /var/ctc/documentos && sudo chown <app_user> /var/ctc/documentos`
-- [ ] Agregar variables de entorno: `DOCUMENTOS_BASE_PATH`, `DOCUMENTOS_MAX_SIZE_MB`
-- [ ] Mergear PR bedelia -> main
-- [ ] Verificar que la app levanta sin errores (`/health`)
-- [ ] Verificar endpoints de documentos en Swagger (`/docs` -> seccion "Admin Documentos")
-- [ ] Verificar columna `max_oportunidades` en `politica_examen`: `SELECT max_oportunidades FROM politica_examen LIMIT 1`
-- [ ] Verificar columna `numero_rendicion` en `inscripcion_examen`: `SELECT numero_rendicion FROM inscripcion_examen LIMIT 1`
-- [ ] Verificar endpoint de revalida en Swagger (`/docs` -> seccion "Admin Inscripciones")
-- [ ] Agregar variable de entorno: `PLAZO_BAJA_EXAMEN_HORAS` (opcional, default 72)
-- [ ] Verificar tabla `notificacion_log` y columna `inscripcion_materia.notificacion_calificacion_enviada` (migracion 9, antes no documentada)
-- [ ] Correr `alembic current` ANTES de `alembic upgrade head` en produccion para confirmar en que revision esta (por el merge de heads de la migracion 10)
-- [ ] Verificar columna `videoUrl` en tabla `testimony`: `SELECT "videoUrl" FROM testimony LIMIT 1`
-- [ ] Verificar que la tabla `testimony_video` NO existe (`\d testimony_video` debe dar error)
-- [ ] Decidir proveedor de hosting de video (YouTube vs Supabase Storage) — el campo `videoUrl` acepta cualquier URL
+Consecuencia práctica: **todos los arreglos de lógica de negocio de v2 son
+preventivos, no incendios activos.** Nada de v2 está expuesto en producción hoy.
+Los únicos problemas que golpean producción ahora mismo son de v1: el scheduler.
 
-## Variables de entorno nuevas
+**Orden obligatorio para habilitar v2 en producción:**
 
-### Requeridas para el sistema de documentos (Migracion 5)
+1. Aplicar las migraciones 13, 14 y 15 en la BD de producción (5432)
+2. Verificar el esquema con el checklist de cada migración
+3. Recién entonces poner `V2_ENABLED=true` y redeployar
+
+> ⚠️ Si se prende `V2_ENABLED` **antes** de aplicar las migraciones, la app crashea
+> al importar los modelos v2 contra un esquema que no los soporta. El orden no es
+> una recomendación.
+
+---
+
+## PENDIENTE de aplicar en producción
 
 ```bash
-# Ruta base donde se almacenan los documentos de alumnos/profesores
-# En produccion: directorio en la VPS con espacio suficiente
-DOCUMENTOS_BASE_PATH=/var/ctc/documentos
+# 1. DATABASE_URL apuntando a produccion (puerto 5432)
+# 2. Correr alembic current para confirmar en que revision esta
+# 3. alembic upgrade head
+```
 
-# Limite de tamano por archivo en MB (default: 10)
+### Lista completa de migraciones a aplicar
+
+Develop está en **`b8c9d0e1f2a3`** (head único, la revisión de merge que junta
+`develop` y `Handy`; ver la nota más abajo). Cada una de estas ya corrió y se
+verificó ahí. En orden de cadena:
+
+| # | Revisión | Qué hace | Alcance |
+|---|---|---|---|
+| 13 | `9a3f7c1e5b28` | FKs académicas apuntan a `alumno`/`profesor` | v2 |
+| 14 | `b7e2c9f14a30` | Índices de fecha para próximos eventos | v2 |
+| 15 | `c1d2e3f4a5b6` | `instancia_cursado.semestre` + `profesor.activo` | v2 |
+| 16 | `d2e3f4a5b6c7` | Tabla `excepcion_previatura` | v2 |
+| 17 | `e3f4a5b6c7d8` | Tabla `mesa_examen` + `instancia_examen.mesa_examen_id` | v2 |
+| 18 | `f4a5b6c7d8e9` | **`testimony.text` pasa a nullable** | **v1 — tabla que producción usa hoy** |
+| 19 | `a7b8c9d0e1f2` | Tablas `historico_plan`, `historico_alumno`, `historico_resultado` (legajo de la planilla de escolaridades) | v2 |
+| 20 | `a6b7c8d9e0f1` | Tablas `pago` y `pago_notificacion` (Handy) | v2 |
+| 21 | `b8c9d0e1f2a3` | Revisión de merge de 19 y 20. **No-op**: no toca nada | — |
+| 22 | `c9d0e1f2a3b4` | **`career.files`** (JSON, `'[]'` por defecto): archivos descargables de la oferta | **v1 — tabla que producción usa hoy** |
+
+> **Ojo con la 18.** Es la única que toca una tabla de **v1**, o sea del sitio
+> público que ya está en producción con datos reales. Las demás son todas
+> de v2, que está apagado (`V2_ENABLED=false`), así que su riesgo es cero
+> mientras eso siga así. La 18 corrige un 500 real y solo relaja una
+> restricción — no cambia datos — pero merece leerse antes de aplicarla.
+
+### 13. `9a3f7c1e5b28_refactor_alumno_profesor` — Sujeto académico: alumno/profesor
+
+> ✅ **Ya corrió y se verificó en develop** (Postgres real, sin pérdida de datos).
+> Sigue pendiente en producción, donde hay más datos: correr los counts previos del
+> checklist antes de aplicarla. Usa `gen_random_uuid()` (requiere PG13+, confirmado
+> OK en develop). Alembic la envuelve en una transacción: si aborta, no deja la base
+> a medias.
+
+Cambia 4 claves foráneas para que las entidades académicas apunten al perfil y no a
+la persona:
+- `inscripcion_materia.usuario_id` → `alumno_id` (FK `alumno.id`)
+- `equipo_miembro.usuario_id` → `alumno_id` (FK `alumno.id`)
+- `docente_materia.docente_id` → `profesor_id` (FK `profesor.id`)
+- `docente_instancia_examen.docente_id` → `profesor_id` (FK `profesor.id`)
+
+Además:
+- Renombra `calificacion.docente_id` → `cargado_por_id` (sigue apuntando a `usuario.id`:
+  es auditoría, y bedelía también carga notas sin tener fila en `profesor`).
+- `usuario.email` pasa a ser **nullable** (oyentes registrados sin cuenta institucional).
+  El constraint unique se mantiene: Postgres admite múltiples NULL.
+- **Backfill con creación de perfiles faltantes:** antes de resolver las FKs, crea las
+  filas de `alumno`/`profesor` que falten para cualquier usuario referenciado. Si aún
+  así queda alguna fila sin resolver, **aborta con RuntimeError** con la cantidad, en
+  vez de dejar la tabla inconsistente.
+- **Downgrade funcional**, salvo que existan usuarios sin email creados después del
+  upgrade: en ese caso corta con un mensaje explícito.
+
+**Cambios de comportamiento (no requieren migración):**
+- `POST /v2/admin/usuarios/manual` acepta `email` opcional y un bloque `perfil` opcional.
+- Los usuarios manuales se crean con `activo=false`. Al iniciar sesión con Google por
+  primera vez se vinculan (se guarda `google_id`, se completa el email) y se activan.
+  Un usuario que YA tenía `google_id` y está inactivo fue desactivado a propósito: **no**
+  se reactiva.
+- `update_on_login` ahora crea el perfil correspondiente si el rol cambió de OU.
+
+**Checklist:**
+- [ ] **ANTES de migrar:** contar usuarios referenciados sin perfil (cuántas filas creará el backfill):
+  ```sql
+  SELECT count(DISTINCT im.usuario_id) FROM inscripcion_materia im
+    LEFT JOIN alumno a ON a.usuario_id = im.usuario_id WHERE a.id IS NULL;
+  SELECT count(DISTINCT dm.docente_id) FROM docente_materia dm
+    LEFT JOIN profesor p ON p.usuario_id = dm.docente_id WHERE p.id IS NULL;
+  ```
+- [ ] Verificar que no abortó: `SELECT count(*) FROM inscripcion_materia WHERE alumno_id IS NULL` debe dar 0
+- [ ] `\d inscripcion_materia` tiene `alumno_id` (no `usuario_id`)
+- [ ] `\d docente_materia` tiene `profesor_id` (no `docente_id`)
+- [ ] `\d calificacion` tiene `cargado_por_id` (no `docente_id`)
+- [ ] `\d usuario` — `email` acepta NULL
+- [ ] **Avisar al frontend:** cambia el contrato de `POST /v2/admin/inscripciones/inscribir`,
+  `GET /escolaridad/{id}`, `GET /verificar-egreso/{id}`, `POST /v2/admin/docentes-materia` y
+  `POST /v2/admin/instancias-examen/{id}/profesores` (ver `v2/REFACTOR_ALUMNO_PROFESOR.md`)
+
+### 14. `b7e2c9f14a30_indices_fechas_proximos_eventos` — Índices de fecha
+
+Índices para el endpoint `GET /v2/portal/proximos-eventos`, que corre en cada carga de
+la pantalla de inicio y filtra por fecha sobre tres tablas:
+- `periodo_inscripcion_materia`: `fecha_inicio`, `fecha_fin`, `programa_id` (FK del join, sin índice antes)
+- `instancia_examen`: `fecha_inicio_inscripcion`, `fecha_fin_inscripcion`, `fecha_examen`
+- `instancia_cursado`: `fecha_inicio`, `fecha_fin`
+
+Solo crea índices, no toca datos ni esquema de columnas. **Idempotente:** chequea si el
+índice ya existe antes de crearlo (en dev `create_all` los crea con los mismos nombres).
+SQL estándar, sin nada específico de Postgres. Impacto en datos existentes: **cero**.
+
+**Checklist:**
+- [ ] `\di ix_instancia_examen_fecha_examen` (y demás) existen tras `alembic upgrade head`
+- [ ] `SELECT count(*) FROM pg_indexes WHERE indexname LIKE 'ix_%fecha%'` devuelve 8
+
+### 15. `c1d2e3f4a5b6_semestre_instancia_y_profesor_activo` — Semestre de la instancia y actividad del docente
+
+> ✅ **Ya corrió y se verificó en develop** (`b7e2c9f14a30` → `c1d2e3f4a5b6`).
+
+Dos columnas para las consultas de disponibilidad del semestre activo y para poder
+distinguir a un docente que dejó de dictar de uno sin acceso al sistema:
+
+- `instancia_cursado.semestre` (int, **nullable**) — semestre calendario en que se dicta
+  la instancia. Distinto de `materia.semestre`, que es la posición en el plan de estudios.
+  `NULL` significa "no declarado", y esas instancias se consideran dictadas en cualquier
+  semestre para no ocultar oferta ya cargada.
+- `profesor.activo` (bool, NOT NULL, `server_default true`) — si el docente dicta
+  actualmente. Los profesores existentes quedan activos por el default.
+
+Impacto en datos existentes: **cero**. Una columna nullable y una con server_default;
+no renombra ni borra nada.
+
+**Verificado en develop:** `instancia_cursado.semestre` = `integer / YES / sin default`,
+`profesor.activo` = `boolean / NO / true`, 1 profesor quedó activo, 3 instancias con
+`semestre IS NULL` (la degradación esperada). Suite v2 completa: 193 tests en verde.
+
+**Checklist:**
+- [ ] `SELECT semestre FROM instancia_cursado LIMIT 1` no da error
+- [ ] `SELECT count(*) FROM profesor WHERE activo` = total de profesores (default aplicado)
+- [ ] **Empezar a cargar `instancia_cursado.semestre` en las instancias nuevas.** Si queda
+      todo en NULL, el filtro por semestre activo de `/materias-habilitadas` no discrimina
+      nada y se comporta como si no existiera.
+
+---
+
+### 16. `d2e3f4a5b6c7_excepciones_de_previatura` — Excepciones de previatura
+
+> ✅ **Ya corrió y se verificó en develop** (`c1d2e3f4a5b6` → `d2e3f4a5b6c7`).
+
+Tabla nueva `excepcion_previatura`: permiso de bedelía para que un alumno curse
+una materia sin tener aprobada una previatura puntual. **Tabla nueva, impacto en
+datos existentes: cero.**
+
+Regla pedida por administración, con su ejemplo textual: si un alumno no tiene
+Programación 1 y bedelía le permite cursar Programación 2, aprobar Programación 2
+**no** lo habilita para Programación 3 mientras siga debiendo Programación 1. El
+día que la apruebe, la cadena se completa y Programación 3 se habilita sola.
+
+Eso **no se guarda en ningún lado**: sale de la regla de cumplimiento pleno, que
+exige que toda la cadena de previaturas esté cumplida, no solo la previatura
+directa. Por eso no hay ninguna columna nueva en `inscripcion_materia`, y por eso
+el desbloqueo posterior es automático sin que nadie tenga que revisar nada.
+
+Alcance de cada excepción, según lo definido con administración:
+- **Por previatura puntual**, no por materia: si mañana se agrega otra previatura
+  a esa materia, la excepción vieja no la cubre.
+- **Solo para el año lectivo** en que se otorgó. No se traslada al siguiente.
+- Motivo obligatorio, con registro de quién la otorgó y quién la revocó.
+
+**Checklist:**
+- [ ] `\d excepcion_previatura` existe con sus 4 foreign keys
+- [ ] `SELECT count(*) FROM pg_indexes WHERE tablename='excepcion_previatura'` = 6
+
+> **Ciclos de previaturas — resuelto.** `previatura_service.create` ahora
+> recorre el grafo del programa y rechaza también los ciclos **indirectos**
+> (A→B→C→A), no solo los directos. El error dice cuál es la cadena, para poder
+> encontrar el arco a sacar en una malla grande. La guarda de visitados en la
+> regla recursiva se mantiene igual, por si hay algún ciclo cargado antes de
+> esta validación. Para descartarlo, contra la base de producción:
+>
+> ```bash
+> python -m v2.scripts.verificar_ciclos_previaturas
+> ```
+>
+> Solo lee. Sale con código 1 y lista las cadenas si encuentra alguno, así que
+> se puede encadenar en el deploy.
+
+---
+
+### 17. `e3f4a5b6c7d8_mesa_examen` — Mesas de examen
+
+> ✅ **Ya corrió y se verificó en develop** (`d2e3f4a5b6c7` → `e3f4a5b6c7d8`).
+
+Tabla nueva `mesa_examen` + columna nullable `instancia_examen.mesa_examen_id`.
+**Sin backfill y sin impacto en datos existentes.**
+
+La mesa define el período contra el que se cuenta el tope de exámenes de un
+alumno (máximo 4, y no dos el mismo día). Antes el período se inferí­a del mes
+calendario de `fecha_examen`, lo que contaba mal en dos casos: una mesa que cruza
+fin de mes contaba doble, y dos mesas en un mismo mes contaban como una — este
+último bloquea al alumno sin corresponder.
+
+`mesa_examen_id` es nullable a propósito: los exámenes sin mesa se siguen
+agrupando por mes. **Consecuencia a tener en cuenta:** un examen con mesa y uno
+sin mesa no cuentan juntos aunque caigan en el mismo mes. Se resuelve asignándole
+mesa a todos los exámenes.
+
+**Checklist:**
+- [ ] `\d mesa_examen` existe
+- [ ] `instancia_examen.mesa_examen_id` existe y es nullable, con FK a `mesa_examen`
+- [ ] Cargar las mesas del año antes de crear exámenes, así heredan la ventana
+
+---
+
+### 18. `f4a5b6c7d8e9_testimony_text_nullable` — `testimony.text` acepta NULL
+
+> ✅ **Ya corrió y se verificó en develop** (`e3f4a5b6c7d8` → `f4a5b6c7d8e9`).
+>
+> ⚠️ **La única migración de esta tanda que toca una tabla de v1.** `testimony`
+> está en uso en producción, con datos reales.
+
+`ALTER TABLE testimony ALTER COLUMN text DROP NOT NULL`. Nada más: no toca datos.
+
+**Corrige un 500 real.** Un testimonio es texto **o** video, nunca los dos ni
+ninguno — lo exige el `model_validator` de `TestimonyCreate`. Por lo tanto un
+testimonio de video tiene `text = NULL`, y el modelo lo declara así. Pero la
+columna había quedado NOT NULL: la migración `e578594a9f4b`, la que reemplazó la
+tabla `testimony_video` por el campo `videoUrl`, nunca la relajó.
+
+Resultado: crear un testimonio de solo video —omitiendo `text`, que es la forma
+que el validador aprueba— fallaba con *"null value in column text violates
+not-null constraint"*. **Verificado contra la base con un INSERT en transacción
+revertida, antes y después.**
+
+No había explotado porque los clientes mandan `text: ""` en vez de omitirlo, y el
+validador trata el string vacío como ausente. Funcionaba por cómo pega el cliente,
+no porque el esquema lo permitiera. De los 28 testimonios de develop, 12 son de
+video y todos tienen `text = ''`.
+
+**Checklist:**
+- [ ] Contar los testimonios de producción antes y después: el número no debe cambiar
+- [ ] `\d testimony` → `text` sin `not null`
+- [ ] Probar el alta de un testimonio de solo video desde el frontend
+
+El `downgrade()` normaliza los NULL a `''` antes de volver a poner NOT NULL, así
+que es reversible sin perder filas.
+
+---
+
+### 19. `a7b8c9d0e1f2_historico` — Histórico de escolaridades (legajo)
+
+> ✅ **Ya corrió y se verificó en develop** (`f4a5b6c7d8e9` → `a7b8c9d0e1f2`),
+> y los datos ya están cargados ahí. Pedida el 11/09/2026.
+
+Tres tablas nuevas, **sin FK hacia ninguna tabla existente**: `historico_plan`,
+`historico_alumno`, `historico_resultado`. Guardan la planilla
+`Escolaridades ver 2023.xlsm` que bedelía llevaba antes del portal (39 planes,
+2.941 personas, 13.624 actas, 2004–2026). Son de solo lectura y se consultan
+desde `/v2/admin/historico/*` y `/v2/portal/estudiante/mi-historico`. Los
+códigos son `VARCHAR`, no enum: son los códigos históricos de bedelía y no se van
+a extender. Todo el detalle en `docs/HISTORICO_ESCOLARIDADES.md`.
+
+Solo tablas nuevas: sin impacto en datos existentes.
+
+**La migración crea las tablas vacías. Los datos se cargan aparte**, con la
+planilla guardada sin contraseña (no está en el repo: tiene datos personales y
+está cifrada; pedírsela a bedelía o a Ezequiel):
+
+```bash
+python -m v2.scripts.importar_historico "ruta/Escolaridades.xlsx" --dry-run   # informa, no escribe
+python -m v2.scripts.importar_historico "ruta/Escolaridades.xlsx"             # carga
+```
+
+**Checklist:**
+- [ ] `alembic upgrade head` crea las tres tablas
+- [ ] Correr el importador con `--dry-run` y comparar con develop: 13.624 actas, 2.941 personas, 39 planes, 0 planes sin catálogo
+- [ ] Correr sin `--dry-run`
+- [ ] `GET /v2/admin/historico/planes` devuelve 39 filas
+- [ ] Si la planilla se actualizó desde el 11/09/2026, los números van a ser otros: el informe del script dice qué descartó y por qué
+
+#### El dia del arranque: reimportar la planilla de Escolaridades
+
+**Acordado con bedelía el 22/09/2026.** La escolaridad (el promedio) cuenta
+**todas las instancias rendidas**: cada cursada, cada examen (aprobado,
+eliminado o ausente) y cada taller. La planilla de carga inicial tiene una
+fila por materia con el estado de hoy y **no** lleva esas instancias: salen
+del Excel de Escolaridades, que bedelía sigue usando hasta el arranque.
+
+Por eso, el día que el portal empieza a registrar notas:
+
+- [ ] Pedirle a bedelía la versión final de `Escolaridades ver 2023.xlsm`,
+      guardada sin contraseña
+- [ ] `python -m v2.scripts.importar_historico "<archivo>" --dry-run` y
+      revisar el informe
+- [ ] Mismo comando con `--reemplazar`
+- [ ] A partir de ahí bedelía **deja de cargar el Excel**: todo va al portal.
+      Si carga en los dos lados, las instancias posteriores quedan duplicadas
+
+Lo que se cargó el 11/09/2026 llega hasta el 27/08/2026; lo posterior se
+pierde si no se reimporta.
+
+- [ ] Fijar `ESCOLARIDAD_FECHA_CORTE=AAAA-MM-DD` con la fecha del arranque. El
+      promedio de la escolaridad toma del histórico hasta esa fecha y del
+      portal después. Sin la variable usa la fecha del acta más reciente del
+      histórico, que sirve pero depende de que el Excel no tenga fechas mal
+      tipeadas hacia adelante.
+- [x] **Varios planes por carrera: cada plan es un programa aparte**
+      ("Analista Programador (Plan 2020)"), decidido el 25/09/2026. Sin cambios
+      de esquema. El promedio de la escolaridad junta los planes de la carrera.
+      Detalle y lo que tiene que hacer el importador en `docs/MIGRACION_DATOS.md`.
+- [x] Semestres `.5` (talleres): **se redondean para abajo** (1.5 → 1,
+      Genexus 4.5 → 4). Decidido el 25/09/2026: el taller se paga con el
+      semestre anterior. Sin cambio de esquema.
+- [x] Plan de cada alumno: **todos en el plan vigente** (AP 2022, TGDE el de
+      este año), confirmado por bedelía. Sin plan explícito, el más reciente.
+- [ ] Hoja "Dictado actual": el año y el semestre parecen ser los del plan y no
+      el año lectivo. Preguntar a bedelía qué quiso cargar.
+- [x] **Vigencia del derecho a examen en cursos independientes: NO VENCE.**
+      Decidido el 23/09/2026: si aprobó el curso tiene sus 2 oportunidades sin
+      fecha de caducidad. Hay alumnos que vuelven años después a usarlas y
+      negárselas los aleja. Es lo que el portal ya hace (no mira la antigüedad
+      de la cursada); fijado con test en `test_plazo_baja_examen.py`. Sin
+      cambios de esquema.
+- [ ] Crear la política de examen de **2 oportunidades** para cursos
+      independientes (la de carreras es de 5) y asignarla a sus materias al
+      cargarlos.
+- [ ] Confirmar con bedelía si una **baja voluntaria (abandono)** cuenta como
+      0 en el promedio. Hoy no cuenta (`CONTAR_ABANDONO = False` en
+      `v2/services/promedio_escolaridad.py`); es una línea si hay que cambiarlo.
+
+#### 21. `b8c9d0e1f2a3_merge_historico_y_pagos` — Revisión de merge (no-op)
+
+> ✅ **Ya aplicada en develop** el 11/09/2026, al mergear la rama `Handy`.
+
+La 19 (histórico) y la 20 (pagos) se escribieron en ramas distintas y las dos
+salen de `f4a5b6c7d8e9`, así que al juntar las ramas Alembic quedó con dos
+heads. Esta revisión los une y **no toca el esquema**: `upgrade()` y
+`downgrade()` están vacíos.
+
+En producción no requiere nada especial: `alembic upgrade head` aplica la 19,
+la 20 y después esta, en ese orden o en el inverso, da igual.
+
+---
+
+## Cambios hechos a mano en develop (NO viajan por alembic)
+
+**Esto es lo que hay que replicar o decidir aparte**, porque ninguna migración lo
+lleva. Todo autorizado en su momento, listado acá para que quede el rastro.
+
+### Estructura
+
+| Qué | Cuándo | ¿Hace falta en producción? |
+|---|---|---|
+| `DROP TABLE periodo_examen` (huérfana) | 06/08/2026 | **A verificar.** Ver la sección de abajo |
+
+La huérfana se borró con `DROP TABLE` sin `CASCADE` y con respaldo previo del
+contenido (1 fila de prueba). No hay migración que lo haga: si en producción
+existe, hay que repetirlo a mano.
+
+### Datos de prueba (solo develop, NO replicar)
+
+Todo esto es data inventada para poder probar. **No tiene que ir a producción.**
+
+- Borradas evaluaciones duplicadas (ev 5–8), 3 calificaciones, 1 equipo y 1 miembro
+- Cargadas 4 instancias de evaluación para Programación 2 y 4 para Base de Datos 1
+  (25/25/30-grupal/20)
+- Reparado `snapshot_instancias` vacío en las inscripciones 55 y 56
+
+### Carga inicial de la planilla de bedelía (25/09/2026)
+
+Cargada en develop con `v2/scripts/importar_planilla_migracion.py` desde la copia
+corregida (`carga_inicial_portal_corregida_25-09.xlsx`, fuera del repo porque
+tiene cédulas). **En producción hay que correrlo igual**, después de las
+migraciones y del alta de las políticas (ver `docs/MIGRACION_DATOS.md`, Paso 3):
+
+```bash
+python -m v2.scripts.importar_planilla_migracion carga_inicial.xlsx              # simula
+python -m v2.scripts.importar_planilla_migracion carga_inicial.xlsx --confirmar
+```
+
+Quedó en develop: 36 programas (cada plan aparte), 146 materias, 60
+previaturas, 104 personas nuevas (86 alumnos, 21 docentes), 103 inscripciones a
+programas, 122 cursadas, 572 inscripciones a materias y 18 asignaciones
+docentes. Además se creó la política de examen "Examen curso independiente - 2
+oportunidades".
+
+Tocó datos que ya estaban (de prueba):
+- el programa 1 "Analista Programador" pasó a llamarse "Analista Programador
+  (Plan 2022)";
+- las materias PROG1, PROG2 y BD1 tomaron el nombre, el semestre y los créditos
+  de la planilla (antes tenían 10 créditos; ahora 1);
+- a BD1 se le asignó la política de examen de 5 oportunidades.
+
+**Falta 1 fila** (5-Historial fila 30, REVALIDADA): la base de develop no tiene
+ese estado. Ver "Propuesto: valores de enum que faltan" más abajo. Una vez
+agregado, se vuelve a correr el importador y entra solo esa fila.
+
+### Pruebas de Handy en develop (29/09/2026)
+
+Datos de prueba, **no replicar**: cobros 14 y 15 (PAGADO, sandbox de Handy) y la
+**inscripción a programa 413** (alumno de prueba 4, "Estudiante Test", en
+Comunicación Efectiva), creada por el pago aprobado del cobro 15.
+
+### Base temporal creada y borrada
+
+Para la verificación de esquema del 06/08/2026 se creó la base
+`verif_esquema_tmp` en el mismo servidor y se borró al terminar. **No queda
+nada**, pero conviene saberlo si aparece en algún backup o log de ese día.
+
+---
+
+### Tabla huérfana `periodo_examen`
+
+> ✅ **Borrada de develop** el 06/08/2026. Falta chequear producción.
+
+`periodo_examen` fue el concepto original de v2: la creó la migración
+`c80c0cfd30d6` y la **borró** `d1a2b3c4d5e6` al reemplazarla por
+`instancia_examen`. Pero seguía existiendo en develop, con una fila de prueba
+(`"Febrero 2026 - Actualizado"`), ningún modelo que la respaldara y ninguna FK que
+la referenciara.
+
+La resucitó el `SQLModel.metadata.create_all(checkfirst=True)` de
+[database/database.py:75](database/database.py:75), que en dev crea todas las
+tablas de los modelos cargados. Cuando después se borró el modelo del código, la
+tabla quedó.
+
+Por eso la mesa nueva se llama `mesa_examen` y no `periodo_examen`: reusar el
+nombre para un concepto distinto haría ilegible la historia de migraciones, y
+además chocaba con la huérfana.
+
+En develop se borró con `DROP TABLE` sin `CASCADE` (para que fallara si algo la
+referenciaba) y con respaldo previo del contenido. Ya no puede volver a
+aparecer: no hay modelo con ese `__tablename__`.
+
+**Qué falta:**
+- [ ] Chequear si en producción también existe:
+      `SELECT to_regclass('public.periodo_examen');`
+- [ ] Si existe, revisar el contenido antes de borrarla y usar `DROP TABLE` sin
+      `CASCADE`
+
+---
+
+### `create_all` y las migraciones divergieron
+
+Riesgo estructural que salió al investigar la huérfana. Verificado el 06/08/2026.
+
+[database/database.py:75](database/database.py:75) llama a
+`SQLModel.metadata.create_all(checkfirst=True)`, y [main.py:102](main.py:102) lo
+invoca en el arranque **sin guard de entorno**: corre en todos los entornos,
+producción incluida.
+
+**Corrección de una nota anterior de este archivo:** decía que un modelo sin
+migración «funciona en develop y falla al desplegar porque en producción
+`create_all` no corre». Eso es incorrecto — sí corre. El modo de falla real es
+otro, y peor por ser silencioso:
+
+`create_all` **solo crea tablas que no existen. Nunca hace ALTER.** No agrega una
+columna a una tabla existente, no cambia un tipo, no borra nada. Entonces:
+
+- una **tabla** nueva sin migración aparece igual en todos los entornos, y el
+  problema es que la base y las migraciones divergen (así apareció la huérfana);
+- una **columna** nueva sin migración **no aparece en ningún entorno**, en
+  silencio. El modelo la declara, el código la usa, y la consulta explota en
+  runtime.
+
+#### Las migraciones no reconstruyen la base desde cero
+
+`alembic upgrade head` sobre una base vacía **falla**. La migración inicial
+`a736aaa18a0f_initial_migration_with_all_models` tiene `upgrade(): pass` — un
+stub autogenerado que no crea nada. Las tablas de v1 (`career`, `user`,
+`testimony`, `news`) no las crea ninguna migración: existen solo porque
+`create_all` las hizo. El primer `ALTER TABLE career` de `055950855a1a` revienta
+con *"relation career does not exist"*.
+
+Consecuencia: **no se puede levantar un entorno nuevo desde las migraciones.**
+Ni staging, ni una recuperación ante desastre, ni la máquina de alguien nuevo.
+Hoy no molesta porque las bases ya existen y `create_all` las completa.
+
+- [ ] Decidir si vale escribir una migración que cree las tablas de v1, para que
+      la cadena sea reconstruible. No es urgente, pero es lo que separa «tenemos
+      migraciones» de «tenemos migraciones que sirven»
+
+#### Chequeo periódico
+
+```bash
+python -m v2.scripts.verificar_esquema
+```
+
+Compara el esquema real contra lo que declaran los modelos. Al 06/08/2026, después
+de las correcciones de abajo, da **16 diferencias, todas preexistentes y ninguna
+bloqueante**:
+
+| Qué | Cuántas | Gravedad |
+|---|---|---|
+| `materia_id` / `anio_lectivo` sobrantes en 3 tablas | 6 | Peso muerto. Restos del refactor de FKs a `instancia_cursado_id`. Todas nullable sin default, así que no bloquean inserts |
+| `instancia_cursado_id` y flags nullable en la base, NOT NULL en el modelo | 7 | Bajo. Las migraciones las agregaron nullable para no romper filas y nunca las apretaron |
+| Tablas `author`, `post`, `profile` | 3 | Restos de plantilla, **0 filas**. **Decidido: se dejan como están** (ver abajo) |
+
+- [ ] Correr el script antes de cada deploy. Lo que importa no es que la lista
+      esté en cero, sino que **no crezca** sin que alguien lo decida
+
+#### `author`, `post`, `profile`: se dejan (decidido el 06/08/2026)
+
+No se borran. Están vacías, nadie las consulta y no molestan a nada. El beneficio
+de borrarlas es cosmético —una lista de drift más corta— y no paga el riesgo de
+un `DROP TABLE` sobre algo cuyo origen nadie recuerda con certeza.
+
+Quedan como **resto conocido**: van a seguir apareciendo en el chequeo y eso está
+bien. No son un pendiente.
+
+---
+
+## ⛔ Regla: no se toca la estructura de la base
+
+**Instrucción vigente desde el 06/08/2026.**
+
+No agregar, modificar ni borrar tablas, columnas, índices ni restricciones **sin
+pedirlo antes**, más allá de lo que ya está aplicado y listado en este archivo.
+
+Esto incluye:
+- migraciones nuevas de Alembic
+- `ALTER` / `DROP` a mano
+- relajar o endurecer restricciones, aunque sea "solo" un `NOT NULL`
+
+Lo que ya está aplicado en develop y listado arriba (migraciones 13 a 19) queda
+como está; la regla es hacia adelante. La 19 (histórico) se hizo a pedido
+expreso del 11/09/2026 — *"me parece mejor guardarlos en una o unas tablas
+aparte"* — y no toca ninguna tabla existente.
+
+**Por qué:** el esquema de v1 sostiene el sitio público, que ya está en
+producción con datos reales. Y aunque v2 esté apagado, cada cambio de estructura
+es una migración más que hay que aplicar y verificar el día del despliegue. Que
+la lista de este archivo crezca sola es exactamente lo que no queremos.
+
+Si aparece algo que parece necesitar un cambio de esquema: documentarlo acá como
+propuesta, con el motivo y el impacto, y esperar la decisión.
+
+---
+
+### 22. `c9d0e1f2a3b4_career_files` — Archivos descargables de la oferta académica
+
+> ⚠️ **Aplicar ANTES de desplegar el código.** Toca la tabla `career` de **v1**,
+> la del sitio público. El código nuevo lee `career.files` en todas las
+> consultas de carreras: con el código desplegado y la columna sin crear, se
+> cae toda la oferta académica (500). Al revés no pasa nada: el código viejo
+> ignora la columna. Lo mismo vale para develop.
+
+Pedido de dirección (08/10/2026): que la web ofrezca para descargar el programa,
+el plan de estudios y otros archivos de cada carrera o curso.
+
+- Una columna JSON con la lista de URLs. Las carreras existentes quedan con `[]`:
+  no hay que cargar nada al aplicarla. `downgrade` la borra.
+- Los archivos van a disco, en `OFERTA_ARCHIVOS_PATH` (default
+  `DOCUMENTOS_BASE_PATH/oferta_academica`, o sea **dentro del volumen de
+  documentos que ya existe**: no hace falta otro). Sin volumen, Easypanel los
+  borra en cada despliegue.
+- Las URLs se arman con `BASE_URL`: tiene que ser la URL pública del backend.
+- Endpoints: `POST /careers/{id}/files`, `DELETE /careers/{id}/files?url=`,
+  `PUT /careers/{id}/files` (reordenar) y `PUT /careers/{id}/files/replace?url=` (admin),
+  `GET /careers/files/{id}/{nombre}` (público), y `POST /careers/create` acepta
+  `files` opcionales. Todas las respuestas de carreras devuelven `files`.
+
+### 20. `a6b7c8d9e0f1_pagos` — Tablas de pagos
+
+> ✅ **Aprobada, escrita y aplicada en develop** (`f4a5b6c7d8e9` → `a6b7c8d9e0f1`).
+> Dos tablas nuevas, ninguna columna sobre tablas existentes. Sin backfill.
+
+### Por qué es necesaria
+
+Hoy no existe ninguna tabla de pagos: MercadoPago vive en `external_services/` y
+no persiste nada. Para Handy eso **no alcanza**, y no por prolijidad:
+
+- Handy **no firma** sus notificaciones. La única forma de validarlas es
+  contrastar contra un registro propio: que la operación exista, esté pendiente,
+  y el monto y la moneda coincidan.
+- Handy **no reintenta** si la entrega falla, y **no tiene endpoint de consulta**.
+  Sin registro propio, un aviso perdido no deja **ningún** rastro y el pago se
+  vuelve irrecuperable.
+
+Ver [docs/HANDY_RESPUESTAS.md](docs/HANDY_RESPUESTAS.md).
+
+### Diseño propuesto
+
+Dos tablas, **agnósticas del proveedor** desde el día uno — MercadoPago no se
+toca ahora, pero el día que se quiera entra en la misma tabla sin cambiar el
+esquema.
+
+**`pago`** — un intento de cobro
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int PK | |
+| `referencia_externa` | uuid, **unique** | El identificador que generamos nosotros. Es el `TransactionExternalId` de Handy y el `external_reference` de MercadoPago |
+| `proveedor` | enum | `HANDY`, `MERCADOPAGO` |
+| `proveedor_id` | str, null | Identificador del lado del proveedor, si lo devuelve |
+| `estado` | enum | `INICIADO`, `PENDIENTE`, `PAGADO`, `FALLIDO`, `DEVUELTO` |
+| `estado_proveedor` | str, null | El código crudo, sin interpretar |
+| `moneda` | int | ISO 4217: 858 UYU, 840 USD |
+| `monto_total` | Decimal | Con IVA |
+| `monto_gravado` | Decimal | Sin IVA |
+| `concepto` | str | Qué se está comprando |
+| `alumno_id` | int FK, **null** | Nullable a propósito: puede comprar alguien que todavía no es alumno |
+| `email_comprador` | str, null | Para poder contactar ante un problema |
+| `url_pago` | str, null | La que devuelve Handy |
+| `numero_factura` | int, null | `InvoiceNumber` |
+| `fecha_creacion` | datetime | |
+| `fecha_actualizacion` | datetime | |
+| `fecha_pago` | datetime, null | Cuándo se acreditó |
+| `fecha_vencimiento` | datetime, null | Solo Redpagos |
+| `medio_pago` | str, null | `IssuerName` |
+| `id_rastreo` | str, unique | Consistente con el resto de v2 |
+
+**`pago_notificacion`** — log crudo de todo lo recibido
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | int PK | |
+| `pago_id` | int FK, **null** | Nullable: un aviso rechazado puede no corresponder a ningún pago nuestro |
+| `referencia_externa` | str | Lo que vino, sin validar |
+| `proveedor` | enum | |
+| `cuerpo` | JSON | El payload tal cual llegó |
+| `aceptada` | bool | |
+| `motivo_rechazo` | str, null | |
+| `ip_origen` | str, null | Para investigar patrones |
+| `fecha_recepcion` | datetime | |
+
+**Índices:** `pago.referencia_externa` (unique), `pago(estado, fecha_creacion)`
+para el informe de pendientes, `pago.alumno_id`,
+`pago_notificacion.referencia_externa` y `pago_notificacion.fecha_recepcion`.
+
+### Cómo sostiene las medidas de seguridad
+
+| Medida | Qué del diseño la sostiene |
+|---|---|
+| Validar el aviso | `referencia_externa` unique + `estado` + `monto_total` + `moneda` |
+| No acreditar dos veces | `estado` como máquina de estados: solo se acredita si está `INICIADO` o `PENDIENTE` |
+| Un solo cobro abierto por compra | Se busca un `pago` `INICIADO` vigente antes de crear uno nuevo. Resuelve el caso de los veinte clics |
+| Evidencia ante reclamos | `pago_notificacion` con el cuerpo crudo |
+| Informe de pendientes | Índice `(estado, fecha_creacion)` |
+| Alertas | Conteo de `aceptada = false` por ventana de tiempo |
+
+### Impacto
+
+- **Dos tablas nuevas, ninguna columna sobre tablas existentes.** Sin backfill.
+- `alumno_id` es la única FK a algo existente, y es nullable.
+- No toca v1 ni el esquema de v2 actual.
+
+**Decidido:** el pago **habilita la inscripción**. Se incluyó
+`pago.inscripcion_programa_id` (nullable, FK a `inscripcion_programa`). Es
+nullable porque al crear el cobro la inscripción todavía no existe: se completa
+cuando el pago se acredita.
+
+También se incluyó `pago.programa_id` (nullable): es lo que el comprador está
+comprando, y es lo que permite crear la inscripción automáticamente al acreditar.
+
+**Checklist:**
+- [ ] `\d pago` y `\d pago_notificacion` existen
+- [ ] `ix_pago_referencia_externa` es **unique** — es lo que sostiene la idempotencia
+- [ ] Los tipos `proveedorpago` y `estadopago` existen con sus labels en mayúscula
+
+> **Nota para quien aplique esta migración:** los enums usan
+> `postgresql.ENUM(..., create_type=False)` a propósito. Sin eso, `create_table`
+> intenta crear el tipo además del `.create()` explícito y la migración falla con
+> *"type proveedorpago already exists"*. Pasó al escribirla.
+
+#### Ya corregido: `testimony.text` era un bug real
+
+> ✅ Migración `f4a5b6c7d8e9`, aplicada y verificada en develop.
+
+Un testimonio es texto **o** video, nunca los dos ni ninguno: lo exige el
+`model_validator` de `TestimonyCreate`. Por lo tanto un testimonio de video tiene
+`text = NULL`, y el modelo lo declara así.
+
+Pero la columna había quedado **NOT NULL**: la migración `e578594a9f4b`, que
+reemplazó la tabla `testimony_video` por el campo `videoUrl`, nunca la relajó.
+Crear un testimonio de solo video —omitiendo `text`, que es la forma que el
+validador aprueba— fallaba con *"null value in column text violates not-null
+constraint"*. **Verificado contra la base antes y después del arreglo.**
+
+No había explotado porque los clientes mandan `text: ""` en vez de omitirlo, y el
+validador trata el string vacío como ausente. O sea que funcionaba por cómo pega
+el cliente, no porque el esquema lo permitiera. De los 28 testimonios cargados,
+12 son de video y todos tienen `text = ''`.
+
+- [ ] Aplicar `f4a5b6c7d8e9` en producción. Sin ella, un cliente que mande solo
+      `videoUrl` recibe un 500
+
+#### Ya corregido: modelos obsoletos borrados
+
+`example` y `testimony_video` eran modelos sin tabla, y `create_all` iba a
+recrearles la tabla en el próximo arranque. Se borraron el modelo, su servicio y
+—en el caso de `example`— la ruta, que no estaba montada en `main.py` y usaba un
+`services.exampleService` que no existe: habría dado 500 si alguien la montaba.
+
+---
+
+## Propuesto: valores de enum que faltan en la base (A CONFIRMAR)
+
+Encontrado el 25/09/2026 al importar la planilla. El código usa dos estados que
+los tipos de Postgres de develop no tienen, y ninguna migración los agrega:
+
+| Tipo en Postgres | Falta | Lo usa |
+|---|---|---|
+| `estadoinscripcionmateria` | `REVALIDADA` | reválidas (`EstadoInscripcionMateria.REVALIDADA`) |
+| `estadoinscripcionexamen` | `BAJA` | baja de un examen (`EstadoInscripcionExamen.BAJA`) |
+
+Hoy, en develop, una reválida o una baja de examen hechas desde el portal
+fallan al guardar. En producción hay que verificar si están.
+
+**Propuesta** (no aplicada; necesita el OK): una migración que haga
+
+```sql
+ALTER TYPE estadoinscripcionmateria ADD VALUE IF NOT EXISTS 'REVALIDADA';
+ALTER TYPE estadoinscripcionexamen ADD VALUE IF NOT EXISTS 'BAJA';
+```
+
+Solo agrega valores: no cambia filas ni columnas y no rompe nada de lo que hay.
+`ADD VALUE` no se puede deshacer con un `downgrade` simple (Postgres no borra
+valores de un enum), así que el `downgrade` queda vacío.
+
+---
+
+## Verificación general post-deploy
+
+- [ ] `alembic current` ANTES de `upgrade head` (confirmar revisión de partida)
+- [ ] `alembic upgrade head` con DATABASE_URL de producción
+- [ ] `/health` responde OK (la app levanta sin errores)
+- [ ] Endpoint `GET /v2/portal/proximos-eventos` en Swagger (`/docs`)
+
+---
+
+## Variables de entorno
+
+### Documentos (ya requerida en prod)
+```bash
+DOCUMENTOS_BASE_PATH=/var/ctc/documentos
 DOCUMENTOS_MAX_SIZE_MB=10
 ```
 
-**IMPORTANTE:** Crear el directorio en produccion antes de deployar:
+### Archivos de la oferta académica (nuevas, opcionales)
 ```bash
-sudo mkdir -p /var/ctc/documentos
-sudo chown -R <usuario_app>:<grupo_app> /var/ctc/documentos
+# Default: DOCUMENTOS_BASE_PATH/oferta_academica (el mismo volumen). Solo hace
+# falta si se quieren en otro lado, y entonces tiene que ser un volumen.
+OFERTA_ARCHIVOS_PATH=/var/ctc/documentos/oferta_academica
+OFERTA_ARCHIVOS_MAX_MB=20
+# BASE_URL ya existe: es con lo que se arman las URLs publicas de los archivos.
 ```
 
-La estructura de carpetas se crea automaticamente al subir el primer documento de cada usuario:
-```
-/var/ctc/documentos/
-├── alumnos/{id}_{apellido}_{nombre}/
-│   ├── formula_69a/
-│   ├── escolaridad/
-│   └── otros/
-├── profesores/{id}_{apellido}_{nombre}/
-│   ├── cedula/
-│   ├── titulo/
-│   └── otros/
-└── administrativos/...
-```
-
-### Notificaciones por email (Fase 5)
-
+### Notificaciones por email
 ```bash
-# Webhook de n8n para envio de emails de notificaciones
 N8N_EMAIL_WEBHOOK_URL=https://automatizaciones-n8n.vtu0xl.easypanel.host/webhook/webhook/ctc-email-send
 ```
 
-### Opcional para control de rendiciones (Migracion 6)
-
+### Control de rendiciones (opcional)
 ```bash
-# Plazo minimo en horas antes del examen para permitir baja (default: 72)
-PLAZO_BAJA_EXAMEN_HORAS=72
+PLAZO_BAJA_EXAMEN_HORAS=72   # default 72
 ```
 
-### Google OAuth 2.0
+### Auth / tokens (opcional)
+```bash
+# Duracion de los tokens del portal v2, en minutos. Default: 480 (8 horas).
+# Solo hace falta setearla para usar un valor distinto.
+V2_ACCESS_TOKEN_EXPIRE_MINUTES=480
+```
 
+> **Ya no cae a `ACCESS_TOKEN_EXPIRE_MINUTES`.** Ese fallback existia para no
+> romper entornos con una sola variable seteada, pero tenia el efecto de
+> gobernar la sesion del portal con un valor pensado para el CMS: en develop,
+> donde `ACCESS_TOKEN_EXPIRE_MINUTES=4000`, los tokens de alumnos y docentes
+> duraban **66 horas**. Ahora v2 usa su propia variable o su propio default.
+>
+> `ACCESS_TOKEN_EXPIRE_MINUTES` sigue rigiendo **solo** al CMS v1 (default 30).
+> Vale revisar aparte si 4000 minutos es lo que se quiere para las sesiones de
+> administracion del sitio publico.
+
+### Bootstrap del primer admin (nuevas)
+```bash
+# Reemplazan las credenciales que antes estaban hardcodeadas (admin@gmail.com/Admin@123).
+# create-first-user responde 503 si no estan seteadas.
+FIRST_ADMIN_EMAIL=
+FIRST_ADMIN_PASSWORD=
+FIRST_ADMIN_DOCUMENT=    # opcional
+FIRST_ADMIN_PHONE=       # opcional
+```
+
+### Plazo de baja de examenes (cambio de default)
+
+```
+# Hasta cuantas horas antes del examen el alumno puede darse de baja.
+# Regla de bedelia (23/09/2026): 24. El default del codigo paso de 72 a 24.
+# Si en Easypanel esta cargada con 72, sacarla o ponerla en 24.
+PLAZO_BAJA_EXAMEN_HORAS=24
+```
+
+### Escolaridad (nueva, opcional)
+
+```
+# Desde cuando el promedio de la escolaridad toma las notas del portal en vez
+# del legajo historico. Poner la fecha del arranque. Sin la variable se usa la
+# fecha del acta mas reciente del historico.
+ESCOLARIDAD_FECHA_CORTE=2026-10-01
+```
+
+### Handy — estado al 16/09/2026
+
+- ✅ Testing validado de punta a punta contra develop: el link se genera y el
+  webhook recibe y procesa los avisos reales (dos cobros, ambos rechazados por
+  el sandbox de tarjetas, `Status = 2`). Detalle en `docs/HANDY_RESPUESTAS.md`.
+- ⏳ Consultado a Handy por el sandbox (`docs/HANDY_CONSULTAS.md`, segundo
+  mail). El secret de producción **se pide recién cuando haya un pago
+  aprobado en testing**: es la condición que puso Handy.
+- Para salir a producción: cargar `HANDY_MERCHANT_SECRET` de producción,
+  `HANDY_BASE_URL=https://api.payments.handy.uy/api/v2`, un
+  `HANDY_WEBHOOK_SECRETO` **distinto** al de develop, y hacer **un pago real de
+  monto mínimo** antes de habilitarlo a los alumnos: es la única forma de ver
+  la rama de aprobación contra Handy.
+- Los cobros de prueba quedaron en la base de develop (ids 1 a 8, `fallido` o
+  `iniciado`). No hay que replicarlos.
+- ⚠️ **Preguntar a Handy cuanto dura un link de pago.** Su pagina dice que los
+  vinculos "se vencen despues de un tiempo" y el manual no dice cuanto.
+  `VENTANA_REUSO` (30 min) en `pago_service.py` tiene que ser menor que ese
+  TTL, o el portal va a devolver links muertos.
+
+### Handy — Botón de Pago (nuevas)
+
+```bash
+# Interruptor de la pasarela: sin esto en true los endpoints de pagos (webhook
+# incluido) no se registran. En produccion queda en false hasta que Handy entre;
+# en develop va en true para que el webhook siga andando. Default: false.
+V2_PAGOS_ENABLED=false
+
+# Los endpoints de pagos funcionan igual, pero no aparecen en /docs ni en
+# /docs-scalar hasta que se decida mostrarlos a frontend. Default: false.
+# El webhook no se publica nunca, con o sin esta variable.
+V2_PAGOS_EN_DOCS=false
+
+# Testing: https://api.payments.arriba.uy/api/v2 con el secret publicado en el
+# manual (c80c2dca-ee4f-4cec-ace0-850747a5dcfa), que es compartido y publico.
+# Produccion: https://api.payments.handy.uy/api/v2 con el secret que entrega
+# Handy DESPUES de validar la integracion en testing. Nunca reusar el de testing.
+HANDY_BASE_URL=https://api.payments.handy.uy/api/v2
+HANDY_MERCHANT_SECRET=
+
+# Segmento secreto de la ruta del webhook. Handy no firma los avisos ni publica
+# IPs: esto es lo unico que separa la ruta de un scanner. Generar con
+#   openssl rand -hex 32
+# y usar uno DISTINTO en cada ambiente. Sin esta variable el webhook rechaza
+# todo (cerrado por defecto).
+HANDY_WEBHOOK_SECRETO=
+
+# A donde vuelve el comprador al terminar, y el nombre del comercio en la
+# pagina de pago. Si HANDY_SITE_URL no esta, se usa BASE_URL.
+HANDY_SITE_URL=https://ctcsalto.edu.uy
+HANDY_COMMERCE_NAME=CTC Salto
+HANDY_TIMEOUT=30
+```
+
+La URL de callback que se le manda a Handy en cada cobro es
+`{BASE_URL}/v2/pagos/handy/webhook/{HANDY_WEBHOOK_SECRETO}`. **`BASE_URL` tiene
+que ser la pública**, la que Handy puede alcanzar desde afuera.
+
+> **`V2_ENABLED` tiene que estar en `true`** para que exista la ruta del webhook:
+> vive bajo `/v2` porque el pago habilita una inscripción de v2. Sin eso, Handy
+> manda el aviso, recibe 404, y **no reintenta**.
+
+### Google OAuth 2.0
 ```bash
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=
 GOOGLE_ALLOWED_DOMAIN=ctcsalto.edu.uy
-
-# Origenes permitidos para redirect_to en el login OAuth (whitelist anti open-redirect)
-# Lista separada por comas con los origenes del frontend (Next.js)
-# Ejemplo: https://portal.ctcsalto.edu.uy,https://frontend-develop.vtu0xl.easypanel.host
-OAUTH_ALLOWED_REDIRECT_ORIGINS=
+# Whitelist anti open-redirect: origenes del frontend Next.js (NO la URL del backend)
+OAUTH_ALLOWED_REDIRECT_ORIGINS=https://portal.ctcsalto.edu.uy,https://frontend-develop.vtu0xl.easypanel.host
 ```
 
-## Google OAuth - Consola de Google Cloud
+---
 
-- [ ] Agregar origenes de JS autorizados de develop y produccion (cuando frontend empiece desarrollo)
-- [ ] Las URIs de redireccion del backend ya estan configuradas
-- [ ] Configurar variables `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` en el entorno de deploy
-- [ ] Configurar `OAUTH_ALLOWED_REDIRECT_ORIGINS` con los origenes del frontend Next.js (NO es la URL del backend, sino la del frontend que recibe el token tras el login)
-- [ ] Agregar la URI de callback de develop en Google Console: `https://backend-backend-ctc-develop.vtu0xl.easypanel.host/v2/auth/google/callback`
-- [ ] Pagina de prueba OAuth disponible en `/test-login` (SvelteKit) para que frontend valide la integracion
+## Deuda abierta de v2 (no bloquea el deploy, sí conviene resolver antes de habilitar)
+
+Encontrado en la revisión de lógica de negocio del 31/07/2026. Nada de esto está
+arreglado; se documenta para que no se pierda.
+
+### Datos sucios en develop
+
+- [x] ~~**Evaluaciones duplicadas en Programación 1**~~ — **RESUELTO 31/07/2026.** Había
+  tres generaciones de evaluaciones: ev 1-4 (ya borradas antes, pero el snapshot de
+  `insc=6` todavía las referencia), ev 5-8 y ev 9-12. Se borró el set 5-8 con sus 3
+  calificaciones, 1 equipo y 1 miembro de equipo, en una transacción con guarda previa:
+  0 calificaciones pertenecían a inscripciones abiertas. Quedan 4 evaluaciones sumando
+  exactamente 100. Verificado después: 0 calificaciones huérfanas, 0 equipos huérfanos,
+  0 calificaciones fuera del snapshot de su inscripción.
+  > `insc=6` (APROBADO por examen) conserva un snapshot que apunta a las evaluaciones
+  > 1-4, que ya no existen. Es daño previo e irreparable: esas evaluaciones se borraron
+  > antes de esta sesión. Como la inscripción está cerrada, `_recalcular_estado` nunca
+  > corre sobre ella y no molesta. Se deja como artefacto histórico en vez de reescribir
+  > datos académicos.
+
+### Reglas de negocio
+
+- [x] ~~**Nadie valida que los `peso_maximo` sumen `nota_maxima`**~~ — **RESUELTO.**
+  `InstanciaEvaluacionService` valida en `create` y en `update` que la suma de pesos
+  activos no supere la `nota_maxima` de la política de la materia. En `update` se excluye
+  el peso viejo de la evaluación editada para no contarlo dos veces.
+- [x] ~~**Las evaluaciones grupales no propagan la nota**~~ — **RESUELTO.** Calificar una
+  instancia `es_grupal` ahora aplica la nota a todos los integrantes del equipo y
+  recalcula el estado de cada uno. Valida que el equipo pertenezca a esa evaluación y que
+  el alumno la integre. Un equipo puede tener un solo integrante. Los integrantes con la
+  materia ya cerrada se saltean sin abortar al resto.
+- [x] ~~**La baja de un alumno de un programa no existe**~~ — **RESUELTO.**
+  `InscripcionProgramaService.dar_de_baja()` + `POST /v2/admin/inscripciones/programa/{id}/baja`.
+  Registra fecha y motivo (obligatorio), y por defecto cierra como abandono las materias
+  EN CURSO **de ese programa** — las de otros programas no se tocan. Se puede desactivar
+  con `cerrar_materias=false`. Conecta `notificar_baja_procesada`, que ya no está huérfana.
+- [x] ~~**El docente no podía definir las evaluaciones de sus cursos**~~ — **RESUELTO.**
+  Las cinco rutas de `/v2/admin/instancias-evaluacion` eran solo para administrativo, así
+  que los parciales y pesos de cada semestre los tenía que cargar bedelía. Ahora crear,
+  listar, editar y borrar aceptan **docente o administrativo**: el docente solo sobre las
+  cursadas que dicta, bedelía sobre todas.
+  > `POST /filters` queda solo para administrativo: es una consulta libre sobre todas las
+  > cursadas y no hay forma de acotarla a las del docente que la llama.
+  >
+  > El prefijo sigue siendo `/v2/admin/...` para no romper lo que el frontend ya está
+  > integrando; lo único que cambió es el rol requerido.
+
+- [ ] **Materias sin política de examen**: "Base de Datos 1" no tiene `politica_examen_id`,
+  así que sus alumnos no se pueden inscribir a examen (`inscribir_examen` los rechaza).
+  Revisar si es intencional.
+- [x] ~~**Programación 2 y Base de Datos 1 sin evaluaciones**~~ — **RESUELTO en develop
+  con datos inventados.** Se cargó en las dos el plan estándar: Primer Parcial 25,
+  Segundo Parcial 25, Obligatorio 30 (grupal) y Nota de clase 20 = 100. Los pesos
+  replican los de Programación 1, que ya estaban en la base. **Son datos de develop:
+  confirmar los pesos reales con la institución antes de producción.**
+  > Efecto colateral atendido: `insc=55` y `insc=56` (ambas CURSANDO) se habían creado
+  > cuando esas cursadas no tenían evaluaciones, así que quedaron con
+  > `snapshot_instancias` vacío y **no se podían calificar nunca** —
+  > `_recalcular_estado` corta antes de empezar con snapshot vacío. Se les cargó el
+  > snapshot con el builder del propio servicio. Solo se tocaron inscripciones
+  > CURSANDO y sin notas; `insc=5` (ABANDONO) se dejó como estaba.
+
+### Comportamiento corregido
+
+- [x] ~~**Una inscripción cerrada no se puede corregir**~~ — **RESUELTO.** Ahora se
+  pueden corregir las notas de una inscripción cerrada por el curso (EXONERADO,
+  APROBADO, REPROBADO) y el estado se recalcula solo. Aplica tanto a las notas por
+  instancia como a la nota final directa, y en una evaluación grupal la corrección
+  alcanza a todo el equipo.
+  > **Tres casos siguen bloqueados a propósito**, porque no los decidió el curso:
+  > `revalidada` (decisión administrativa), `perdido_inasistencia` (se corrige con las
+  > faltas) y `abandono` (baja). Y una materia **aprobada rindiendo examen** tampoco se
+  > edita por esta vía: recalcular desde las notas de curso pisaría el resultado del
+  > examen y dejaría la inscripción a examen colgada. El error deriva a corregir la nota
+  > del examen.
+  >
+  > Al reabrirse una inscripción (por ejemplo de REPROBADO a A_EXAMEN) se limpia
+  > `fecha_cierre`; si sigue cerrada, se conserva la fecha original del cierre.
+
+### Decisión de producto pendiente
+
+- [ ] **Ni un administrativo puede forzar una inscripción sin previaturas.**
+  `inscribir_materia` valida previaturas siempre; `skip_periodo=True` de la inscripción
+  manual saltea **solo** el período. Es lo correcto según el requerimiento actual, pero
+  si algún día bedelía necesita una excepción documentada, hoy no existe la palanca.
+
+### Revisado el 31/07/2026 — documentos y CRUD
+
+- [x] ~~**El MIME de los archivos subidos se tomaba del cliente**~~ — **RESUELTO.** El
+  `content-type` de un multipart lo elige quien sube, así que la whitelist no validaba
+  nada: se guardaban `.html` y `.php` declarando `application/pdf` (verificado
+  ejecutando). Ahora se detecta el tipo real por las firmas del contenido y se rechaza
+  si no coincide con lo declarado.
+- [x] ~~**La extensión del archivo salía del nombre del cliente**~~ — **RESUELTO.** Sale
+  del tipo detectado. Un nombre con barras (`a.b/../../evil`) terminaba en un
+  `FileNotFoundError` sin manejar (500); nada escapaba del directorio base —lo bloqueaba
+  el prefijo `{fecha}_{tipo}.` por accidente, no una validación— pero era frágil.
+- [x] ~~**`DELETE /v2/admin/materias/{id}` tiraba 500 siempre**~~ — **RESUELTO.** El guard
+  consultaba `InscripcionMateria.materia_id`, columna que dejó de existir cuando las
+  inscripciones pasaron a colgar de `instancia_cursado`: era `AttributeError` con o sin
+  inscripciones. Ahora navega el join, y además bloquea si la materia tiene instancias de
+  cursado o participa en previaturas.
+- [x] ~~**`DELETE /v2/admin/programas/{id}` fallaba con violación de FK**~~ — **RESUELTO.**
+  Solo miraba materias; un programa sin materias pero con alumnos inscriptos o períodos
+  cargados reventaba con un 500. Ahora da un mensaje claro.
+
+**Autorización de documentos: correcta.** Las descargas de alumno y docente validan
+`doc.usuario_id == current_usuario.id`; las de admin exigen rol administrativo.
+
+### Revisado el 31/07/2026 — equipos, exámenes y auth
+
+- [x] ~~**Un alumno podía integrar dos equipos de la misma evaluación**~~ — **RESUELTO.**
+  La calificación es única por inscripción + evaluación, así que calificar el segundo
+  equipo le pisaba la nota del primero, en silencio. Verificado ejecutando.
+- [x] ~~**Se podían armar equipos con alumnos que no cursan la materia**~~ — **RESUELTO.**
+  La nota grupal no les llegaba a ningún lado (no tienen inscripción donde escribirla) y
+  el equipo mentía sobre quiénes lo integran. Ahora se valida antes de crear nada, así
+  que un id inválido no deja el equipo a medio armar.
+- [x] ~~**Borrar un equipo con notas dejaba las calificaciones huérfanas**~~ — **RESUELTO.**
+  En Postgres habría sido una violación de FK (500); en SQLite pasaba en silencio.
+- [x] ~~**Aprobar por examen dejaba otras inscripciones a examen pendientes**~~ —
+  **RESUELTO.** Al aprobar la materia, las demás inscripciones en INSCRIPTO pasan a BAJA
+  con fecha: si no, apuntaban a una materia cerrada, salían en las listas del docente y
+  contaban como rendición al calificarlas. No afecta a otras materias del alumno, y las
+  bajas no consumen oportunidades.
+
+**`auth/` v2 está en buen estado.** El fail-open de la blacklist de Redis y el TTL
+compartido con los tokens de v1 ya estaban corregidos por una auditoría previa. Los dos
+controles de OAuth existen **y se ejecutan**: validación de dominio institucional en el
+callback (vía claim `hd`, que las cuentas personales no traen) y whitelist anti
+open-redirect sobre `redirect_to`.
+
+### Clave de firma con default público — RESUELTO
+
+`SECRET_KEY` cae al literal `"your-secret-key-change-in-production"` en **tres** lugares
+(`v2/auth/security.py`, `database/services/auth/security.py`, `main.py`). Producción la
+tiene configurada, así que nunca hubo problema activo, pero un despliegue futuro sin esa
+variable habría arrancado normal firmando los JWT con una cadena publicada en el repo.
+
+- [x] **`utils/config_guard.py`**: si `ENVIRONMENT=production` y `SECRET_KEY` falta o es
+  el placeholder, la aplicación **no arranca** y el mensaje dice exactamente qué corregir.
+  Se ejecuta al principio del lifespan, antes de tocar la base.
+
+  No puede romper producción, donde la variable está seteada — verificado con tests que
+  cubren ausente / vacía / placeholder / clave real, dentro y fuera de producción.
+
+  Deliberadamente **no** valida el largo de la clave: una regla así podría rechazar una
+  clave real corta y tirar abajo un despliegue que venía funcionando.
+
+### Sin revisar
+
+Con esto queda cubierto todo v2. **De v1 solo se miró el scheduler.**
+
+---
+
+## Seguridad — acción operativa pendiente
+
+Ver `AUDITORIA_SEGURIDAD.md` para el detalle completo. La única que no se arregla con
+código y hay que hacer en producción:
+
+- [ ] **Rotar / eliminar el usuario `admin@gmail.com`** si se usó alguna vez para
+  bootstrapear producción. La contraseña `Admin@123` estuvo hardcodeada en el repo y
+  sigue siendo válida hasta que se rote. El código ya no la usa, pero eso no cambia la
+  fila que pueda existir en la base.
+
+---
+
+## Google OAuth — Consola de Google Cloud
+
+- [ ] Orígenes de JS autorizados de develop y producción
+- [ ] URI de callback de develop: `https://backend-backend-ctc-develop.vtu0xl.easypanel.host/v2/auth/google/callback`
+- [ ] `OAUTH_ALLOWED_REDIRECT_ORIGINS` con los orígenes del frontend Next.js
 
 ## Proxy inverso (Easypanel / Traefik)
 
-El backend corre detras de un proxy inverso que termina SSL. Sin la configuracion de `--proxy-headers`, FastAPI recibe las requests como `http://` en lugar de `https://`, lo que causa error **"Redirect URI Mismatch"** con Google OAuth.
+El backend corre detrás de un proxy que termina SSL. Ya aplicado: `--proxy-headers` y
+`--forwarded-allow-ips='*'` en `Procfile` + `ProxyHeadersMiddleware` en `main.py` (evita
+el "Redirect URI Mismatch" de OAuth). Pendiente:
+- [ ] Verificar que Google OAuth funciona en develop y en producción (redirección HTTPS)
 
-**Solucion aplicada:** Se agrego `--proxy-headers` y `--forwarded-allow-ips='*'` en uvicorn (`Procfile`), y se agrego el middleware `ProxyHeadersMiddleware` en `main.py`. Esto hace que FastAPI confie en los encabezados `X-Forwarded-Proto` y `X-Forwarded-For` del proxy.
+---
 
-- [ ] Verificar que Google OAuth funciona correctamente en develop (redireccion HTTPS)
-- [ ] Verificar que Google OAuth funciona correctamente en produccion
+## Rollback
+
+- Refactor alumno/profesor (13): `alembic downgrade 9a3f7c1e5b28` → estado previo. Ojo:
+  el downgrade corta si hay usuarios sin email creados después del upgrade.
+- Índices (14): `alembic downgrade 9a3f7c1e5b28` los quita (no afecta datos).
+- Semestre + profesor.activo (15): `alembic downgrade b7e2c9f14a30` quita las dos columnas.
+  Se pierde el semestre cargado en las instancias; los datos académicos no se tocan.
+- Fase 2 (rendiciones): `alembic downgrade 4d769166125d`
+- Fases 1+2 completas: `alembic downgrade f3g4h5i6j7k8`
+- videoUrl en testimony: `alembic downgrade bad9dad1cc40`
+- Todo v2: `alembic downgrade 055950855a1a` (elimina todas las tablas v2)
+
+---
 
 ## Notas
 
-- Las tablas v2 coexisten con las v1 (user, career, testimony, news)
-- No hay FK entre tablas v1 y v2
-- El codigo v2 esta en el directorio `v2/` y no afecta el funcionamiento actual
-- Si se necesita rollback completo: `alembic downgrade 055950855a1a` (elimina todas las tablas v2)
-- Si se necesita rollback solo de Fase 2 (rendiciones): `alembic downgrade 4d769166125d` (quita max_oportunidades, numero_rendicion, motivo_revalida)
-- Si se necesita rollback de Fases 1+2: `alembic downgrade f3g4h5i6j7k8` (quita todo de Fase 1 y 2)
-- Si se necesita rollback de videoUrl en testimony: `alembic downgrade bad9dad1cc40` (quita videoUrl, restaura testimony_video)
+- Las tablas v2 coexisten con las v1 (`user`, `career`, `testimony`, `news`). No hay FK entre v1 y v2.
+- **`alembic/env.py`:** faltaban imports de `Career`, `Testimony`, `News` en `target_metadata`,
+  lo que hacía que `--autogenerate` las marcara como "removidas" (riesgo de DROP TABLE si se
+  aceptaba sin revisar). Corregido. **Todo autogenerate futuro debe revisarse a mano** — el diff
+  todavía puede traer ruido de tablas legacy (`author`, `profile`, `post`, `example`).
+
+---
+
+## Apéndice — Migraciones 1–12 (ya aplicadas, referencia histórica)
+
+| # | Revisión | Qué hizo |
+|---|---|---|
+| 1 | `c80c0cfd30d6` | Crea las 15 tablas iniciales del portal académico |
+| 2 | `d1a2b3c4d5e6` | Refactor: `alumno`, `profesor`, `administrativo_perfil`, `inscripcion_programa`, `instancia_cursado`, `instancia_examen`, `docente_instancia_examen`. DROP `periodo_examen` |
+| 3 | `e2f3g4h5i6j7` | Faltas: `instancia_cursado.faltas_maximas`, `inscripcion_materia.faltas` |
+| 4 | `f3g4h5i6j7k8` | Seed de previaturas (Analista Programador + Técnico en Gestión) |
+| 5 | `a1b2c3d4e5f6` | Columnas en `usuario`: `email_personal`, `fecha_nacimiento`, `domicilio`, `eliminado`, `fecha_eliminacion`, `id_rastreo` |
+| 7 | `4d769166125d` | Fase 1: tabla `documento_usuario` + enum `TipoDocumento` + columnas de planilla admin |
+| 8 | `087c21eff7fd` | Fase 2: `max_oportunidades`, `numero_rendicion`, `motivo_revalida` |
+| 9 | `b2c3d4e5f6g7` | Fase 5: tabla `notificacion_log` + `inscripcion_materia.notificacion_calificacion_enviada` |
+| 10 | `4fd4c9f395dd` | Merge de heads (no-op, ordena el historial de Alembic) |
+| 11 | `bad9dad1cc40` | Tabla `testimony_video` (intermedia, la 12 la elimina) |
+| 12 | `e578594a9f4b` | Reemplaza `testimony_video` por `testimony.videoUrl` |
+
+> (No hay migración 6 en la numeración original; el salto 5→7 viene del documento previo.)

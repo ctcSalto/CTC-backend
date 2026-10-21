@@ -54,10 +54,14 @@ def extract_user_data(user_info: dict) -> dict:
     }
 
 
-def get_role_from_ou(email: str) -> tuple[Optional[str], RolUsuario]:
+def get_role_from_ou(email: str) -> tuple[Optional[str], Optional[RolUsuario]]:
     """
     Obtiene la OU del usuario via n8n y la mapea a un rol.
-    Retorna (ou_path, rol).
+
+    Retorna (ou_path, rol), y el rol es None cuando no se pudo determinar.
+    Quien llama tiene que distinguir "no se sabe" de "es estudiante": el rol
+    se re-escribe en cada login, asi que tomar el default cuando la consulta
+    falla degrada a estudiante a todos los que entren.
     """
     ou_path = n8n_ou_client.get_user_ou(email)
     rol = N8nOUClient.ou_to_rol(ou_path)

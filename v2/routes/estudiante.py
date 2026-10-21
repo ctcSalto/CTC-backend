@@ -6,13 +6,16 @@ from typing import Optional
 
 from database.database import get_session
 from v2.services import V2Services, get_v2_services
-from v2.auth.dependencies import require_estudiante
+from v2.auth.dependencies import require_estudiante, get_current_alumno
+from v2.models.alumno import Alumno
 from v2.models.usuario import UsuarioRead
-from v2.models.inscripcion_materia import InscripcionMateriaRead
+from v2.models.inscripcion_materia import InscripcionMateriaRead, EscolaridadRead
 from v2.models.calificacion import CalificacionRead
 from v2.models.inscripcion_examen import InscripcionExamenRead
 from v2.models.documento_usuario import DocumentoUsuarioRead
 from v2.models.enums import TipoDocumento
+from v2.models.historico import LegajoHistoricoRead
+from v2.models.avance import AvanceCarreraRead
 
 router = APIRouter(
     prefix="/v2/portal/estudiante",
@@ -22,6 +25,28 @@ router = APIRouter(
 
 class InscribirseRequest(BaseModel):
     instancia_cursado_id: int
+
+
+# -- Helpers -------------------------------------------------------------------
+
+def _validar_inscripto_en_programa(alumno_id: int, programa_id: int, session: Session):
+    """
+    Valida que el alumno tenga una inscripcion ACTIVA al programa.
+    Sin esto, cualquier estudiante puede leer el plan de estudios completo de
+    programas ajenos pasando el id por query.
+    """
+    from v2.models.inscripcion_programa import InscripcionPrograma
+    from v2.models.enums import EstadoInscripcionPrograma
+
+    inscripcion = session.exec(
+        select(InscripcionPrograma).where(
+            InscripcionPrograma.alumno_id == alumno_id,
+            InscripcionPrograma.programa_id == programa_id,
+            InscripcionPrograma.estado == EstadoInscripcionPrograma.ACTIVA,
+        )
+    ).first()
+    if not inscripcion:
+        raise HTTPException(status_code=403, detail="No estas inscripto en este programa")
 
 
 # -- Perfil y programas -------------------------------------------------------
@@ -49,18 +74,12 @@ async def mi_perfil(
 @router.get("/mis-programas")
 async def mis_programas(
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
     """Programas a los que el estudiante está inscripto"""
-    from v2.models.alumno import Alumno
     from v2.models.programa import Programa
-    alumno = session.exec(
-        select(Alumno).where(Alumno.usuario_id == current_usuario.id)
-    ).first()
-    if not alumno:
-        return []
-
     inscripciones = v2_services.inscripcionProgramaService.get_programas_alumno(alumno.id, session)
     resultado = []
     for insc in inscripciones:
@@ -82,19 +101,13 @@ async def mis_programas(
 async def ver_programa(
     programa_id: int,
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
     """Ver info de un programa al que está inscripto (con materias)"""
-    from v2.models.alumno import Alumno
     from v2.models.inscripcion_programa import InscripcionPrograma
     from v2.models.enums import EstadoInscripcionPrograma
-
-    alumno = session.exec(
-        select(Alumno).where(Alumno.usuario_id == current_usuario.id)
-    ).first()
-    if not alumno:
-        raise HTTPException(status_code=404, detail="Perfil de alumno no encontrado")
 
     inscripcion = session.exec(
         select(InscripcionPrograma).where(
@@ -116,12 +129,13 @@ async def ver_programa(
 async def mapa_previaturas(
     programa_id: int,
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
     """Mapa de previaturas con estado del alumno en cada materia"""
     return v2_services.inscripcionService.get_mapa_previaturas(
-        current_usuario.id, programa_id, session
+        alumno.id, programa_id, session
     )
 
 
@@ -131,12 +145,13 @@ async def mapa_previaturas(
 async def mis_materias(
     anio_lectivo: int = Query(..., description="Año lectivo"),
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
     """Materias inscriptas del estudiante en un año lectivo"""
     return v2_services.inscripcionService.get_mis_materias(
-        current_usuario.id, anio_lectivo, session
+        alumno.id, anio_lectivo, session
     )
 
 
@@ -144,29 +159,56 @@ async def mis_materias(
 async def mi_materia_detalle(
     inscripcion_id: int,
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
     """Detalle completo de una materia (notas, faltas, estado)"""
     try:
         return v2_services.inscripcionService.get_detalle_materia(
-            inscripcion_id, current_usuario.id, session
+            inscripcion_id, alumno.id, session
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/mi-escolaridad")
+@router.get("/mi-escolaridad", response_model=EscolaridadRead)
 async def mi_escolaridad(
     programa_id: int = Query(..., description="ID del programa"),
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
     """Vista de escolaridad completa del estudiante en un programa"""
     return v2_services.inscripcionService.get_escolaridad(
-        current_usuario.id, programa_id, session
+        alumno.id, programa_id, session
     )
+
+
+@router.get(
+    "/mi-historico",
+    response_model=LegajoHistoricoRead,
+    summary="Legajo historico del estudiante",
+    description="Lo que bedelia tenia en la planilla de escolaridades antes del "
+                "portal, buscado por el documento del usuario. 404 si el usuario no "
+                "tiene documento cargado o no figura en el historico. No requiere "
+                "perfil de alumno: un egresado de hace 15 años tampoco lo tiene.",
+)
+async def mi_historico(
+    current_usuario: UsuarioRead = Depends(require_estudiante),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    if not current_usuario.documento:
+        raise HTTPException(
+            status_code=404,
+            detail="No tenes documento cargado en tu usuario. Pedile a bedelia que lo agregue.",
+        )
+    legajo = v2_services.historicoService.legajo_por_documento(session, current_usuario.documento)
+    if not legajo:
+        raise HTTPException(status_code=404, detail="No hay legajo historico para tu documento")
+    return legajo
 
 
 @router.get("/materias-disponibles")
@@ -174,12 +216,35 @@ async def materias_disponibles(
     programa_id: int = Query(..., description="ID del programa"),
     anio_lectivo: int = Query(..., description="Anio lectivo"),
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
     """Materias a las que el estudiante puede inscribirse"""
     return v2_services.inscripcionService.get_materias_disponibles(
-        current_usuario.id, programa_id, anio_lectivo, session
+        alumno.id, programa_id, anio_lectivo, session
+    )
+
+
+@router.get("/materias-habilitadas")
+async def materias_habilitadas(
+    programa_id: int = Query(..., description="ID del programa"),
+    current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """
+    Materias a las que el estudiante puede inscribirse en el semestre activo.
+
+    El semestre activo lo define el periodo de inscripcion abierto del programa.
+    Aplica las mismas validaciones que el POST de inscripcion (periodo,
+    previaturas, estado de la instancia y cupo), asi que puede_inscribirse no
+    deberia contradecir al alta.
+    """
+    _validar_inscripto_en_programa(alumno.id, programa_id, session)
+    return v2_services.inscripcionService.get_materias_habilitadas(
+        alumno.id, programa_id, session
     )
 
 
@@ -187,13 +252,14 @@ async def materias_disponibles(
 async def inscribirse_materia(
     data: InscribirseRequest,
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
     """Inscribirse a una materia via instancia de cursado (valida previaturas y periodo activo)"""
     try:
         return v2_services.inscripcionService.inscribir_materia(
-            usuario_id=current_usuario.id,
+            alumno_id=alumno.id,
             instancia_cursado_id=data.instancia_cursado_id,
             session=session,
         )
@@ -205,6 +271,7 @@ async def inscribirse_materia(
 async def mis_calificaciones(
     inscripcion_id: int,
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
@@ -213,7 +280,7 @@ async def mis_calificaciones(
     inscripcion = session.get(InscripcionMateria, inscripcion_id)
     if not inscripcion:
         raise HTTPException(status_code=404, detail="Inscripcion no encontrada")
-    if inscripcion.usuario_id != current_usuario.id:
+    if inscripcion.alumno_id != alumno.id:
         raise HTTPException(status_code=403, detail="No es tu inscripcion")
 
     calificaciones = v2_services.calificacionService.get_calificaciones_inscripcion(
@@ -233,6 +300,7 @@ class InscribirseExamenRequest(BaseModel):
 async def inscribirse_examen(
     data: InscribirseExamenRequest,
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
@@ -241,7 +309,7 @@ async def inscribirse_examen(
     inscripcion = session.get(InscripcionMateria, data.inscripcion_materia_id)
     if not inscripcion:
         raise HTTPException(status_code=404, detail="Inscripcion a materia no encontrada")
-    if inscripcion.usuario_id != current_usuario.id:
+    if inscripcion.alumno_id != alumno.id:
         raise HTTPException(status_code=403, detail="No es tu inscripcion")
 
     try:
@@ -259,6 +327,7 @@ async def inscribirse_examen(
 async def mis_examenes(
     inscripcion_id: int,
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
@@ -267,7 +336,7 @@ async def mis_examenes(
     inscripcion = session.get(InscripcionMateria, inscripcion_id)
     if not inscripcion:
         raise HTTPException(status_code=404, detail="Inscripcion no encontrada")
-    if inscripcion.usuario_id != current_usuario.id:
+    if inscripcion.alumno_id != alumno.id:
         raise HTTPException(status_code=403, detail="No es tu inscripcion")
 
     examenes = v2_services.inscripcionExamenService.get_examenes_estudiante(
@@ -280,6 +349,7 @@ async def mis_examenes(
 async def desinscribir_examen(
     inscripcion_examen_id: int,
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
@@ -290,7 +360,7 @@ async def desinscribir_examen(
 
     from v2.models.inscripcion_materia import InscripcionMateria
     inscripcion = session.get(InscripcionMateria, ie.inscripcion_materia_id)
-    if not inscripcion or inscripcion.usuario_id != current_usuario.id:
+    if not inscripcion or inscripcion.alumno_id != alumno.id:
         raise HTTPException(status_code=403, detail="No es tu inscripcion")
 
     try:
@@ -305,13 +375,14 @@ async def desinscribir_examen(
 async def desinscribir_materia(
     inscripcion_id: int,
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
     """Desinscribirse de una materia (solo si está CURSANDO y dentro de período activo)"""
     try:
         v2_services.inscripcionService.desinscribir_materia(
-            inscripcion_id, current_usuario.id, session
+            inscripcion_id, alumno.id, session
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -321,6 +392,7 @@ async def desinscribir_materia(
 async def examenes_disponibles(
     programa_id: int = Query(..., description="ID del programa"),
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
@@ -343,7 +415,7 @@ async def examenes_disponibles(
         .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
         .join(Materia, InstanciaCursado.materia_id == Materia.id)
         .where(
-            InscripcionMateria.usuario_id == current_usuario.id,
+            InscripcionMateria.alumno_id == alumno.id,
             InscripcionMateria.estado == EstadoInscripcionMateria.A_EXAMEN,
             Materia.programa_id == programa_id,
         )
@@ -389,9 +461,31 @@ async def examenes_disponibles(
     return resultado
 
 
+@router.get("/examenes-habilitados")
+async def examenes_habilitados(
+    programa_id: int = Query(..., description="ID del programa"),
+    current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    """
+    Examenes a los que el estudiante puede inscribirse en un programa.
+
+    Aplica las mismas validaciones que el POST de inscripcion a examen
+    (estado A_EXAMEN, plazo, politica de examen y oportunidades de rendicion),
+    asi que puede_inscribirse no deberia contradecir al alta.
+    """
+    _validar_inscripto_en_programa(alumno.id, programa_id, session)
+    return v2_services.inscripcionExamenService.get_examenes_habilitados(
+        alumno.id, programa_id, session
+    )
+
+
 @router.get("/todos-mis-examenes")
 async def todos_mis_examenes(
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     session: Session = Depends(get_session),
 ):
     """Todos los exámenes del alumno (todas las materias), ordenados por fecha"""
@@ -405,7 +499,7 @@ async def todos_mis_examenes(
         select(InscripcionExamen, InscripcionMateria, InstanciaExamen)
         .join(InscripcionMateria, InscripcionExamen.inscripcion_materia_id == InscripcionMateria.id)
         .join(InstanciaExamen, InscripcionExamen.instancia_examen_id == InstanciaExamen.id)
-        .where(InscripcionMateria.usuario_id == current_usuario.id)
+        .where(InscripcionMateria.alumno_id == alumno.id)
         .order_by(InstanciaExamen.fecha_examen.desc())
     ).all()
 
@@ -433,14 +527,47 @@ async def todos_mis_examenes(
 async def mi_egreso(
     programa_id: int = Query(..., description="ID del programa"),
     current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
     """Verificar mi progreso de egreso en un programa"""
     try:
         return v2_services.egresoService.verificar_egreso(
-            current_usuario.id, programa_id, session
+            alumno.id, programa_id, session
         )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get(
+    "/mi-avance",
+    response_model=AvanceCarreraRead,
+    summary="Mi avance en una carrera",
+    description="Las materias activas del plan repartidas en aprobadas, cursando, a_examen y "
+                "pendientes (cada una en una sola lista). Las pendientes dicen si hoy cumple las "
+                "previaturas. Lo aprobado en otros planes de la misma carrera va aparte.",
+)
+async def mi_avance(
+    programa_id: int = Query(..., description="ID del programa (el plan de la carrera)"),
+    current_usuario: UsuarioRead = Depends(require_estudiante),
+    alumno: Alumno = Depends(get_current_alumno),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+):
+    from v2.models.inscripcion_programa import InscripcionPrograma
+
+    # Cualquier estado: un alumno con la carrera suspendida tambien ve su avance
+    inscripto = session.exec(
+        select(InscripcionPrograma.id).where(
+            InscripcionPrograma.alumno_id == alumno.id,
+            InscripcionPrograma.programa_id == programa_id,
+        )
+    ).first()
+    if inscripto is None:
+        raise HTTPException(status_code=403, detail="No estas inscripto en este programa")
+    try:
+        return v2_services.avanceService.avance(alumno.id, programa_id, session)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -457,6 +584,7 @@ async def subir_documento(
     session: Session = Depends(get_session),
 ):
     """Subir un documento propio (PDF o imagen). Las imagenes se convierten a WebP automaticamente."""
+    # Los documentos pertenecen a la persona (usuario), no al perfil academico
     return await v2_services.localFileService.upload(
         archivo=archivo,
         usuario_id=current_usuario.id,

@@ -26,7 +26,12 @@ class PoliticaCalificacion(SQLModel, table=True):
     descripcion: Optional[str] = Field(default=None, description="Explicación de la política")
     nota_maxima: Decimal = Field(max_digits=5, decimal_places=2, description="100, 12, etc.")
     tipo_nota: TipoNota = Field(default=TipoNota.NUMERICA, description="Tipo de escala")
-    umbral_aprobacion: Decimal = Field(max_digits=5, decimal_places=2, description="Mínimo para aprobar directo (cursos cortos)")
+    umbral_aprobacion: Decimal = Field(
+        max_digits=5, decimal_places=2,
+        description="Mínimo para aprobar directo. Solo se usa cuando umbral_examen "
+                    "es NULL (cursos cortos): si hay umbral_examen, el motor decide "
+                    "entre A_EXAMEN y REPROBADO y este valor no interviene"
+    )
     umbral_examen: Optional[Decimal] = Field(default=None, max_digits=5, decimal_places=2, description="Mínimo para derecho a examen (null si no aplica)")
     umbral_exoneracion: Optional[Decimal] = Field(default=None, max_digits=5, decimal_places=2, description="Mínimo para exonerar (null si no aplica)")
     activo: bool = Field(default=True)

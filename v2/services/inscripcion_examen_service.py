@@ -1,6 +1,6 @@
 from typing import Optional, List
 from decimal import Decimal
-from sqlmodel import Session, select
+from sqlmodel import Session, select, col
 
 from database.services.filter.filters import BaseServiceWithFilters
 from v2.models.inscripcion_examen import InscripcionExamen
@@ -9,7 +9,9 @@ from v2.models.instancia_examen import InstanciaExamen
 from v2.models.instancia_cursado import InstanciaCursado
 from v2.models.materia import Materia
 from v2.models.politica_examen import PoliticaExamen
-from v2.models.enums import EstadoInscripcionMateria, EstadoInscripcionExamen
+from v2.models.usuario import Usuario
+from v2.models.alumno import Alumno
+from v2.models.enums import EstadoInscripcionMateria, EstadoInscripcionExamen, EstadoInstanciaExamen
 
 import os
 from datetime import datetime, timedelta
@@ -21,11 +23,144 @@ def get_uruguay_tz():
     return ZoneInfo(tz_name)
 
 
+def _usuario_de_alumno(alumno_id: int, session: Session) -> Optional[Usuario]:
+    """
+    Resuelve el Usuario (la persona) detras de un perfil de alumno.
+    Necesario para nombres y notificaciones: esos datos viven en Usuario,
+    no en el perfil academico.
+    """
+    alumno = session.get(Alumno, alumno_id)
+    return session.get(Usuario, alumno.usuario_id) if alumno else None
+
+
 class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
     def __init__(self):
         super().__init__(InscripcionExamen)
 
     # -- Inscribir a examen ---------------------------------------------------
+
+    # ── Limites del periodo de examen ─────────────────────────────────────────
+    #
+    # Dos reglas de la institucion: no mas de 4 examenes por periodo y no dos el
+    # mismo dia. Las dos son DURAS: aplican tambien cuando inscribe bedelia, a
+    # diferencia del plazo de inscripcion, que si tiene bypass.
+    #
+    # El periodo es la MESA a la que pertenece el examen (mesa_examen_id).
+    # Antes era el mes calendario de fecha_examen, y eso fallaba de dos formas:
+    # una mesa que cruzaba fin de mes contaba doble, y dos mesas dentro de un
+    # mismo mes contaban como una. Con la mesa, dos examenes son del mismo
+    # periodo porque bedelia lo dijo.
+    #
+    # Los examenes sin mesa siguen agrupandose por mes: es lo que hay cargado de
+    # antes y no se puede adivinar a que mesa pertenecian. Ojo con la
+    # consecuencia: un examen con mesa y uno sin mesa NO cuentan juntos aunque
+    # caigan en el mismo mes. Se resuelve asignandole mesa a todos.
+    MAX_EXAMENES_POR_PERIODO = 4
+
+    # Una baja libera el lugar; todo lo demas ocupa, incluso lo ya rendido, para
+    # que no se pueda pasar el tope rindiendo y volviendo a anotarse en el mes.
+    _ESTADOS_QUE_OCUPAN_LUGAR = tuple(
+        estado for estado in EstadoInscripcionExamen
+        if estado != EstadoInscripcionExamen.BAJA
+    )
+
+    @staticmethod
+    def _clave_periodo(mesa_examen_id: Optional[int], fecha: datetime) -> tuple:
+        """
+        Identifica el periodo de un examen.
+
+        Con mesa, la mesa. Sin mesa, el mes calendario. Las dos claves llevan un
+        discriminante distinto para que nunca se comparen entre si por accidente.
+        """
+        if mesa_examen_id is not None:
+            return ("mesa", mesa_examen_id)
+        return ("mes", fecha.year, fecha.month)
+
+    @classmethod
+    def _evaluar_limites(
+        cls,
+        fecha_examen: Optional[datetime],
+        ocupadas: List[tuple],
+        mesa_examen_id: Optional[int] = None,
+        max_examenes: Optional[int] = None,
+    ) -> List[str]:
+        """
+        Regla pura, sin base: que impide anotarse a este examen.
+
+        `ocupadas` son tuplas (mesa_examen_id, fecha_examen) de las
+        inscripciones que el alumno ya tiene y que no estan de baja. Se separo de
+        la consulta para poder evaluarla en lote en la pantalla de examenes
+        habilitados.
+
+        `max_examenes` permite que una mesa tenga un tope propio; en None se usa
+        el general.
+        """
+        if fecha_examen is None:
+            return []
+
+        tope = max_examenes if max_examenes is not None else cls.MAX_EXAMENES_POR_PERIODO
+        motivos = []
+
+        if any(fecha.date() == fecha_examen.date() for _, fecha in ocupadas):
+            motivos.append(
+                f"Ya tenes un examen el {fecha_examen.strftime('%d/%m/%Y')}. "
+                "No se puede rendir mas de uno por dia."
+            )
+
+        clave = cls._clave_periodo(mesa_examen_id, fecha_examen)
+        del_periodo = [
+            fecha for mesa_id, fecha in ocupadas
+            if cls._clave_periodo(mesa_id, fecha) == clave
+        ]
+        if len(del_periodo) >= tope:
+            motivos.append(
+                f"Ya estas anotado a {len(del_periodo)} examenes en este periodo. "
+                f"El maximo es {tope}."
+            )
+
+        return motivos
+
+    @staticmethod
+    def _fechas_ocupadas(alumno_id: int, session: Session) -> List[tuple]:
+        """
+        Examenes que el alumno ya tiene tomados: (mesa_examen_id, fecha).
+
+        Una sola consulta, para poder evaluar la regla en lote.
+        """
+        filas = session.exec(
+            select(InstanciaExamen.mesa_examen_id, InstanciaExamen.fecha_examen)
+            .join(
+                InscripcionExamen,
+                InscripcionExamen.instancia_examen_id == InstanciaExamen.id,
+            )
+            .join(
+                InscripcionMateria,
+                InscripcionExamen.inscripcion_materia_id == InscripcionMateria.id,
+            )
+            .where(
+                InscripcionMateria.alumno_id == alumno_id,
+                col(InscripcionExamen.estado).in_(
+                    InscripcionExamenService._ESTADOS_QUE_OCUPAN_LUGAR
+                ),
+            )
+        ).all()
+        return [(mesa_id, fecha) for mesa_id, fecha in filas if fecha is not None]
+
+    @staticmethod
+    def _topes_por_mesa(mesa_ids: List[int], session: Session) -> dict:
+        """Tope propio de cada mesa, para no consultar una por examen."""
+        ids = [mid for mid in mesa_ids if mid is not None]
+        if not ids:
+            return {}
+
+        from v2.models.mesa_examen import MesaExamen
+
+        filas = session.exec(
+            select(MesaExamen.id, MesaExamen.max_examenes).where(
+                col(MesaExamen.id).in_(set(ids))
+            )
+        ).all()
+        return {mesa_id: maximo for mesa_id, maximo in filas}
 
     def inscribir_examen(
         self,
@@ -41,6 +176,8 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
           - No debe tener otra inscripcion INSCRIPTO en la misma instancia
           - La instancia debe estar activa (salvo bypass_periodo para admin)
           - La materia debe tener politica_examen_id
+          - No mas de MAX_EXAMENES_POR_PERIODO en el mismo periodo, y no dos
+            examenes el mismo dia. Estas dos NO tienen bypass.
         """
         # 1. Validar inscripcion materia
         inscripcion = session.exec(
@@ -77,6 +214,20 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         ).first()
         if duplicado:
             raise ValueError("Ya existe una inscripcion pendiente a examen en esta instancia")
+
+        # 3b. Limites del periodo. Van sin bypass a proposito: son reglas de la
+        # institucion sobre cuanto puede rendir un alumno, no sobre plazos
+        # administrativos, asi que tampoco las puede saltear bedelia.
+        motivos_limite = self._evaluar_limites(
+            instancia.fecha_examen,
+            self._fechas_ocupadas(inscripcion.alumno_id, session),
+            mesa_examen_id=instancia.mesa_examen_id,
+            max_examenes=self._topes_por_mesa(
+                [instancia.mesa_examen_id], session
+            ).get(instancia.mesa_examen_id),
+        )
+        if motivos_limite:
+            raise ValueError(" ".join(motivos_limite))
 
         # 4. Obtener materia via instancia_cursado y validar política de examen
         ic = session.get(InstanciaCursado, inscripcion.instancia_cursado_id)
@@ -119,8 +270,7 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         object.__setattr__(inscripcion_examen, "id_rastreo_notificacion", None)
         try:
             from v2.services import get_v2_services
-            from v2.models.usuario import Usuario
-            usuario = session.get(Usuario, inscripcion.usuario_id)
+            usuario = _usuario_de_alumno(inscripcion.alumno_id, session)
             instancia = session.get(InstanciaExamen, instancia_examen_id)
             ic_obj = session.get(InstanciaCursado, inscripcion.instancia_cursado_id)
             mat_notif = session.get(Materia, ic_obj.materia_id) if ic_obj else None
@@ -172,11 +322,7 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
             self._aprobar_materia(ie.inscripcion_materia_id, nota, session)
         else:
             ie.estado = EstadoInscripcionExamen.REPROBADO
-            # Verificar si agotó todas las oportunidades
-            max_oport = int(snapshot.get("max_oportunidades", 5))
-            rendiciones = self._contar_rendiciones_previas(ie.inscripcion_materia_id, session)
-            if rendiciones >= max_oport:
-                self._reprobar_materia_por_rendiciones(ie.inscripcion_materia_id, max_oport, session)
+            self._verificar_oportunidades(ie, session)
 
         session.add(ie)
         session.commit()
@@ -190,7 +336,11 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         inscripcion_examen_id: int,
         session: Session,
     ) -> InscripcionExamen:
-        """Marca al estudiante como ausente. La materia queda en A_EXAMEN."""
+        """
+        Marca al estudiante como ausente (el NSP de bedelia). La materia queda
+        en A_EXAMEN, salvo que con esta ausencia agote las oportunidades: ahi
+        pasa a REPROBADO y debe recursar, igual que si hubiera reprobado.
+        """
         ie = session.exec(
             select(InscripcionExamen).where(InscripcionExamen.id == inscripcion_examen_id)
         ).first()
@@ -201,11 +351,82 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
                 f"Solo se puede marcar ausente una inscripcion en estado INSCRIPTO, actual: {ie.estado.value}"
             )
 
-        ie.estado = EstadoInscripcionExamen.AUSENTE
-        session.add(ie)
+        self._registrar_ausente(ie, session)
         session.commit()
         session.refresh(ie)
         return ie
+
+    # -- Cerrar acta ----------------------------------------------------------
+
+    def cerrar_acta(
+        self,
+        instancia_examen_id: int,
+        session: Session,
+        materia_id: Optional[int] = None,
+    ) -> dict:
+        """
+        Cierra el acta de un examen: los que siguen INSCRIPTO (no se dieron de
+        baja a tiempo y no tienen nota) pasan a AUSENTE, y el examen queda
+        FINALIZADO.
+
+        Es la regla de bedelia (23/09/2026): inscripto que no se da de baja 24
+        horas antes y no se presenta queda NSP, cuenta como actividad rendida
+        (0 en el promedio) y gasta una oportunidad. Se hace al cerrar el acta
+        y no por fecha para no marcar a nadie mientras el docente todavia esta
+        cargando notas: cerrar es explicito.
+
+        `materia_id` lo pasa la ruta del docente, para que solo pueda cerrar
+        examenes de su materia. Se puede volver a llamar: si ya estaba cerrada,
+        no queda nadie INSCRIPTO y no cambia nada.
+        """
+        instancia = session.get(InstanciaExamen, instancia_examen_id)
+        if not instancia:
+            raise ValueError(f"Instancia de examen {instancia_examen_id} no encontrada")
+        if materia_id is not None and instancia.materia_id != materia_id:
+            raise ValueError("Ese examen no es de esta materia")
+        if instancia.estado == EstadoInstanciaExamen.CANCELADO:
+            raise ValueError("El examen esta cancelado: no hay acta que cerrar")
+
+        ahora = datetime.now(get_uruguay_tz()).replace(tzinfo=None)
+        if instancia.fecha_examen and instancia.fecha_examen > ahora:
+            raise ValueError("El examen todavia no se tomo: el acta se cierra despues de la fecha del examen")
+
+        inscripciones = session.exec(
+            select(InscripcionExamen).where(InscripcionExamen.instancia_examen_id == instancia_examen_id)
+        ).all()
+
+        ausentes = []
+        for ie in inscripciones:
+            if ie.estado != EstadoInscripcionExamen.INSCRIPTO:
+                continue
+            agoto = self._registrar_ausente(ie, session)
+            im = session.get(InscripcionMateria, ie.inscripcion_materia_id)
+            usuario = _usuario_de_alumno(im.alumno_id, session) if im else None
+            ausentes.append({
+                "inscripcion_examen_id": ie.id,
+                "alumno_id": im.alumno_id if im else None,
+                "nombre": usuario.nombre if usuario else "",
+                "apellido": usuario.apellido if usuario else "",
+                "agoto_oportunidades": agoto,
+            })
+
+        instancia.estado = EstadoInstanciaExamen.FINALIZADO
+        session.add(instancia)
+        session.commit()
+
+        cuenta = {e: 0 for e in EstadoInscripcionExamen}
+        for ie in inscripciones:
+            session.refresh(ie)
+            cuenta[ie.estado] += 1
+        return {
+            "instancia_examen_id": instancia_examen_id,
+            "estado": instancia.estado.value,
+            "marcados_ausentes": ausentes,
+            "aprobados": cuenta[EstadoInscripcionExamen.APROBADO],
+            "reprobados": cuenta[EstadoInscripcionExamen.REPROBADO],
+            "ausentes": cuenta[EstadoInscripcionExamen.AUSENTE],
+            "bajas": cuenta[EstadoInscripcionExamen.BAJA],
+        }
 
     # -- Consultas ------------------------------------------------------------
 
@@ -233,18 +454,15 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
             .where(InscripcionExamen.instancia_examen_id == instancia_examen_id)
         ).all()
 
-        from v2.models.usuario import Usuario
         items = []
         for ie, im in resultados:
-            usuario = session.exec(
-                select(Usuario).where(Usuario.id == im.usuario_id)
-            ).first()
+            usuario = _usuario_de_alumno(im.alumno_id, session)
             ic = session.get(InstanciaCursado, im.instancia_cursado_id)
             materia = session.get(Materia, ic.materia_id) if ic else None
             items.append({
                 "inscripcion_examen_id": ie.id,
                 "inscripcion_materia_id": im.id,
-                "usuario_id": im.usuario_id,
+                "alumno_id": im.alumno_id,
                 "nombre": usuario.nombre if usuario else "",
                 "apellido": usuario.apellido if usuario else "",
                 "materia_nombre": materia.nombre if materia else "",
@@ -270,7 +488,12 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         """
         Desinscribirse de un examen (soft-delete).
         - Solo si esta en estado INSCRIPTO
-        - Solo hasta 72 horas antes de la fecha del examen (configurable)
+        - Solo hasta 24 horas antes de la fecha del examen (PLAZO_BAJA_EXAMEN_HORAS)
+
+        El plazo es regla de bedelia (23/09/2026): quien se inscribio y no se
+        dio de baja 24 horas antes y no se presenta queda NSP, que cuenta como
+        actividad rendida (0 en el promedio de la escolaridad) y gasta una
+        oportunidad de examen. Antes el default era 72.
         """
         ie = session.exec(
             select(InscripcionExamen).where(InscripcionExamen.id == inscripcion_examen_id)
@@ -280,10 +503,10 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         if ie.estado != EstadoInscripcionExamen.INSCRIPTO:
             raise ValueError("Solo se puede desinscribir una inscripcion en estado INSCRIPTO")
 
-        # Validar plazo de baja (72 horas antes del examen)
+        # Validar plazo de baja (24 horas antes del examen)
         instancia = session.get(InstanciaExamen, ie.instancia_examen_id)
         if instancia and instancia.fecha_examen:
-            plazo_horas = int(os.getenv("PLAZO_BAJA_EXAMEN_HORAS", "72"))
+            plazo_horas = int(os.getenv("PLAZO_BAJA_EXAMEN_HORAS", "24"))
             tz = get_uruguay_tz()
             ahora = datetime.now(tz).replace(tzinfo=None)
             limite = instancia.fecha_examen - timedelta(hours=plazo_horas)
@@ -334,14 +557,248 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         materia = session.get(Materia, ic.materia_id) if ic else None
         creditos = materia.creditos if materia else 0
 
+        ahora = datetime.now(get_uruguay_tz())
+
         inscripcion.estado = EstadoInscripcionMateria.APROBADO
         inscripcion.nota_final = nota_examen
         inscripcion.creditos_obtenidos = creditos
-        inscripcion.fecha_cierre = datetime.now(get_uruguay_tz())
-
+        inscripcion.fecha_cierre = ahora
         session.add(inscripcion)
+
+        # Con la materia aprobada, cualquier otra inscripcion a examen pendiente
+        # dejo de tener sentido: el alumno ya no tiene que rendir nada. Si se
+        # dejaran en INSCRIPTO quedarian apuntando a una materia cerrada, saldrian
+        # en las listas del docente y contarian como rendicion al calificarlas.
+        pendientes = session.exec(
+            select(InscripcionExamen).where(
+                InscripcionExamen.inscripcion_materia_id == inscripcion_materia_id,
+                InscripcionExamen.estado == EstadoInscripcionExamen.INSCRIPTO,
+            )
+        ).all()
+        for pendiente in pendientes:
+            pendiente.estado = EstadoInscripcionExamen.BAJA
+            pendiente.fecha_baja = ahora
+            session.add(pendiente)
+
         session.commit()
         session.refresh(inscripcion)
+
+    # -- Precarga en lote ------------------------------------------------------
+
+    @staticmethod
+    def _politicas_por_id(politica_ids, session: Session) -> dict:
+        ids = {pid for pid in politica_ids if pid is not None}
+        if not ids:
+            return {}
+        return {
+            p.id: p for p in session.exec(
+                select(PoliticaExamen).where(col(PoliticaExamen.id).in_(ids))
+            ).all()
+        }
+
+    @staticmethod
+    def _contar_rendiciones_en_lote(inscripcion_ids: List[int], session: Session) -> dict:
+        """Rendiciones consumidas por inscripcion. Mismo criterio que el conteo individual."""
+        if not inscripcion_ids:
+            return {}
+        from sqlalchemy import func
+
+        filas = session.exec(
+            select(
+                InscripcionExamen.inscripcion_materia_id,
+                func.count(InscripcionExamen.id),
+            )
+            .where(
+                col(InscripcionExamen.inscripcion_materia_id).in_(inscripcion_ids),
+                col(InscripcionExamen.estado).in_([
+                    EstadoInscripcionExamen.APROBADO,
+                    EstadoInscripcionExamen.REPROBADO,
+                    EstadoInscripcionExamen.AUSENTE,
+                ]),
+            )
+            .group_by(InscripcionExamen.inscripcion_materia_id)
+        ).all()
+        return {insc_id: total for insc_id, total in filas}
+
+    @staticmethod
+    def _instancias_abiertas(materia_ids: List[int], ahora, session: Session) -> dict:
+        """Instancias de examen con la inscripcion abierta, agrupadas por materia."""
+        if not materia_ids:
+            return {}
+
+        instancias = session.exec(
+            select(InstanciaExamen)
+            .where(
+                col(InstanciaExamen.materia_id).in_(materia_ids),
+                InstanciaExamen.habilitado == True,
+                InstanciaExamen.fecha_inicio_inscripcion <= ahora,
+                InstanciaExamen.fecha_fin_inscripcion >= ahora,
+            )
+            .order_by(InstanciaExamen.fecha_examen)
+        ).all()
+
+        por_materia: dict[int, list] = {}
+        for inst in instancias:
+            por_materia.setdefault(inst.materia_id, []).append(inst)
+        return por_materia
+
+    @staticmethod
+    def _inscripciones_vigentes(inscripcion_ids: List[int], session: Session) -> set:
+        """Pares (inscripcion_materia_id, instancia_examen_id) ya inscriptos."""
+        if not inscripcion_ids:
+            return set()
+
+        filas = session.exec(
+            select(
+                InscripcionExamen.inscripcion_materia_id,
+                InscripcionExamen.instancia_examen_id,
+            ).where(
+                col(InscripcionExamen.inscripcion_materia_id).in_(inscripcion_ids),
+                InscripcionExamen.estado == EstadoInscripcionExamen.INSCRIPTO,
+            )
+        ).all()
+        return {(insc_id, inst_id) for insc_id, inst_id in filas}
+
+    # -- Examenes habilitados --------------------------------------------------
+
+    def get_examenes_habilitados(
+        self, alumno_id: int, programa_id: int, session: Session
+    ) -> list:
+        """
+        Instancias de examen a las que el alumno puede inscribirse en un programa.
+
+        Aplica las mismas validaciones que inscribir_examen, para que
+        puede_inscribirse no contradiga al POST:
+          - la materia debe estar en estado A_EXAMEN
+          - la instancia habilitada y dentro del plazo de inscripcion
+          - no tener ya una inscripcion INSCRIPTO en esa instancia
+          - la materia debe tener politica de examen configurada
+          - no haber agotado las oportunidades de rendicion
+          - no superar el tope de examenes del periodo ni tener otro el mismo dia
+
+        Las previaturas no se validan aca a proposito: para llegar a A_EXAMEN el
+        alumno tuvo que cursar la materia, y esa inscripcion ya las valido.
+        """
+        ahora = datetime.now(get_uruguay_tz()).replace(tzinfo=None)
+
+        # Materias del programa que el alumno tiene en estado A_EXAMEN
+        filas = session.exec(
+            select(InscripcionMateria, Materia)
+            .join(InstanciaCursado, InscripcionMateria.instancia_cursado_id == InstanciaCursado.id)
+            .join(Materia, InstanciaCursado.materia_id == Materia.id)
+            .where(
+                InscripcionMateria.alumno_id == alumno_id,
+                InscripcionMateria.estado == EstadoInscripcionMateria.A_EXAMEN,
+                Materia.programa_id == programa_id,
+            )
+        ).all()
+
+        if not filas:
+            return []
+
+        # Precarga en lote: antes cada materia disparaba su politica, su conteo
+        # de rendiciones y sus instancias, y cada instancia una consulta mas para
+        # saber si ya estaba inscripto.
+        inscripcion_ids = [insc.id for insc, _ in filas]
+        materia_ids = [materia.id for _, materia in filas]
+
+        politicas = self._politicas_por_id(
+            [m.politica_examen_id for _, m in filas], session
+        )
+        rendiciones_por_inscripcion = self._contar_rendiciones_en_lote(
+            inscripcion_ids, session
+        )
+        instancias_por_materia = self._instancias_abiertas(materia_ids, ahora, session)
+        ya_inscripto_en = self._inscripciones_vigentes(inscripcion_ids, session)
+        fechas_ocupadas = self._fechas_ocupadas(alumno_id, session)
+        topes = self._topes_por_mesa(
+            [
+                inst.mesa_examen_id
+                for instancias in instancias_por_materia.values()
+                for inst in instancias
+            ],
+            session,
+        )
+
+        resultado = []
+        for insc, materia in filas:
+            # Politica de examen: sin ella inscribir_examen falla
+            politica = politicas.get(materia.politica_examen_id)
+            max_oportunidades = politica.max_oportunidades if politica else 5
+            rendiciones = rendiciones_por_inscripcion.get(insc.id, 0)
+
+            for inst in instancias_por_materia.get(materia.id, []):
+                ya_inscripto = (insc.id, inst.id) in ya_inscripto_en
+
+                motivos = []
+                if materia.politica_examen_id is None:
+                    motivos.append("La materia no tiene politica de examen configurada")
+                if rendiciones >= max_oportunidades:
+                    motivos.append(
+                        f"Agotaste las {max_oportunidades} oportunidades de rendicion. "
+                        "Debes recursar la materia."
+                    )
+                if ya_inscripto:
+                    motivos.append("Ya estas inscripto a este examen")
+
+                # Limites del periodo. Si ya esta inscripto a ESTA instancia, su
+                # propia fecha figura entre las ocupadas y se chocaria consigo
+                # mismo: en ese caso el motivo relevante ya es "ya estas
+                # inscripto" y no hace falta evaluarlos.
+                if not ya_inscripto:
+                    motivos.extend(self._evaluar_limites(
+                        inst.fecha_examen, fechas_ocupadas,
+                        mesa_examen_id=inst.mesa_examen_id,
+                        max_examenes=topes.get(inst.mesa_examen_id),
+                    ))
+
+                resultado.append({
+                    "instancia_examen_id": inst.id,
+                    "inscripcion_materia_id": insc.id,
+                    "mesa_examen_id": inst.mesa_examen_id,
+                    "materia_id": materia.id,
+                    "materia_nombre": materia.nombre,
+                    "materia_codigo": materia.codigo,
+                    "nombre_examen": inst.nombre,
+                    "fecha_examen": inst.fecha_examen.isoformat() if inst.fecha_examen else None,
+                    "fecha_fin_inscripcion": inst.fecha_fin_inscripcion.isoformat(),
+                    "hora": inst.hora,
+                    "salon": inst.salon,
+                    "modalidad": inst.modalidad.value if inst.modalidad else None,
+                    "tipo": inst.tipo.value if inst.tipo else None,
+                    "ya_inscripto": ya_inscripto,
+                    "rendiciones_previas": rendiciones,
+                    "max_oportunidades": max_oportunidades,
+                    "puede_inscribirse": len(motivos) == 0,
+                    "motivos": motivos,
+                })
+
+        return resultado
+
+    def _registrar_ausente(self, ie: InscripcionExamen, session: Session) -> bool:
+        """
+        Pasa la rendicion a AUSENTE y revisa las oportunidades. Devuelve True si
+        con esta ausencia el alumno las agoto (y la materia paso a REPROBADO).
+        No hace commit.
+        """
+        ie.estado = EstadoInscripcionExamen.AUSENTE
+        session.add(ie)
+        return self._verificar_oportunidades(ie, session)
+
+    def _verificar_oportunidades(self, ie: InscripcionExamen, session: Session) -> bool:
+        """
+        Si con esta rendicion (reprobada o ausente) el alumno llego al maximo
+        de oportunidades de la politica, la materia pasa a REPROBADO: debe
+        recursar. Antes solo lo hacia al reprobar; un ausente tambien gasta una
+        oportunidad (regla de bedelia, 23/09/2026), asi que tambien cuenta.
+        """
+        session.flush()   # que el conteo vea el estado nuevo de esta rendicion
+        snapshot = ie.snapshot_politica_examen or {}
+        max_oport = int(snapshot.get("max_oportunidades", 5))
+        if self._contar_rendiciones_previas(ie.inscripcion_materia_id, session) >= max_oport:
+            self._reprobar_materia_por_rendiciones(ie.inscripcion_materia_id, max_oport, session)
+            return True
+        return False
 
     def _contar_rendiciones_previas(
         self, inscripcion_materia_id: int, session: Session
@@ -376,8 +833,7 @@ class InscripcionExamenService(BaseServiceWithFilters[InscripcionExamen]):
         # Notificación (best-effort)
         try:
             from v2.services import get_v2_services
-            from v2.models.usuario import Usuario
-            usuario = session.get(Usuario, inscripcion.usuario_id)
+            usuario = _usuario_de_alumno(inscripcion.alumno_id, session)
             ic_obj = session.get(InstanciaCursado, inscripcion.instancia_cursado_id)
             mat_notif = session.get(Materia, ic_obj.materia_id) if ic_obj else None
             rendiciones = self._contar_rendiciones_previas(inscripcion_materia_id, session)

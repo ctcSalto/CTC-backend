@@ -38,6 +38,27 @@ ALLOWED_MIME_TYPES = {
 # MIME types que son imagenes procesables
 IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
+# La extension SIEMPRE sale del tipo real detectado, nunca del nombre que mando
+# el cliente: con el nombre se podian guardar archivos .html o .php declarando
+# content-type de PDF, y una extension con barras hacia atras terminaba en un 500.
+EXTENSION_POR_MIME = {
+    "application/pdf": "pdf",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+}
+
+# Firmas de los formatos aceptados. El header content-type lo elige quien sube,
+# asi que no sirve como validacion: hay que mirar el contenido.
+FIRMAS = {
+    b"%PDF-": "application/pdf",
+    b"\xff\xd8\xff": "image/jpeg",
+    b"\x89PNG\r\n\x1a\n": "image/png",
+    b"GIF87a": "image/gif",
+    b"GIF89a": "image/gif",
+}
+
 # Carpetas por tipo de documento
 FOLDER_POR_TIPO = {
     TipoDocumento.FORMULA_69A: "formula_69a",
@@ -92,6 +113,21 @@ class LocalFileService:
         full_path.mkdir(parents=True, exist_ok=True)
         return full_path
 
+    @staticmethod
+    def detectar_mime_real(contenido: bytes) -> Optional[str]:
+        """
+        Deduce el tipo del archivo por su contenido.
+
+        WebP se chequea aparte porque su firma no es un prefijo continuo:
+        son los bytes 'RIFF' seguidos del tamano y recien despues 'WEBP'.
+        """
+        for firma, mime in FIRMAS.items():
+            if contenido.startswith(firma):
+                return mime
+        if contenido[:4] == b"RIFF" and contenido[8:12] == b"WEBP":
+            return "image/webp"
+        return None
+
     def _process_image(self, file_content: bytes) -> bytes:
         """Procesa imagen: WebP, EXIF transpose, resize max 2000px"""
         if not PIL_AVAILABLE:
@@ -144,12 +180,13 @@ class LocalFileService:
     ) -> DocumentoUsuarioRead:
         """Sube un archivo al disco y crea el registro en BD"""
 
-        # Validar MIME
+        # Filtro barato antes de leer el cuerpo. No es la validacion real: el
+        # content-type lo elige quien sube y se puede mentir.
         if archivo.content_type not in ALLOWED_MIME_TYPES:
             raise HTTPException(
                 status_code=400,
                 detail=f"Tipo de archivo no permitido: {archivo.content_type}. "
-                       f"Permitidos: {', '.join(ALLOWED_MIME_TYPES)}"
+                       f"Permitidos: {', '.join(sorted(ALLOWED_MIME_TYPES))}"
             )
 
         # Leer contenido
@@ -163,6 +200,22 @@ class LocalFileService:
                        f"Maximo: {self.max_size_mb} MB"
             )
 
+        # Validacion de verdad: por contenido. Sin esto se podia guardar un .html
+        # o un .php declarando content-type de PDF, y la whitelist no servia de nada.
+        mime_real = self.detectar_mime_real(contenido)
+        if mime_real is None:
+            raise HTTPException(
+                status_code=400,
+                detail="El contenido del archivo no corresponde a un PDF ni a una "
+                       "imagen valida (JPEG, PNG, WebP o GIF)",
+            )
+        if mime_real != archivo.content_type:
+            raise HTTPException(
+                status_code=400,
+                detail=f"El archivo dice ser {archivo.content_type} pero su contenido "
+                       f"es {mime_real}",
+            )
+
         # Determinar carpeta
         user_folder = self._get_user_folder(usuario_id, nombre, apellido, rol)
         tipo_folder = FOLDER_POR_TIPO.get(tipo, "otros")
@@ -171,24 +224,22 @@ class LocalFileService:
         # Procesar segun tipo
         ahora = datetime.now(get_uruguay_tz())
         fecha_str = ahora.strftime("%Y-%m-%d")
-        es_imagen = archivo.content_type in IMAGE_MIME_TYPES
-        mime_final = archivo.content_type
+        es_imagen = mime_real in IMAGE_MIME_TYPES
+        mime_final = mime_real
 
-        if es_imagen and archivo.content_type != "image/webp":
+        if es_imagen and mime_real != "image/webp":
             try:
                 contenido = self._process_image(contenido)
                 mime_final = "image/webp"
-                nombre_archivo = f"{fecha_str}_{tipo_folder}.webp"
             except Exception:
-                # Fallback: guardar original
-                ext = archivo.filename.rsplit('.', 1)[-1] if archivo.filename and '.' in archivo.filename else 'jpg'
-                nombre_archivo = f"{fecha_str}_{tipo_folder}.{ext}"
-        elif es_imagen and archivo.content_type == "image/webp":
-            nombre_archivo = f"{fecha_str}_{tipo_folder}.webp"
-        else:
-            # PDF u otro
-            ext = archivo.filename.rsplit('.', 1)[-1] if archivo.filename and '.' in archivo.filename else 'bin'
-            nombre_archivo = f"{fecha_str}_{tipo_folder}.{ext}"
+                # Fallback: se guarda el original con la extension de su tipo real
+                mime_final = mime_real
+
+        # La extension sale SIEMPRE del tipo detectado. Tomarla del nombre que
+        # manda el cliente permitia guardar .html/.php, y una extension con
+        # barras terminaba en un FileNotFoundError sin manejar (500).
+        ext = EXTENSION_POR_MIME[mime_final]
+        nombre_archivo = f"{fecha_str}_{tipo_folder}.{ext}"
 
         # Si ya existe un archivo con el mismo nombre, agregar sufijo
         ruta_relativa = f"{relative_dir}/{nombre_archivo}"

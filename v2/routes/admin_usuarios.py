@@ -9,15 +9,17 @@ esa persona luego inicia sesion con Google usando el mismo email, el sistema
 vincula la cuenta automaticamente (ver v2/routes/auth_google.py).
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlmodel import Session
+from sqlmodel import Session, select
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
 from database.database import get_session
 from v2.services import V2Services, get_v2_services
 from v2.auth.dependencies import require_administrativo
 from v2.models.usuario import UsuarioRead
-from v2.models.enums import RolUsuario
+from v2.models.profesor import Profesor, ProfesorRead
+from v2.models.enums import RolUsuario, CargoDocente, DedicacionDocente
 
 
 router = APIRouter(
@@ -28,26 +30,54 @@ router = APIRouter(
 
 # ── Schemas de request ──────────────────────────────────────────────────────
 
+class PerfilManualCreate(BaseModel):
+    """
+    Campos propios del perfil. Solo se leen los que aplican al `rol` enviado:
+    ESTUDIANTE usa fecha_ingreso; DOCENTE usa cargo, dedicacion, especialidad y
+    carga_horaria_semanal; ADMINISTRATIVO usa departamento.
+    """
+    # Alumno
+    fecha_ingreso: Optional[datetime] = None
+    # Profesor
+    cargo: Optional[CargoDocente] = None
+    dedicacion: Optional[DedicacionDocente] = None
+    especialidad: Optional[str] = None
+    carga_horaria_semanal: Optional[int] = None
+    # Administrativo
+    departamento: Optional[str] = None
+
+
 class UsuarioManualCreate(BaseModel):
-    email: str
     nombre: str
     apellido: str
     rol: RolUsuario
+    email: Optional[str] = None
     documento: Optional[str] = None
     telefono: Optional[str] = None
     email_personal: Optional[str] = None
+    perfil: Optional[PerfilManualCreate] = None
+
+
+class ActivoDocenteUpdate(BaseModel):
+    activo: bool
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 @router.post(
     "/manual",
-    summary="Crear usuario manualmente (sin cuenta de Google)",
-    description="Crea un usuario y su perfil (alumno/docente/administrativo) sin "
-                "requerir login de Google. Util para ponentes que dan una charla "
-                "sin necesitar usuario, o asistentes a charlas que deben quedar "
-                "registrados. Si la persona luego inicia sesion con Google usando "
-                "el mismo email, el sistema vincula la cuenta automaticamente.",
+    summary="Crear persona manualmente (sin cuenta de Google)",
+    description="Crea un usuario y su perfil academico (alumno/profesor/administrativo) "
+                "en una sola operacion, sin requerir login de Google. Util para ponentes "
+                "que dan una charla puntual, o para oyentes que deben quedar registrados "
+                "como alumnos sin acceso al portal.\n\n"
+                "El `email` es opcional: un oyente puede no tener cuenta institucional. "
+                "Si se provee y esa persona luego inicia sesion con Google con ese mismo "
+                "email, el sistema vincula la cuenta y la activa automaticamente.\n\n"
+                "Se crea con `activo=false` (sin acceso al portal). El bloque `perfil` es "
+                "opcional y sus campos se leen segun el `rol` enviado.\n\n"
+                "No existe un endpoint separado para crear alumnos o profesores: el perfil "
+                "no puede existir sin su usuario, asi que el alta siempre es por aca.",
 )
 async def crear_usuario_manual(
     body: UsuarioManualCreate,
@@ -65,6 +95,7 @@ async def crear_usuario_manual(
             documento=body.documento,
             telefono=body.telefono,
             email_personal=body.email_personal,
+            perfil=body.perfil.model_dump(exclude_unset=True) if body.perfil else None,
         )
         return UsuarioRead.model_validate(usuario)
     except ValueError as e:
@@ -104,11 +135,101 @@ async def listar_docentes(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=200),
     search: Optional[str] = Query(default=None, description="Busca por nombre, apellido o email"),
-    activo: Optional[bool] = Query(default=None),
+    activo: Optional[bool] = Query(
+        default=None, description="Filtra por acceso al sistema (usuario.activo)"
+    ),
+    activo_docente: Optional[bool] = Query(
+        default=None, description="Filtra por si dicta actualmente (profesor.activo)"
+    ),
     v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
     current_usuario: UsuarioRead = Depends(require_administrativo),
 ):
     return v2_services.usuarioService.get_docentes_dashboard(
-        session, page=page, per_page=per_page, search=search, activo=activo
+        session, page=page, per_page=per_page, search=search,
+        activo=activo, activo_docente=activo_docente,
+    )
+
+
+@router.patch(
+    "/docentes/{usuario_id}/activo",
+    response_model=ProfesorRead,
+    summary="Activar o desactivar a un docente",
+    description="Cambia profesor.activo, que indica si el docente dicta "
+                "actualmente. NO afecta el acceso al sistema: un docente "
+                "desactivado sigue pudiendo iniciar sesion y consultar su "
+                "historico. Para cortar el acceso hay que cambiar usuario.activo.",
+)
+async def cambiar_activo_docente(
+    usuario_id: int,
+    body: ActivoDocenteUpdate,
+    session: Session = Depends(get_session),
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+):
+    profesor = session.exec(
+        select(Profesor).where(Profesor.usuario_id == usuario_id)
+    ).first()
+    if not profesor:
+        raise HTTPException(
+            status_code=404, detail=f"No existe perfil de docente para el usuario {usuario_id}"
+        )
+
+    profesor.activo = body.activo
+    session.add(profesor)
+    session.commit()
+    session.refresh(profesor)
+    return profesor
+
+
+@router.get(
+    "/docentes/{usuario_id}/historico-materias",
+    summary="Historico de materias dictadas por un docente",
+    description="Todas las instancias de cursado que dicto el docente, de la mas "
+                "reciente a la mas antigua, con cantidad de inscriptos.",
+)
+async def historico_materias_docente(
+    usuario_id: int,
+    anio_lectivo: Optional[int] = Query(
+        default=None, description="Filtra por año lectivo. Sin este parámetro devuelve todos los años"
+    ),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+):
+    profesor = session.exec(
+        select(Profesor).where(Profesor.usuario_id == usuario_id)
+    ).first()
+    if not profesor:
+        raise HTTPException(
+            status_code=404, detail=f"No existe perfil de docente para el usuario {usuario_id}"
+        )
+    return v2_services.docenteMateriaService.get_historico_materias(
+        profesor.id, session, anio_lectivo=anio_lectivo
+    )
+
+
+@router.get(
+    "/docentes/{usuario_id}/historico-examenes",
+    summary="Historico de examenes tomados por un docente",
+    description="Todas las instancias de examen en las que el docente integro el "
+                "tribunal, de la mas reciente a la mas antigua.",
+)
+async def historico_examenes_docente(
+    usuario_id: int,
+    anio: Optional[int] = Query(
+        default=None, description="Filtra por año de la fecha del examen. Sin este parámetro devuelve todos"
+    ),
+    v2_services: V2Services = Depends(get_v2_services),
+    session: Session = Depends(get_session),
+    current_usuario: UsuarioRead = Depends(require_administrativo),
+):
+    profesor = session.exec(
+        select(Profesor).where(Profesor.usuario_id == usuario_id)
+    ).first()
+    if not profesor:
+        raise HTTPException(
+            status_code=404, detail=f"No existe perfil de docente para el usuario {usuario_id}"
+        )
+    return v2_services.docenteMateriaService.get_historico_examenes(
+        profesor.id, session, anio=anio
     )

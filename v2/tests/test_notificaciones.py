@@ -69,6 +69,17 @@ def fixture_usuario_est(session):
     return user
 
 
+@pytest.fixture(name="alumno_est")
+def fixture_alumno_est(session, usuario_est):
+    """Perfil de alumno del usuario estudiante (las inscripciones lo referencian)."""
+    from v2.models.alumno import Alumno
+    alumno = Alumno(usuario_id=usuario_est.id)
+    session.add(alumno)
+    session.commit()
+    session.refresh(alumno)
+    return alumno
+
+
 @pytest.fixture(name="usuario_admin")
 def fixture_usuario_admin(session):
     user = Usuario(
@@ -132,7 +143,7 @@ def fixture_materia(session, programa):
 
 
 @pytest.fixture(name="inscripcion_exonerado")
-def fixture_inscripcion_exonerado(session, usuario_est, materia):
+def fixture_inscripcion_exonerado(session, alumno_est, materia):
     """Inscripcion con estado EXONERADO, sin notificar."""
     ic = InstanciaCursado(
         materia_id=materia.id,
@@ -144,7 +155,7 @@ def fixture_inscripcion_exonerado(session, usuario_est, materia):
     session.refresh(ic)
 
     insc = InscripcionMateria(
-        usuario_id=usuario_est.id,
+        alumno_id=alumno_est.id,
         instancia_cursado_id=ic.id,
         estado=EstadoInscripcionMateria.EXONERADO,
         nota_curso=Decimal("90"),
@@ -248,8 +259,9 @@ class TestTemplates:
         )
         assert "Juan" in html
         assert "Programacion 1" in html
+        assert "Analista Programador" in html
         assert "2026" in html
-        assert "Centro de Tecnolog" in html  # header CTC
+        assert "CTC Salto" in html  # branding en el footer
 
     def test_template_calificacion_renderiza(self):
         """Verifica template de calificación."""
@@ -269,7 +281,7 @@ class TestTemplates:
 class TestNotificationService:
 
     @patch("v2.services.email_service.requests.post")
-    def test_notificar_inscripcion_materia(self, mock_post, session, usuario_est, materia, programa):
+    def test_notificar_inscripcion_materia(self, mock_post, session, usuario_est, alumno_est, materia, programa):
         """Notificación de inscripción crea log en BD."""
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -285,7 +297,7 @@ class TestNotificationService:
         session.refresh(ic)
 
         insc = InscripcionMateria(
-            usuario_id=usuario_est.id,
+            alumno_id=alumno_est.id,
             instancia_cursado_id=ic.id,
             estado=EstadoInscripcionMateria.CURSANDO,
         )
@@ -392,7 +404,7 @@ class TestNotificationService:
         assert email == "sin.personal@ctcsalto.edu.uy"
 
     @patch("v2.services.email_service.requests.post")
-    def test_error_webhook_registra_en_log(self, mock_post, session, usuario_est, materia, programa):
+    def test_error_webhook_registra_en_log(self, mock_post, session, usuario_est, alumno_est, materia, programa):
         """Si el webhook falla, se registra el error en el log."""
         mock_response = MagicMock()
         mock_response.status_code = 500
@@ -409,7 +421,7 @@ class TestNotificationService:
         session.refresh(ic)
 
         insc = InscripcionMateria(
-            usuario_id=usuario_est.id,
+            alumno_id=alumno_est.id,
             instancia_cursado_id=ic.id,
             estado=EstadoInscripcionMateria.CURSANDO,
         )

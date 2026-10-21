@@ -13,7 +13,32 @@ import uuid
 
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
+
+# Vida del token del portal academico: 8 horas, una jornada.
+#
+# Se lee SOLO de la variable propia de v2. Antes caia a ACCESS_TOKEN_EXPIRE_MINUTES,
+# la del CMS, y en los entornos donde esa vale 4000 los tokens del portal duraban
+# 66 horas: tres dias de sesion para un alumno. Ese fallback existia para no
+# romper entornos que tenian una sola variable seteada, pero el efecto era
+# gobernar la sesion del portal con un valor pensado para otra aplicacion.
+#
+# Para cambiarla hay que setear V2_ACCESS_TOKEN_EXPIRE_MINUTES explicitamente.
+DEFAULT_EXPIRE_MINUTES = 480
+
+
+def minutos_de_expiracion() -> int:
+    """
+    Minutos de vida de un token v2, leidos en el momento.
+
+    Se lee por llamada y no una sola vez al importar para que se pueda verificar
+    sin recargar el modulo: recargarlo en un test rebinde SECRET_KEY y rompe la
+    firma de los tokens que otros tests ya habian creado.
+    """
+    return int(os.getenv("V2_ACCESS_TOKEN_EXPIRE_MINUTES", str(DEFAULT_EXPIRE_MINUTES)))
+
+
+# Se mantiene el nombre por compatibilidad con lo que ya lo importa.
+ACCESS_TOKEN_EXPIRE_MINUTES = minutos_de_expiracion()
 
 
 def create_v2_token(
@@ -34,10 +59,38 @@ def create_v2_token(
     if expires_delta is not None:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=minutos_de_expiracion())
 
     to_encode["exp"] = expire
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def _cliente_redis(redis_service):
+    """
+    Cliente redis-py crudo detras del servicio.
+
+    Se usa el cliente directo en vez de RedisService.exists() porque ese metodo
+    atrapa sus propias excepciones y devuelve False: desde afuera "Redis caido"
+    y "la clave no existe" se ven igual, y para una blacklist esa ambiguedad es
+    justo la peligrosa. Yendo al cliente, una excepcion significa "no se pudo
+    consultar" sin lugar a dudas.
+    """
+    cliente = getattr(redis_service, "redis_client", None)
+    if cliente is None:
+        raise AttributeError(
+            "El servicio de Redis no expone redis_client: no se puede consultar "
+            "la blacklist de tokens"
+        )
+    return cliente
+
+
+def _token_revocado(redis_service, jti: str) -> bool:
+    """
+    True si el token esta en la blacklist.
+
+    Levanta si Redis no se puede consultar; el llamador traduce eso a un 503.
+    """
+    return bool(_cliente_redis(redis_service).exists(f"blacklist_{jti}"))
 
 
 def verify_v2_token(token: str, redis_service=None) -> dict:
@@ -62,20 +115,34 @@ def verify_v2_token(token: str, redis_service=None) -> dict:
         if email is None:
             raise credentials_exception
 
-        # Verificar blacklist si Redis esta disponible
+        # Verificar blacklist. Falla CERRADO: si no podemos consultar Redis, no
+        # podemos saber si el token fue revocado, asi que lo rechazamos.
+        #
+        # Antes esto fallaba abierto (`except Exception: pass`), lo que significaba
+        # que con Redis caido todos los tokens revocados volvian a ser validos hasta
+        # expirar: un logout dejaba de tener efecto y un token robado que habias
+        # revocado servia de nuevo. El logout es la unica forma de cortar acceso
+        # antes del vencimiento, asi que no puede depender de que Redis este vivo.
+        #
+        # Una sola ida a Redis. Antes eran TRES por request autenticado: un ping
+        # propio para saber si Redis estaba vivo, mas RedisService.exists(), que
+        # a su vez pinguea antes de consultar. Consultando el cliente directo, la
+        # excepcion ya distingue "caido" de "no revocado" y el ping sobra.
         jti = payload.get("jti")
         if redis_service and jti:
             try:
-                if redis_service.exists(f"blacklist_{jti}"):
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Token revocado",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-            except HTTPException:
-                raise
+                revocado = _token_revocado(redis_service, jti)
             except Exception:
-                pass  # Redis no disponible, continuar sin blacklist
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="No se puede validar la sesion en este momento. Reintenta en unos minutos.",
+                )
+            if revocado:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token revocado",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
 
         return payload
 
@@ -86,7 +153,14 @@ def verify_v2_token(token: str, redis_service=None) -> dict:
 
 
 def blacklist_v2_token(token: str, redis_service) -> bool:
-    """Agrega un token v2 al blacklist de Redis."""
+    """
+    Agrega un token v2 al blacklist de Redis.
+
+    Escribia en `redis_service.client`, atributo que RedisService no tiene: el
+    AttributeError lo tragaba el except y la funcion devolvia False siempre. El
+    logout de v2 nunca revoco nada — respondia 500 y el token seguia valido
+    hasta vencer. El atributo correcto es `redis_client`.
+    """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         jti = payload.get("jti")
@@ -104,8 +178,11 @@ def blacklist_v2_token(token: str, redis_service) -> bool:
                 return False  # Ya expiro
             ttl = int((expires_at - now).total_seconds())
 
-        redis_service.client.set(f"blacklist_{jti}", "1", ex=ttl)
+        _cliente_redis(redis_service).set(f"blacklist_{jti}", "1", ex=ttl)
         return True
 
-    except Exception:
+    except Exception as e:
+        # El llamador responde 500, pero sin esto el motivo no queda en ningun
+        # lado y un error de programacion se ve igual que un Redis caido.
+        print(f"[ERROR] blacklist_v2_token: no se pudo revocar el token: {e!r}")
         return False

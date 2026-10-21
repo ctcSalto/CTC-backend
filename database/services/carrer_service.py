@@ -184,7 +184,13 @@ class CareerService(BaseServiceWithFilters[Career]):
                 modifier=career.modifier,
                 creator_user=creator_user,
                 modifier_user=modifier_user,
-                testimonies=testimonies
+                testimonies=testimonies,
+                duration=career.duration,
+                hourlyLoad=career.hourlyLoad,
+                cost=career.cost,
+                startClasses=career.startClasses,
+                certificationType=career.certificationType,
+                files=career.files or [],
             )
 
     def get_public_career_optimized_by_id(self, session: Session, career_id: int) -> Optional[CareerReadOptimized]:
@@ -253,7 +259,13 @@ class CareerService(BaseServiceWithFilters[Career]):
                 modifier=career.modifier,
                 creator_user=creator_user,
                 modifier_user=modifier_user,
-                testimonies=testimonies
+                testimonies=testimonies,
+                duration=career.duration,
+                hourlyLoad=career.hourlyLoad,
+                cost=career.cost,
+                startClasses=career.startClasses,
+                certificationType=career.certificationType,
+                files=career.files or [],
             )
 
     def get_published_careers(self, session: Session, offset: int = 0, limit: int = 10) -> List[CareerRead]:
@@ -458,6 +470,22 @@ class CareerService(BaseServiceWithFilters[Career]):
             session.commit()
             session.refresh(old_career)
             return CareerRead.model_validate(old_career)
+
+    def set_files(self, career_id: int, files: List[str], session: Session) -> Optional[CareerRead]:
+        """
+        Reemplaza la lista de archivos de la carrera. Solo la usan los endpoints
+        de archivos, que validan y escriben el disco (CareerFilesService).
+        """
+        with session:
+            career = session.exec(select(Career).where(Career.careerId == career_id)).first()
+            if not career:
+                return None
+            career.files = list(files)
+            career.modificationDate = datetime.now(get_uruguay_tz()).date()
+            session.add(career)
+            session.commit()
+            session.refresh(career)
+            return CareerRead.model_validate(career)
 
     def publish_career(self, career_id: int, session: Session) -> CareerRead:
         """Publicar una carrera (marcar como published=True y establecer fecha de publicación)"""

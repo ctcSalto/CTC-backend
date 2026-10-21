@@ -28,11 +28,9 @@ except Exception as e:
 # Importa todos tus modelos aquí para que Alembic los detecte
 # IMPORTANTE: Asegúrate de que estas importaciones sean correctas según tu estructura
 try:
-    from database.models.example import Example
     from database.models.user import User
     from database.models.career import Career
     from database.models.testimony import Testimony
-    from database.models.testimony_video import TestimonyVideo
     from database.models.news import News
     # Modelos v2 - Portal Académico
     import v2.models  # noqa: F401 - Registra todos los modelos v2 en SQLModel.metadata

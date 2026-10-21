@@ -1,6 +1,16 @@
 # Esquema de Entidades - Portal Institucional CTC v2
 
-**Fecha:** Marzo 2026
+**Fecha:** Julio 2026 (actualizado)
+
+> **Cambios respecto de la version de Marzo 2026:**
+>
+> 1. **Instancias.** Se introdujeron `instancia_cursado` e `instancia_examen`. Antes una
+>    inscripcion apuntaba a `materia + anio_lectivo`, y los examenes a un `periodo_examen`
+>    global. Ahora existe una fila por dictado concreto de una materia en un anio (con su
+>    salon, horario, cupo y faltas maximas) y una por mesa de examen concreta. La tabla
+>    `periodo_examen` fue eliminada y reemplazada por `instancia_examen`.
+> 2. **Sujeto academico.** Las inscripciones, equipos y asignaciones docentes referencian
+>    `alumno.id` / `profesor.id` en lugar de `usuario.id`. Ver seccion 2.1.
 
 ---
 
@@ -71,6 +81,57 @@ Generar JWT con rol
 
 ---
 
+## 2.1 Persona vs. sujeto academico
+
+`usuario` **no es una cuenta de acceso: es una persona.** La cuenta de Google es un atributo
+opcional (`google_id` nullable), igual que el email. Una persona puede existir sin haber
+iniciado sesion nunca: un oyente que se inscribe a una charla, o un ponente externo que dicta
+una charla puntual, quedan registrados sin cuenta institucional y nunca entran al portal.
+
+Sobre esa persona cuelgan **perfiles de rol** —`alumno`, `profesor`, `administrativo_perfil`—
+que son quienes participan del dominio academico:
+
+```
+                    ┌─────────────┐
+                    │   usuario   │  ← la PERSONA
+                    │             │    nombre, apellido, documento, email?,
+                    │ google_id?  │    telefono, domicilio, fecha_nacimiento
+                    │ moodle_id?  │
+                    └──────┬──────┘
+                           │ 1:1 (cada perfil opcional)
+          ┌────────────────┼─────────────────────┐
+          ▼                ▼                     ▼
+    ┌──────────┐    ┌───────────┐    ┌──────────────────────┐
+    │  alumno  │    │ profesor  │    │ administrativo_perfil│
+    └────┬─────┘    └─────┬─────┘    └──────────────────────┘
+         │                │
+         │                └─► docente_materia, docente_instancia_examen
+         │
+         └─► inscripcion_programa, inscripcion_materia, equipo_miembro
+```
+
+**Regla:** si el dato es **academico** (una inscripcion, un equipo, una asignacion docente),
+la FK apunta a `alumno.id` o `profesor.id`. Si el dato es **de la persona** (documentos,
+notificaciones, auditoria de quien cargo una nota), apunta a `usuario.id`.
+
+Excepciones deliberadas que siguen apuntando a `usuario.id`:
+
+| Campo | Por que |
+|---|---|
+| `calificacion.cargado_por_id` | Auditoria de quien cargo la nota. Bedelia (rol `ADMINISTRATIVO`) tambien califica y no tiene fila en `profesor` |
+| `documento_usuario.usuario_id` / `.subido_por` | La cedula pertenece a la persona, no al rol |
+| `notificacion_log.usuario_id` | La notificacion necesita email/contacto, que vive en `usuario` |
+
+`alumno.usuario_id` es **obligatorio**: un perfil no existe sin su persona. Esto evita duplicar
+`nombre`/`apellido`/`documento` en cada perfil, y hace que "promover" un oyente a alumno con
+cuenta sea solo completar su `google_id` en el primer login, sin fusionar registros.
+
+Una persona tiene **un solo rol** (`usuario.rol`). El caso de alguien que es administrativo y
+ademas cursa una carrera se resuelve con **dos cuentas de Google separadas** — son dos filas en
+`usuario`, con perfiles distintos.
+
+---
+
 ## 2. Diagrama de Entidades
 
 ```
@@ -125,26 +186,41 @@ Generar JWT con rol
     │             │ 1:N (por año)                              │
     │             │                                            │
     │  ┌──────────▼──────────────────┐                         │
+    │  │     instancia_cursado       │  ◄── un dictado concreto│
+    │  │─────────────────────────────│      de la materia      │
+    │  │ id (PK)                     │                         │
+    │  │ materia_id (FK)             │                         │
+    │  │ anio_lectivo                │  2026, 2027...         │
+    │  │ fecha_inicio / fecha_fin    │                         │
+    │  │ salon                       │                         │
+    │  │ horario                     │  "Lunes 18-21"         │
+    │  │ cupo_maximo                 │                         │
+    │  │ faltas_maximas              │  pierde el curso        │
+    │  │ estado (ENUM)               │  PLANIFICADA|EN_CURSO   │
+    │  │                             │  FINALIZADA|CANCELADA   │
+    │  │ estadisticas (JSONB)        │                         │
+    │  └──────────┬──────────────────┘                         │
+    │             │ 1:N                                        │
+    │  ┌──────────▼──────────────────┐                         │
     │  │ materia_instancia_evaluacion│                         │
     │  │─────────────────────────────│                         │
     │  │ id (PK)                     │                         │
-    │  │ materia_id (FK)             │                         │
+    │  │ instancia_cursado_id (FK)   │                         │
     │  │ nombre                      │  "Primer Parcial"      │
     │  │ peso_maximo                 │  15, 30, 40...         │
     │  │ orden                       │  1, 2, 3, 4            │
     │  │ es_grupal                   │  true/false            │
-    │  │ anio_lectivo                │  2026, 2027...         │
     │  │ activo                      │                         │
     │  └─────────────────────────────┘                         │
     │                                                          │
-    │  ┌─────────────────────────┐                             │
-    │  │   docente_materia       │                             │
-    │  │─────────────────────────│                             │
-    │  │ docente_id (FK usuario) │                             │
-    │  │ materia_id (FK)         │                             │
-    │  │ anio_lectivo            │                             │
-    │  │ rol_docente (ENUM)      │  TITULAR | ADJUNTO         │
-    │  └─────────────────────────┘                             │
+    │  ┌───────────────────────────┐                           │
+    │  │     docente_materia       │                           │
+    │  │───────────────────────────│                           │
+    │  │ profesor_id (FK profesor) │  ◄── NO usuario          │
+    │  │ instancia_cursado_id (FK) │                           │
+    │  │ rol_docente (ENUM)        │  TITULAR | ADJUNTO       │
+    │  │                           │  | ASISTENTE             │
+    │  └───────────────────────────┘                           │
     └──────────────────────────────────────────────────────────┘
 
 
@@ -184,9 +260,9 @@ Generar JWT con rol
     │  │      inscripcion_materia         │                    │
     │  │──────────────────────────────────│                    │
     │  │ id (PK)                          │                    │
-    │  │ usuario_id (FK)                  │                    │
-    │  │ materia_id (FK)                  │                    │
-    │  │ anio_lectivo                     │  2026              │
+    │  │ alumno_id (FK alumno)            │  ◄── NO usuario    │
+    │  │ instancia_cursado_id (FK)        │  ◄── trae materia  │
+    │  │                                  │      y anio        │
     │  │ estado (ENUM)                    │                    │
     │  │    CURSANDO                      │  Activo            │
     │  │    EXONERADO                     │  Aprobó sin examen │
@@ -195,14 +271,19 @@ Generar JWT con rol
     │  │    REPROBADO                     │  No alcanzó nota   │
     │  │    PERDIDO_INASISTENCIA          │  Exceso de faltas  │
     │  │    ABANDONO                      │  Dejó de asistir   │
+    │  │    REVALIDADA                    │  Convalidada       │
     │  │ nota_curso (calculada)           │                    │
     │  │ nota_final                       │                    │
+    │  │ nota_final_directa (nullable)    │  Carga sin parciales│
     │  │ creditos_obtenidos               │  0 si no aprobó   │
+    │  │ faltas                           │                    │
     │  │ snapshot_politica (JSONB)        │  ◄── Histórico     │
     │  │ snapshot_instancias (JSONB)      │  ◄── Histórico     │
     │  │ fecha_inscripcion                │                    │
     │  │ fecha_cierre (nullable)          │                    │
+    │  │ fecha_baja (nullable)            │  Soft-delete       │
     │  │ motivo_cierre (nullable)         │  Para inasist/aband│
+    │  │ motivo_revalida (nullable)       │                    │
     │  └──────────┬───────────────────────┘                    │
     │             │ 1:N                                        │
     │             │                                            │
@@ -214,7 +295,7 @@ Generar JWT con rol
     │  │ instancia_evaluacion_id (FK)     │                    │
     │  │ nota                             │                    │
     │  │ equipo_id (FK, nullable)         │  Si es grupal     │
-    │  │ docente_id (FK usuario)          │  Quién calificó   │
+    │  │ cargado_por_id (FK usuario)      │  Docente O admin  │
     │  │ fecha                            │                    │
     │  │ observaciones (nullable)         │                    │
     │  └──────────────────────────────────┘                    │
@@ -224,7 +305,7 @@ Generar JWT con rol
     │  │      equipo          │    │   equipo_miembro       │  │
     │  │──────────────────────│    │────────────────────────│  │
     │  │ id (PK)              │◄───│ equipo_id (FK)         │  │
-    │  │ instancia_eval_id FK │    │ usuario_id (FK)        │  │
+    │  │ instancia_eval_id FK │    │ alumno_id (FK alumno)  │  │
     │  │ nombre               │    └────────────────────────┘  │
     │  └──────────────────────┘                                │
     │                                                          │
@@ -234,30 +315,47 @@ Generar JWT con rol
     ┌──────── EXÁMENES ────────────────────────────────────────┐
     │                                                          │
     │  ┌──────────────────────────────┐                        │
-    │  │     periodo_examen           │                        │
-    │  │──────────────────────────────│                        │
-    │  │ id (PK)                      │                        │
-    │  │ nombre                       │  "Febrero 2026"       │
+    │  │     instancia_examen         │  ◄── una mesa concreta │
+    │  │──────────────────────────────│      (reemplaza al     │
+    │  │ id (PK)                      │      viejo periodo_    │
+    │  │ materia_id (FK)              │      examen global)    │
+    │  │ nombre                       │  "Febrero 2026 - P1"  │
     │  │ fecha_inicio_inscripcion     │                        │
     │  │ fecha_fin_inscripcion        │                        │
-    │  │ fecha_consulta (nullable)    │  Clase de consulta    │
     │  │ fecha_examen                 │  Día de la prueba     │
+    │  │ hora                         │                        │
+    │  │ salon                        │                        │
+    │  │ modalidad (ENUM)             │  PRESENCIAL|VIRTUAL    │
+    │  │                              │  |HIBRIDO              │
+    │  │ tipo (ENUM)                  │  ORDINARIO|EXTRAORD.   │
+    │  │ estado (ENUM)                │  PROGRAMADO|EN_CURSO   │
+    │  │                              │  |FINALIZADO|CANCELADO │
     │  │ habilitado                   │  Control del admin    │
     │  └──────────┬───────────────────┘                        │
     │             │ 1:N                                        │
-    │             │                                            │
-    │  ┌──────────▼───────────────────────┐                    │
+    │             ├───────────────────────────────┐            │
+    │             │                               ▼            │
+    │             │            ┌──────────────────────────────┐│
+    │             │            │  docente_instancia_examen    ││
+    │             │            │──────────────────────────────││
+    │             │            │ profesor_id (FK profesor)    ││
+    │             │            │ instancia_examen_id (FK)     ││
+    │             │            └──────────────────────────────┘│
+    │             ▼                                            │
+    │  ┌──────────────────────────────────┐                    │
     │  │    inscripcion_examen            │                    │
     │  │──────────────────────────────────│                    │
     │  │ id (PK)                          │                    │
     │  │ inscripcion_materia_id (FK)      │  ◄── Link al curso│
-    │  │ periodo_examen_id (FK)           │                    │
+    │  │ instancia_examen_id (FK)         │                    │
     │  │ fecha_inscripcion                │                    │
     │  │ nota_examen (nullable)           │                    │
+    │  │ numero_rendicion                 │  1ra, 2da... (max 5)│
     │  │ estado (ENUM)                    │  INSCRIPTO         │
     │  │    INSCRIPTO | APROBADO          │  APROBADO          │
-    │  │    REPROBADO | AUSENTE           │  REPROBADO         │
-    │  │ snapshot_politica_examen (JSONB) │  AUSENTE           │
+    │  │    REPROBADO | AUSENTE | BAJA    │  REPROBADO         │
+    │  │ fecha_baja (nullable)            │  AUSENTE | BAJA    │
+    │  │ snapshot_politica_examen (JSONB) │                    │
     │  └──────────────────────────────────┘                    │
     │                                                          │
     └──────────────────────────────────────────────────────────┘
@@ -415,23 +513,34 @@ Si en 2027 cambia la política a base 12 y se eliminan instancias, los registros
 
 ## 7. Resumen de Tablas
 
-| # | Tabla | Propósito |
-|---|---|---|
-| 1 | `usuario` | Usuarios (Google + Moodle + datos locales + OU) |
-| 2 | `programa` | Carreras, cursos cortos, diplomas |
-| 3 | `materia` | Materias de cada programa |
-| 4 | `politica_calificacion` | Reglas de evaluación (flexible, base 100, 12, letras) |
-| 5 | `politica_examen` | Reglas de aprobación de examen |
-| 6 | `materia_instancia_evaluacion` | Parciales, obligatorios, etc. (por año) |
-| 7 | `previatura` | Relaciones de prerequisitos entre materias |
-| 8 | `inscripcion_materia` | Registro académico alumno/materia (7 estados posibles) |
-| 9 | `calificacion` | Notas individuales por instancia |
-| 10 | `equipo` | Grupos para evaluaciones grupales |
-| 11 | `equipo_miembro` | Miembros de cada equipo |
-| 12 | `periodo_inscripcion_materia` | Períodos de inscripción a materias |
-| 13 | `periodo_examen` | Períodos de exámenes |
-| 14 | `inscripcion_examen` | Alumnos inscriptos a exámenes |
-| 15 | `docente_materia` | Vincula docentes a materias por año |
+| # | Tabla | Propósito | Referencia al sujeto |
+|---|---|---|---|
+| 1 | `usuario` | **La persona** (Google + Moodle + datos locales + OU). Google y email opcionales | — |
+| 2 | `alumno` | Perfil de estudiante | `usuario.id` (obligatorio) |
+| 3 | `profesor` | Perfil docente (cargo, dedicación, especialidad) | `usuario.id` (obligatorio) |
+| 4 | `administrativo_perfil` | Perfil de bedelía/administración | `usuario.id` (obligatorio) |
+| 5 | `programa` | Carreras, cursos cortos, talleres, diplomas | — |
+| 6 | `materia` | Materias de cada programa | — |
+| 7 | `instancia_cursado` | **Dictado concreto** de una materia en un año (salón, horario, cupo, faltas máximas) | — |
+| 8 | `politica_calificacion` | Reglas de evaluación (base 100, 12, letras) | — |
+| 9 | `politica_examen` | Reglas de aprobación de examen + `max_oportunidades` | — |
+| 10 | `materia_instancia_evaluacion` | Parciales, obligatorios (por instancia de cursado) | — |
+| 11 | `previatura` | Prerequisitos entre materias | — |
+| 12 | `inscripcion_programa` | Inscripción del alumno a un programa | **`alumno.id`** |
+| 13 | `inscripcion_materia` | Registro académico (8 estados posibles) | **`alumno.id`** |
+| 14 | `calificacion` | Notas individuales por instancia de evaluación | `usuario.id` (auditoría: `cargado_por_id`) |
+| 15 | `equipo` | Grupos para evaluaciones grupales | — |
+| 16 | `equipo_miembro` | Miembros de cada equipo | **`alumno.id`** |
+| 17 | `periodo_inscripcion_materia` | Períodos de inscripción a materias | — |
+| 18 | `instancia_examen` | **Mesa de examen concreta** (reemplaza a `periodo_examen`) | — |
+| 19 | `inscripcion_examen` | Alumnos inscriptos a una mesa, con `numero_rendicion` | vía `inscripcion_materia` |
+| 20 | `docente_instancia_examen` | Profesores asignados a una mesa | **`profesor.id`** |
+| 21 | `docente_materia` | Asigna profesores a instancias de cursado | **`profesor.id`** |
+| 22 | `documento_usuario` | Documentos privados (cédula, título, escolaridad) | `usuario.id` |
+| 23 | `notificacion_log` | Registro de emails enviados, con `id_rastreo` | `usuario.id` |
+
+> La tabla `periodo_examen` **ya no existe**: fue eliminada por la migración
+> `d1a2b3c4d5e6_v2_refactor_portal_academico` y reemplazada por `instancia_examen`.
 
 ---
 

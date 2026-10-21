@@ -460,42 +460,56 @@ class QueryBuilder:
             return and_(*clauses)
     
     def _apply_single_condition(self, condition: Condition):
-        """Aplica una condición individual"""
+        """
+        Aplica una condición individual.
+
+        Ante un fallo, PROPAGA QueryBuilderError en vez de devolver None. Devolver
+        None hacía que la condición desapareciera del WHERE en silencio y la
+        consulta devolviera MÁS filas de las pedidas. En un listado filtrado por
+        permisos o por `published` (que se inyecta como condición, ver
+        _add_public_constraints), eso es una fuga de datos silenciosa. Mejor un
+        400 ruidoso que datos de más sin que nadie se entere.
+        """
         try:
             attribute_path = condition.attribute.split('.')
-            
+
             if len(attribute_path) == 1:
                 # Atributo directo del modelo principal
                 if not hasattr(self.model_class, attribute_path[0]):
-                    logger.warning(f"Atributo '{attribute_path[0]}' no encontrado en {self.model_class.__name__}")
-                    return None
-                    
+                    raise QueryBuilderError.field_not_found(attribute_path[0])
+
                 column = getattr(self.model_class, attribute_path[0])
                 return self._build_filter_clause(column, condition.operator, condition.value)
             else:
                 # Atributo en relación
                 return self._apply_relation_condition(attribute_path, condition)
-                
+
+        except QueryBuilderError:
+            raise
         except Exception as e:
             logger.error(f"Error aplicando condición {condition.attribute}: {str(e)}")
-            return None
+            raise QueryBuilderError.query_construction_error(
+                f"condición '{condition.attribute}'", original_exception=e
+            )
     
     def _apply_relation_condition(self, attribute_path: List[str], condition: Condition):
-        """Aplica condición en relación"""
+        """
+        Aplica condición en relación. Propaga QueryBuilderError ante un fallo,
+        por el mismo motivo que _apply_single_condition: un descarte silencioso
+        de la condición devuelve datos de más.
+        """
         current_model = self.model_class
-        
+
         try:
             # Navegar por las relaciones
             for i, relation_name in enumerate(attribute_path[:-1]):
                 if not hasattr(current_model, relation_name):
-                    logger.warning(f"Relación '{relation_name}' no encontrada en {current_model.__name__}")
-                    return None
-                
+                    raise QueryBuilderError.relation_not_found(relation_name)
+
                 related_model = self._get_related_model(current_model, relation_name)
                 if related_model is None:
-                    logger.warning(f"No se pudo determinar el modelo para la relación '{relation_name}'")
-                    return None
-                
+                    raise QueryBuilderError.relation_not_found(relation_name)
+
                 # Aplicar JOIN si no se ha aplicado ya
                 join_key = f"{current_model.__name__}.{relation_name}"
                 if join_key not in self.joins_applied:
@@ -503,21 +517,26 @@ class QueryBuilder:
                     self.query = self.query.join(relation_attr)
                     self.joins_applied.add(join_key)
                     logger.info(f"JOIN aplicado: {join_key}")
-                
+
                 current_model = related_model
-            
+
             # Aplicar filtro en el último atributo
             final_attribute = attribute_path[-1]
             if not hasattr(current_model, final_attribute):
-                logger.warning(f"Atributo '{final_attribute}' no encontrado en {current_model.__name__}")
-                return None
-                
+                raise QueryBuilderError.field_not_found(
+                    final_attribute, relation_name='.'.join(attribute_path[:-1])
+                )
+
             column = getattr(current_model, final_attribute)
             return self._build_filter_clause(column, condition.operator, condition.value)
-            
+
+        except QueryBuilderError:
+            raise
         except Exception as e:
             logger.error(f"Error en relación {'.'.join(attribute_path)}: {str(e)}")
-            return None
+            raise QueryBuilderError.query_construction_error(
+                f"relación '{'.'.join(attribute_path)}'", original_exception=e
+            )
     
     def _get_related_model(self, model, relation_name):
         """Obtiene el modelo relacionado con cache"""

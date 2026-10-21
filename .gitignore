@@ -20,6 +20,8 @@ venv/
 credentials/
 *.json
 !package.json
+# Fuentes de los diagramas: no son credenciales
+!docs/diagramas/*.json
 
 # OS files
 .DS_Store
@@ -40,6 +42,9 @@ SKILL.md
 # Excel / VBA (datos locales)
 *.xlsx
 *.vba
+# Salvo la planilla VACIA que se le mando a bedelia (referencia del formato).
+# La completa tiene cedulas y notas de alumnos: NO va al repo (ver el README de la carpeta).
+!docs/carga_inicial/carga_inicial_portal_enviada_bedelia.xlsx
 
 # Frontend
 frontend/node_modules/
@@ -55,3 +60,6 @@ frontend-test-login/.svelte-kit/
 .idea/
 nul
 .buildpack-cache-clear
+
+# Reproducciones de casos para Handy (request/response/callback)
+evidencia/

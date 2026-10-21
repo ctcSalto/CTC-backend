@@ -60,5 +60,30 @@ class ProgramaService(BaseServiceWithFilters[Programa]):
                 "No se puede eliminar: el programa tiene materias asignadas"
             )
 
+        # Un programa sin materias puede tener igual alumnos inscriptos o periodos
+        # cargados. Sin estos guards el borrado no fallaba con un mensaje sino con
+        # una violacion de foreign key, que sale como 500.
+        from v2.models.inscripcion_programa import InscripcionPrograma
+        inscripcion = session.exec(
+            select(InscripcionPrograma).where(
+                InscripcionPrograma.programa_id == programa_id
+            )
+        ).first()
+        if inscripcion:
+            raise ValueError(
+                "No se puede eliminar: el programa tiene alumnos inscriptos"
+            )
+
+        from v2.models.periodo_inscripcion_materia import PeriodoInscripcionMateria
+        periodo = session.exec(
+            select(PeriodoInscripcionMateria).where(
+                PeriodoInscripcionMateria.programa_id == programa_id
+            )
+        ).first()
+        if periodo:
+            raise ValueError(
+                "No se puede eliminar: el programa tiene periodos de inscripcion cargados"
+            )
+
         session.delete(programa)
         session.commit()

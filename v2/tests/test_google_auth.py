@@ -127,6 +127,104 @@ class TestJWTVerificacion:
             verify_v2_token(token)
         assert exc_info.value.status_code == 401
 
+
+class _ClienteRedisFalso:
+    """
+    Doble del cliente de redis-py. Lo importante: cuando el servidor no
+    responde, LEVANTA. Esa excepcion es la que distingue "caido" de "la clave no
+    existe", y es la razon por la que la validacion consulta este cliente y no
+    el wrapper.
+    """
+    def __init__(self, disponible=True, revocados=()):
+        self.disponible = disponible
+        self.revocados = set(revocados)
+        self.escritos = {}
+
+    def exists(self, key):
+        if not self.disponible:
+            raise ConnectionError("Redis down")
+        # Mira las dos fuentes: las claves precargadas por el test y las que
+        # escribio el codigo. Si fueran almacenes separados, un logout real no
+        # se veria reflejado en la consulta siguiente.
+        return 1 if (key in self.revocados or key in self.escritos) else 0
+
+    def set(self, key, value, ex=None):
+        if not self.disponible:
+            raise ConnectionError("Redis down")
+        self.escritos[key] = (value, ex)
+        return True
+
+
+class _FakeRedis:
+    """
+    Doble de RedisService. Expone `redis_client` con el nombre real del
+    atributo: un MagicMock inventa cualquier atributo que se le pida, y por eso
+    los tests pasaban mientras el codigo escribia en `.client`, que no existe.
+
+    Conserva ademas exists() con su falla silenciosa, tal como el original, para
+    que si alguien vuelve a usarlo el doble siga siendo fiel.
+    """
+    def __init__(self, disponible=True, revocados=()):
+        self.redis_client = _ClienteRedisFalso(disponible, revocados)
+
+    @property
+    def disponible(self):
+        return self.redis_client.disponible
+
+    def test_connection(self):
+        return self.redis_client.disponible
+
+    def exists(self, key, session=None):
+        try:
+            return bool(self.redis_client.exists(key))
+        except Exception:
+            return False  # tal cual el real: falla silenciosa
+
+
+class TestBlacklistFallaCerrado:
+    """
+    La blacklist debe fallar CERRADO. El logout es la unica forma de cortar
+    acceso antes de que venza el token, asi que no puede quedar deshabilitado
+    silenciosamente cuando Redis no responde.
+    """
+
+    def test_token_revocado_es_rechazado(self):
+        from fastapi import HTTPException
+        token = create_v2_token("juan@ctcsalto.edu.uy", 1, "estudiante")
+        jti = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])["jti"]
+        redis = _FakeRedis(revocados=[f"blacklist_{jti}"])
+
+        with pytest.raises(HTTPException) as exc_info:
+            verify_v2_token(token, redis)
+        assert exc_info.value.status_code == 401
+
+    def test_token_no_revocado_pasa(self):
+        token = create_v2_token("juan@ctcsalto.edu.uy", 1, "estudiante")
+        payload = verify_v2_token(token, _FakeRedis())
+        assert payload["sub"] == "juan@ctcsalto.edu.uy"
+
+    def test_redis_caido_rechaza_en_vez_de_dejar_pasar(self):
+        """
+        Con Redis caido no podemos saber si el token fue revocado. Antes esto
+        dejaba pasar cualquier token revocado hasta su expiracion.
+        """
+        from fastapi import HTTPException
+        token = create_v2_token("juan@ctcsalto.edu.uy", 1, "estudiante")
+
+        with pytest.raises(HTTPException) as exc_info:
+            verify_v2_token(token, _FakeRedis(disponible=False))
+        assert exc_info.value.status_code == 503
+
+    def test_redis_caido_no_deja_entrar_token_revocado(self):
+        """El caso concreto que motivo el fix: token revocado + Redis caido."""
+        from fastapi import HTTPException
+        token = create_v2_token("juan@ctcsalto.edu.uy", 1, "estudiante")
+        jti = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])["jti"]
+        redis = _FakeRedis(disponible=False, revocados=[f"blacklist_{jti}"])
+
+        with pytest.raises(HTTPException):
+            verify_v2_token(token, redis)
+
     def test_rechazar_token_sin_email(self):
         """Token sin claim sub (email) es rechazado."""
         from fastapi import HTTPException
@@ -144,49 +242,79 @@ class TestJWTBlacklist:
     """Blacklist de tokens via Redis."""
 
     def test_blacklist_token_valido(self):
-        """Token se agrega al blacklist correctamente."""
-        token = create_v2_token("test@ctcsalto.edu.uy", 1, "estudiante")
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
+        """
+        Token se agrega al blacklist correctamente.
 
-        result = blacklist_v2_token(token, mock_redis)
+        Se usa un doble explicito y no un MagicMock: el mock inventaba el
+        atributo `.client`, que RedisService no tiene, asi que este test pasaba
+        mientras el logout real no revocaba nada.
+        """
+        token = create_v2_token("test@ctcsalto.edu.uy", 1, "estudiante")
+        redis = _FakeRedis()
+
+        result = blacklist_v2_token(token, redis)
         assert result is True
-        mock_redis.client.set.assert_called_once()
-        call_args = mock_redis.client.set.call_args
-        assert call_args[0][0].startswith("blacklist_")
+
+        escritos = list(redis.redis_client.escritos)
+        assert len(escritos) == 1
+        assert escritos[0].startswith("blacklist_")
 
     def test_verificar_token_en_blacklist(self):
         """Token en blacklist es rechazado."""
         from fastapi import HTTPException
         token = create_v2_token("test@ctcsalto.edu.uy", 1, "estudiante")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        jti = payload["jti"]
+        jti = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])["jti"]
 
-        mock_redis = MagicMock()
-        mock_redis.exists.return_value = True
+        redis = _FakeRedis(revocados=[f"blacklist_{jti}"])
 
         with pytest.raises(HTTPException) as exc_info:
-            verify_v2_token(token, redis_service=mock_redis)
+            verify_v2_token(token, redis_service=redis)
         assert exc_info.value.status_code == 401
         assert "revocado" in exc_info.value.detail.lower()
 
     def test_token_no_en_blacklist_pasa(self):
         """Token no en blacklist es aceptado."""
         token = create_v2_token("test@ctcsalto.edu.uy", 1, "estudiante")
-        mock_redis = MagicMock()
-        mock_redis.exists.return_value = False
 
-        payload = verify_v2_token(token, redis_service=mock_redis)
+        payload = verify_v2_token(token, redis_service=_FakeRedis())
         assert payload["sub"] == "test@ctcsalto.edu.uy"
 
-    def test_redis_caido_no_bloquea(self):
-        """Si Redis falla, el token pasa igual (Redis es no critico)."""
+    def test_el_logout_invalida_el_token(self):
+        """
+        Ciclo completo: token valido -> logout -> token rechazado.
+
+        Es lo que ningun test cubria, y por eso el bug de `.client` sobrevivio:
+        se verificaba que la funcion devolviera True, no que el token dejara de
+        servir.
+        """
+        from fastapi import HTTPException
         token = create_v2_token("test@ctcsalto.edu.uy", 1, "estudiante")
-        mock_redis = MagicMock()
-        mock_redis.exists.side_effect = ConnectionError("Redis down")
+        redis = _FakeRedis()
 
-        payload = verify_v2_token(token, redis_service=mock_redis)
-        assert payload["sub"] == "test@ctcsalto.edu.uy"
+        assert verify_v2_token(token, redis)["sub"] == "test@ctcsalto.edu.uy"
+        assert blacklist_v2_token(token, redis) is True
+
+        with pytest.raises(HTTPException) as exc_info:
+            verify_v2_token(token, redis)
+        assert exc_info.value.status_code == 401
+
+    def test_redis_caido_bloquea(self):
+        """
+        Si Redis no responde, el token se rechaza con 503.
+
+        Este test antes se llamaba `test_redis_caido_no_bloquea` y afirmaba lo
+        contrario ("Redis es no critico, el token pasa igual"). Eso convertia un
+        agujero de seguridad en comportamiento esperado: con Redis caido, todo
+        token revocado volvia a ser valido hasta expirar. Redis SI es critico
+        para la blacklist, porque el logout es la unica forma de cortar acceso
+        antes del vencimiento.
+        """
+        from fastapi import HTTPException
+        token = create_v2_token("test@ctcsalto.edu.uy", 1, "estudiante")
+
+        with pytest.raises(HTTPException) as exc_info:
+            verify_v2_token(token, redis_service=_FakeRedis(disponible=False))
+        assert exc_info.value.status_code == 503
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -284,16 +412,90 @@ class TestOUMapeo:
         assert N8nOUClient.ou_to_rol("/Equipo Docente/Informática") == RolUsuario.DOCENTE
 
     def test_ou_desconocida(self):
-        """OU no reconocida defaultea a ESTUDIANTE."""
-        assert N8nOUClient.ou_to_rol("/Otra/OU") == RolUsuario.ESTUDIANTE
+        """OU no mapeada devuelve None: no se sabe que es."""
+        assert N8nOUClient.ou_to_rol("/Otra/OU") is None
 
     def test_ou_none(self):
-        """OU None defaultea a ESTUDIANTE."""
-        assert N8nOUClient.ou_to_rol(None) == RolUsuario.ESTUDIANTE
+        """
+        Sin OU no hay rol.
+
+        Devolver ESTUDIANTE aca era el bug: quien consume esto escribe el rol
+        en cada login, asi que con la consulta de OU caida todos los que
+        entraban quedaban como estudiantes.
+        """
+        assert N8nOUClient.ou_to_rol(None) is None
 
     def test_ou_vacia(self):
-        """OU vacía defaultea a ESTUDIANTE."""
-        assert N8nOUClient.ou_to_rol("") == RolUsuario.ESTUDIANTE
+        """OU vacía tampoco alcanza para decidir."""
+        assert N8nOUClient.ou_to_rol("") is None
+
+    def test_default_solo_al_crear(self):
+        """El minimo privilegio sigue existiendo, pero explicito."""
+        assert N8nOUClient.rol_o_default(None) == RolUsuario.ESTUDIANTE
+        assert N8nOUClient.rol_o_default(RolUsuario.DOCENTE) == RolUsuario.DOCENTE
+
+
+class TestRolNoSePierdeEnElLogin:
+    """
+    El rol se re-sincroniza desde la OU en cada login. Si la consulta de OU
+    falla, no se puede tomar eso como "es estudiante": a un administrativo lo
+    dejaria sin poder recuperar su rol, porque la pantalla que lo cambia pide
+    ser administrativo.
+    """
+
+    def test_no_degrada_al_administrativo(self, session, usuario_admin):
+        from v2.services.usuario_service import UsuarioService
+
+        UsuarioService().update_on_login(
+            usuario=usuario_admin,
+            nombre=usuario_admin.nombre,
+            apellido=usuario_admin.apellido,
+            foto_url=None,
+            ou_google=None,   # la consulta de OU fallo
+            rol=None,
+            moodle_id=None,
+            session=session,
+        )
+
+        assert usuario_admin.rol == RolUsuario.ADMINISTRATIVO
+
+    def test_no_borra_la_ou_conocida(self, session, usuario_admin):
+        from v2.services.usuario_service import UsuarioService
+
+        usuario_admin.ou_google = "/Administración y Ventas"
+        session.add(usuario_admin)
+        session.commit()
+
+        UsuarioService().update_on_login(
+            usuario=usuario_admin,
+            nombre=usuario_admin.nombre,
+            apellido=usuario_admin.apellido,
+            foto_url=None,
+            ou_google=None,
+            rol=None,
+            moodle_id=None,
+            session=session,
+        )
+
+        assert usuario_admin.ou_google == "/Administración y Ventas"
+
+    def test_si_la_ou_se_conoce_el_rol_si_cambia(self, session, usuario_admin):
+        """El re-sync tiene que seguir funcionando cuando hay dato."""
+        from v2.services.usuario_service import UsuarioService
+
+        UsuarioService().update_on_login(
+            usuario=usuario_admin,
+            nombre=usuario_admin.nombre,
+            apellido=usuario_admin.apellido,
+            foto_url=None,
+            ou_google="/Equipo Docente",
+            rol=RolUsuario.DOCENTE,
+            moodle_id=None,
+            session=session,
+        )
+
+        assert usuario_admin.rol == RolUsuario.DOCENTE
+        assert usuario_admin.ou_google == "/Equipo Docente"
 
 
 # ══════════════════════════════════════════════════════════════════════════════

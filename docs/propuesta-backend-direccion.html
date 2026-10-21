@@ -1,0 +1,364 @@
+<h1>Propuesta técnica — Sección Backend</h1>
+
+<p><em>Preparado por Ezequiel Viera, desarrollo backend. La sección de frontend
+la completa el equipo correspondiente.</em></p>
+
+<p>Este documento cubre los dos frentes de trabajo definidos: la integración con
+la pasarela de pagos <strong>Handy</strong> y la incorporación del
+<strong>CRM de redes sociales (AloStudio)</strong>. Para cada uno se detalla qué
+está decidido, qué está construido y qué queda pendiente.</p>
+
+<hr>
+
+<h1>1. Pasarela de pagos Handy</h1>
+
+<h2>1.1 Situación</h2>
+
+<p>El acuerdo comercial con Handy ya está cerrado a nivel de dirección. Del lado
+técnico corresponde integrar la pasarela al sitio para poder cobrar los cursos en
+línea.</p>
+
+<p>Hoy el sistema tiene integrada la pasarela de MercadoPago.
+<strong>MercadoPago no se retira:</strong> las dos van a convivir. Esto no es
+solo por prudencia — deja la puerta abierta a sumar una tercera pasarela si en el
+futuro se venden cursos al exterior, donde Handy no opera.</p>
+
+<h2>1.2 Decisión técnica: usamos el Botón de Pago</h2>
+
+<p>Handy ofrece dos formas de integrarse. Revisamos los manuales oficiales de las
+dos y optamos por la primera:</p>
+
+<table>
+  <tr>
+    <th></th>
+    <th>Botón de Pago</th>
+    <th>Checkout API</th>
+  </tr>
+  <tr>
+    <td><strong>Cómo funciona</strong></td>
+    <td>El alumno se redirige a una página de pago de Handy, como ocurre hoy con
+    MercadoPago</td>
+    <td>El formulario de tarjeta vive dentro de nuestro sitio</td>
+  </tr>
+  <tr>
+    <td><strong>Tecnología</strong></td>
+    <td>API REST estándar</td>
+    <td>Servicio Microsoft WCF, con firmado criptográfico de cada mensaje</td>
+  </tr>
+  <tr>
+    <td><strong>Datos de tarjeta</strong></td>
+    <td>Nunca pasan por nuestro servidor</td>
+    <td>Pasan por nuestro servidor</td>
+  </tr>
+  <tr>
+    <td><strong>Esfuerzo de desarrollo</strong></td>
+    <td>Bajo</td>
+    <td>Alto</td>
+  </tr>
+</table>
+
+<p>Los dos motivos que definen la elección:</p>
+
+<p><strong>Riesgo regulatorio.</strong> El Checkout API recibe los datos de
+tarjeta directamente en nuestro servidor, lo que nos pondría dentro del alcance
+de la normativa PCI-DSS, con las auditorías y responsabilidades que eso implica.
+El Botón de Pago nos deja fuera: la tarjeta se ingresa en el entorno de Handy y
+nosotros nunca la vemos. Para una institución educativa que vende cursos, asumir
+esa responsabilidad no aporta nada.</p>
+
+<p><strong>Costo de desarrollo.</strong> El Checkout API está construido sobre
+Plexo, con una tecnología (WCF/SOAP) que exige firmar criptográficamente cada
+mensaje con un certificado digital, dar de alta comercios y negociar un código de
+comercio con cada sello por separado (Visa, Mastercard, OCA…). No existe librería
+para el lenguaje en que está hecho nuestro backend, por lo que habría que
+implementarlo a mano. El Botón de Pago se resuelve con un pedido HTTP estándar.</p>
+
+<p>La diferencia práctica para el alumno es mínima: se lo redirige a una página
+segura de Handy y vuelve al sitio al terminar — exactamente la experiencia que ya
+tiene hoy con MercadoPago.</p>
+
+<h2>1.3 Medios de pago que habilita</h2>
+
+<p>La integración cubre todo lo que Handy ofrece hoy:</p>
+
+<ul>
+  <li><strong>Tarjetas:</strong> Visa, Mastercard, OCA, Amex, Cabal, Passcard,
+  Anda, Club del Este y Edenred</li>
+  <li><strong>Redes de cobranza:</strong> Redpagos</li>
+  <li><strong>Transferencias bancarias:</strong> Itaú, BROU, Scotiabank, BBVA y
+  Bandes</li>
+</ul>
+
+<p>Amex, Passcard y Edenred dependen del rubro que Handy tenga asignado a la
+institución — es una de las consultas pendientes.</p>
+
+<h2>1.4 Qué construye el backend</h2>
+
+<ol>
+  <li><strong>Generación del cobro.</strong> Cuando el alumno decide comprar, el
+  backend le pide a Handy un enlace de pago único con el detalle del curso y el
+  monto, y lo redirige ahí.</li>
+  <li><strong>Recepción del resultado.</strong> Handy avisa por una notificación
+  automática si el pago se concretó, quedó pendiente o falló. El backend procesa
+  ese aviso y actualiza el estado.</li>
+  <li><strong>Registro propio de operaciones.</strong> Hoy el sistema no guarda
+  ningún registro de los pagos: la integración con MercadoPago no persiste nada.
+  Vamos a incorporar un registro propio de cada intento de cobro. Es
+  imprescindible para conciliar contra los resúmenes de Handy, para resolver
+  reclamos de alumnos y — como se explica abajo — para validar las
+  notificaciones.</li>
+  <li><strong>Devoluciones.</strong> Handy permite devolver un pago una única
+  vez, solo con tarjeta y hasta $10.000 / USD 250.</li>
+</ol>
+
+<p>Un caso que conviene tener presente desde el diseño: <strong>los pagos por
+Redpagos no son inmediatos.</strong> Generan una orden con vencimiento que el
+alumno paga después en el local. Entre que elige el curso y efectivamente paga
+pueden pasar días, y en ese lapso el curso todavía no está pago. El sistema
+maneja ese estado intermedio.</p>
+
+<h2>1.5 Pendiente: respuestas de Handy</h2>
+
+<p><strong>Ya enviamos la consulta técnica a Handy y nos derivaron al área de
+integraciones. A la fecha seguimos sin respuesta.</strong></p>
+
+<p>Hay dos preguntas cuya respuesta condiciona el diseño de seguridad:</p>
+
+<ol>
+  <li><strong>¿Cómo validamos que una notificación de pago viene realmente de
+  Handy?</strong> El manual publicado no documenta ningún mecanismo de firma o
+  autenticación para esos avisos. Tal como está documentado, alguien que
+  descubriera la dirección de nuestro sistema podría enviar un aviso falso de
+  "pago exitoso".</li>
+  <li><strong>¿Existe forma de consultarle a Handy el estado de un pago?</strong>
+  El manual describe cómo crear un cobro y cómo devolverlo, pero no cómo
+  preguntar si una operación está efectivamente paga. Sin esa consulta no tenemos
+  contra qué verificar el aviso recibido.</li>
+</ol>
+
+<p>Puede tratarse simplemente de funcionalidad no documentada en el manual
+público. Con que exista <em>cualquiera</em> de las dos, el problema se resuelve
+de forma directa y estándar.</p>
+
+<p>Si la respuesta fuera que no existe ninguna, la integración se puede hacer
+igual aplicando medidas compensatorias de nuestro lado: dirección de notificación
+secreta, verificación contra nuestro propio registro de operaciones, control de
+duplicados y registro completo de todo lo recibido. En ese escenario conviene que
+la dirección esté al tanto de que existe un riesgo residual asumido a
+conciencia.</p>
+
+<h2>1.6 Qué se puede avanzar mientras tanto</h2>
+
+<p>La espera <strong>no bloquea todo el trabajo.</strong> El registro de
+operaciones, la generación del enlace de pago y el flujo de compra se pueden
+construir y probar contra el ambiente de pruebas de Handy, que ya está disponible
+y documentado. Lo único que queda supeditado a la respuesta es la capa de
+validación de las notificaciones.</p>
+
+<p>Para salir a producción sí hacen falta las credenciales definitivas, que se
+solicitan por el mismo canal.</p>
+
+<hr>
+
+<h1>2. CRM de redes sociales (AloStudio)</h1>
+
+<h2>2.1 Qué problema resuelve</h2>
+
+<p>Hoy las consultas de posibles alumnos llegan dispersas: mensajes de Instagram,
+WhatsApp, correo y formularios del sitio. Cada canal se atiende por separado, no
+queda historial unificado por persona y no hay forma de medir cuántas consultas
+terminan en una inscripción.</p>
+
+<p>El CRM centraliza todos esos canales en una única bandeja de entrada, con
+historial completo por contacto, asignación a responsables y métricas de
+atención.</p>
+
+<h2>2.2 Estado: el backend ya está construido</h2>
+
+<p>Este no es un desarrollo a iniciar desde cero. El backend es un sistema ya
+funcionando, construido sobre <strong>Chatwoot</strong> — una plataforma de
+atención al cliente de código abierto y ampliamente adoptada — reimplementada en
+la misma tecnología que usa el backend de CTC, lo que facilita el mantenimiento
+por parte del mismo equipo.</p>
+
+<p>Dimensiones actuales del sistema:</p>
+
+<table>
+  <tr><td><strong>Endpoints de API</strong></td><td>222</td></tr>
+  <tr><td><strong>Tablas de base de datos</strong></td><td>62</td></tr>
+  <tr><td><strong>Módulos funcionales</strong></td><td>38</td></tr>
+  <tr><td><strong>Archivos de pruebas automatizadas</strong></td><td>166</td></tr>
+</table>
+
+<p>Sobre esa base se agregaron desarrollos propios que no forman parte de
+Chatwoot: el módulo de Instagram, el catálogo de productos y servicios, la
+sincronización de métricas de Meta Ads y un servidor de integración para agentes
+de inteligencia artificial.</p>
+
+<h2>2.3 Canales de comunicación soportados</h2>
+
+<ul>
+  <li><strong>Instagram</strong> — mensajería, comentarios y publicación (es el
+  módulo más desarrollado)</li>
+  <li><strong>WhatsApp</strong></li>
+  <li><strong>Facebook Messenger</strong></li>
+  <li><strong>Correo electrónico</strong> — con lectura automática de casilla</li>
+  <li><strong>Widget web</strong> — chat embebido en el sitio institucional</li>
+  <li><strong>Telegram</strong>, <strong>SMS</strong> y <strong>Twilio</strong></li>
+</ul>
+
+<h2>2.4 Qué incluye el backend</h2>
+
+<p><strong>Gestión de la atención</strong></p>
+<ul>
+  <li>Bandejas de entrada por canal, con conversaciones y estados</li>
+  <li>Contactos con historial unificado y atributos personalizados</li>
+  <li>Equipos, asignación automática y políticas de distribución de carga</li>
+  <li>Horarios de atención y respuestas fuera de hora</li>
+  <li>Respuestas predefinidas y macros para tareas repetitivas</li>
+  <li>Etiquetas y vistas personalizadas</li>
+  <li>Reglas de automatización</li>
+</ul>
+
+<p><strong>Medición</strong></p>
+<ul>
+  <li>Reportes de atención: volumen, tiempos de respuesta y resolución</li>
+  <li>Encuestas de satisfacción (CSAT)</li>
+  <li>Sincronización de métricas de campañas publicitarias de Meta Ads</li>
+</ul>
+
+<p><strong>Módulo de Instagram (desarrollo propio)</strong></p>
+<ul>
+  <li>Publicación de imágenes, videos, reels, carruseles e historias</li>
+  <li>Programación de publicaciones para fecha y hora futura</li>
+  <li>Moderación de comentarios</li>
+  <li>Recepción de eventos en tiempo real (comentarios, menciones, métricas)</li>
+  <li>Catálogo de productos y servicios vinculado a las publicaciones</li>
+</ul>
+
+<p><strong>Base técnica</strong></p>
+<ul>
+  <li>Actualizaciones en tiempo real en la interfaz, sin necesidad de recargar</li>
+  <li>Procesamiento en segundo plano para tareas pesadas y programadas</li>
+  <li>Control de acceso por roles y por cuenta</li>
+</ul>
+
+<h2>2.5 Cómo se integra con los sistemas de CTC</h2>
+
+<p>El CRM está preparado para integrarse con sistemas externos por tres vías, ya
+implementadas:</p>
+
+<ol>
+  <li><strong>API REST</strong> — permite consultar y modificar información desde
+  otro sistema.</li>
+  <li><strong>Notificaciones automáticas</strong> — el CRM avisa a CTC cuando
+  ocurre algo relevante: se crea un contacto, entra una conversación, cambia su
+  estado o llega un mensaje.</li>
+  <li><strong>Servidor de integración para agentes de IA</strong> — permite que
+  un asistente automático lea conversaciones y responda, con permisos acotados
+  (solo lectura, lectura y escritura, o administración) y credenciales revocables
+  por cuenta.</li>
+</ol>
+
+<p>Esta última vía es la que abre la posibilidad de un asistente que responda
+consultas frecuentes sobre cursos, horarios y requisitos fuera del horario de
+atención, escalando a una persona cuando corresponda. Es una capacidad
+disponible, no un desarrollo pendiente.</p>
+
+<h2>2.6 Qué queda por hacer del lado del backend</h2>
+
+<p>El sistema está construido; lo que resta es el trabajo específico de
+adaptarlo a CTC:</p>
+
+<ul>
+  <li><strong>Despliegue e infraestructura</strong> — puesta en producción del
+  sistema y sus servicios asociados.</li>
+  <li><strong>Credenciales de Meta</strong> — alta de la aplicación de Instagram
+  y Facebook a nombre de la institución, y proceso de verificación ante Meta. Es
+  un trámite externo con plazos que no dependen de nosotros, conviene iniciarlo
+  temprano.</li>
+  <li><strong>Conexión con el sistema de CTC</strong> — definir qué información
+  se comparte entre el CRM y el Portal Académico, y en qué sentido.</li>
+  <li><strong>Carga inicial</strong> — usuarios, equipos, horarios de atención y
+  respuestas predefinidas.</li>
+</ul>
+
+<hr>
+
+<h1>3. Cómo se conectan los dos puntos</h1>
+
+<p>Aunque son dos frentes independientes, juntos completan el circuito comercial
+de un curso de principio a fin:</p>
+
+<table>
+  <tr>
+    <th>Etapa</th>
+    <th>Sistema</th>
+  </tr>
+  <tr>
+    <td>Un interesado consulta por Instagram o WhatsApp</td>
+    <td>CRM</td>
+  </tr>
+  <tr>
+    <td>La consulta queda registrada como contacto, con su historial</td>
+    <td>CRM</td>
+  </tr>
+  <tr>
+    <td>Se le envía el enlace de pago del curso</td>
+    <td>Handy</td>
+  </tr>
+  <tr>
+    <td>El pago se acredita y queda registrado</td>
+    <td>Backend CTC</td>
+  </tr>
+  <tr>
+    <td>Se habilita la inscripción del alumno</td>
+    <td>Portal Académico</td>
+  </tr>
+</table>
+
+<p>Hoy ese recorrido está cortado en varios puntos y cada tramo se resuelve a
+mano. Cerrarlo permite saber cuántas consultas se reciben, cuántas terminan en
+una venta y por qué canal llegan — información que hoy no existe.</p>
+
+<p>Ese es también el motivo por el que conviene incorporar el registro propio de
+pagos descrito en el punto 1.4: es la pieza que conecta el cobro con la
+inscripción.</p>
+
+<hr>
+
+<h1>4. Resumen</h1>
+
+<h2>Decidido</h2>
+<ul>
+  <li>Handy se integra mediante el <strong>Botón de Pago</strong>, no el Checkout
+  API</li>
+  <li><strong>MercadoPago se mantiene</strong> y ambas pasarelas conviven</li>
+  <li>Se incorpora un <strong>registro propio de operaciones de pago</strong>, hoy
+  inexistente</li>
+  <li>El backend del CRM <strong>ya está construido</strong>; resta el trabajo de
+  adaptación e integración</li>
+</ul>
+
+<h2>Pendiente de terceros</h2>
+<ul>
+  <li><strong>Handy</strong> — respuesta del área de integraciones a las consultas
+  técnicas de seguridad, y entrega de credenciales de producción</li>
+  <li><strong>Meta</strong> — alta y verificación de la aplicación de Instagram y
+  Facebook a nombre de la institución</li>
+</ul>
+
+<h2>Pendiente de definición interna</h2>
+<ul>
+  <li>Si el pago de un curso debe habilitar automáticamente la inscripción en el
+  Portal Académico, o se mantienen como procesos separados</li>
+  <li>Qué información se comparte entre el CRM y el sistema de CTC</li>
+</ul>
+
+<p>Los plazos de la integración con Handy se pueden estimar con precisión una vez
+que respondan las consultas técnicas, dado que de ello depende el alcance del
+trabajo de validación.</p>
+
+<hr>
+
+<p><em>[Sección de Frontend — a completar]</em></p>

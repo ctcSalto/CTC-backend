@@ -24,14 +24,19 @@ router = APIRouter(
 async def crear_instancia_examen(
     data: InstanciaExamenCreate,
     current_usuario: UsuarioRead = Depends(require_administrativo),
+    v2_services: V2Services = Depends(get_v2_services),
     session: Session = Depends(get_session),
 ):
-    """Crear una nueva instancia de examen para una materia."""
-    instancia = InstanciaExamen(**data.model_dump(exclude_unset=True))
-    session.add(instancia)
-    session.flush()
-    session.refresh(instancia)
-    return instancia
+    """
+    Crear una nueva instancia de examen para una materia.
+
+    Si se indica `mesa_examen_id` se pueden omitir las fechas de inscripcion:
+    se copian de la mesa.
+    """
+    try:
+        return v2_services.instanciaExamenService.crear(data, session)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/materia/{materia_id}", response_model=List[InstanciaExamenRead])
@@ -113,7 +118,7 @@ async def asignar_profesor(
     """Asignar un profesor a una instancia de examen."""
     try:
         return v2_services.instanciaExamenService.asignar_profesor(
-            instancia_id, data.docente_id, session
+            instancia_id, data.profesor_id, session
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -1,0 +1,398 @@
+# Carga inicial del Portal Académico
+
+Plan para pasar de la base actual a un portal usable con alumnos reales.
+
+---
+
+## 1. De qué partimos
+
+Inventario de `develop` al 03/08/2026:
+
+| Tabla | Filas | Comentario |
+|---|---|---|
+| `programa` | 1 | Analista Programador |
+| `materia` | 3 | PROG1, PROG2, BD1 |
+| `previatura` | **1** | solo PROG2 → PROG1 |
+| `inscripcion_programa` | **0** | nadie inscripto a ninguna carrera |
+| `alumno` | 4 | de prueba |
+| `profesor` | 1 | de prueba |
+| `usuario` | 12 | 6 estudiantes, 3 docentes, 3 administrativos |
+| `politica_calificacion` | 2 | base 100 (70/86) y curso corto |
+
+**Lo que hay en `develop` son datos de prueba, no datos reales.**
+
+### Las previaturas sí están definidas — pero nunca llegaron a la base
+
+La migración `f3g4h5i6j7k8_seed_previaturas` (03/05/2026) tiene la malla completa
+que salió de `moodle_materias_previaturas.xlsx`: **44 previaturas sobre 40
+materias**, en dos programas (Analista Programador y Técnico en Gestión y
+Dirección de Empresas), más la regla de que el Integrador requiere todas.
+
+Esa migración **corrió y no insertó nada**. Resuelve cada materia por nombre
+exacto contra la tabla `materia`, que en ese momento estaba vacía: cada búsqueda
+devolvió `None` y siguió de largo en silencio. De las 40 materias que menciona,
+hoy encuentra **1**. Ignorando tildes y mayúsculas encontraría 3 — el seed busca
+`Programación 1` y en la base figura `Programacion 1`.
+
+La única previatura que hay en la tabla tiene `id_rastreo = NULL`, y el seed
+siempre asigna un UUID: **no la creó el seed**, se cargó a mano o desde un test.
+
+Alembic no vuelve a correr una revisión ya aplicada, así que esos datos quedaron
+en el repo sin forma de llegar a la base por sí solos. La malla se movió a
+[`v2/scripts/malla_inicial.py`](../v2/scripts/malla_inicial.py) como fuente única,
+y desde ahí la planilla la precarga: bedelía **no tiene que volver a escribir las
+44 previaturas**, solo revisarlas.
+
+Lo que falta de verdad es la tabla `materia` — nada en el repo la carga, ni
+migración ni script. Y con ella, alumnos, docentes e historial.
+
+`inscripcion_programa` en 0 es bloqueante por sí solo: el portal del estudiante
+devuelve **403** si el alumno no tiene inscripción activa a un programa. Sin esa
+tabla poblada, ningún alumno ve nada.
+
+---
+
+## 2. Cómo se carga
+
+Tres pasos, con la planilla en el medio para que administración trabaje en
+paralelo mientras se termina el backend.
+
+### Paso 1 — Generar la planilla
+
+```bash
+python -m v2.scripts.generar_planilla_migracion
+```
+
+Produce un `.xlsx` con siete hojas:
+
+| Hoja | Qué lleva |
+|---|---|
+| `LEEME` | instrucciones, en criollo |
+| `1-Alumnos` | personas + a qué carrera pertenecen |
+| `2-Docentes` | personas, incluidos los que ya no dictan |
+| `3-Plan de estudios` | 40 materias **precargadas**; falta semestre y créditos |
+| `4-Previaturas` | 44 requisitos **precargados**; solo hay que revisarlos |
+| `5-Historial` | alumno × materia × estado — **la importante** |
+| `6-Dictado actual` | quién dicta qué este semestre |
+
+Decisiones de diseño, todas por el mismo motivo — que lo que vuelva sea
+importable sin interpretar nada a mano:
+
+- **Todo se referencia por documento (cédula)**, no por nombre ni por id interno.
+  Es la única clave estable que bedelía maneja. El validador normaliza puntos y
+  guiones, así que `4.123.456-7` y `41234567` son la misma persona.
+- **Listas desplegables** en cada columna de valor cerrado. Sin eso, la columna
+  estado vuelve con `aprobado`, `APROBADO`, `Aprobó`, `ex.` y `exo`.
+- **Lo que ya sabemos viene precargado.** Gris = está en la base. Verde = sale de
+  la malla ya definida y todavía no llegó a la base. Bedelía corrige o completa,
+  no tipea de cero. En concreto: las 44 previaturas llegan hechas y de las 40
+  materias solo falta el semestre del plan y los créditos.
+- **La materia se identifica por nombre, no por código.** `Materia.codigo` es
+  nullable en el modelo y la malla que ya tenemos vino sin códigos, así que
+  exigirlos sería inventar un requisito que el sistema no tiene. Las hojas que
+  referencian materias aceptan las dos formas; el validador resuelve nombres
+  ignorando tildes y mayúsculas, y avisa si un nombre existe en dos carreras.
+- **Vocabulario reducido** en el historial: cinco estados, no los ocho del enum.
+  Administración no lleva registro de "perdido por inasistencia" de hace cuatro
+  años, y ofrecer opciones que nadie va a usar bien solo genera ruido.
+
+| En la planilla | Qué significa | En el sistema |
+|---|---|---|
+| `APROBADA` | la cerró **rindiendo el examen** (o aprobó el taller) | `APROBADO` |
+| `EXONERADA` | la cerró por nota de curso, sin examen | `EXONERADO` |
+| `A_EXAMEN` | aprobó el **curso**: tiene derecho a examen | `A_EXAMEN` |
+| `CURSANDO` | la está cursando | `CURSANDO` |
+| `RECURSA` | no aprobó el curso | `REPROBADO` |
+| `REVALIDADA` | reválida / equivalencia (agregado el 22/09/2026 a pedido de bedelía) | `REVALIDADA` |
+| *(sin fila)* | nunca la cursó | — |
+
+**Ojo con el vocabulario de bedelía:** en sus actas de curso, *"aprobado"*
+significa ganar el derecho a examen — acá es `A_EXAMEN`. La primera versión de
+la planilla decía que `APROBADA` era "por examen o por nota de curso", y eso
+estaba mal: aprobar por nota de curso es exonerar. Corregido el 22/09/2026.
+
+**Una fila por alumno y materia, con el estado de hoy.** Si la cursó cuatro
+veces, va una fila con el resultado final. Los intentos anteriores no se
+retipean: ya están en el legajo histórico (`docs/HISTORICO_ESCOLARIDADES.md`),
+que tiene la planilla de Escolaridades de bedelía hasta agosto de 2026.
+
+**Cada plan es un programa aparte (decidido el 25/09/2026).** La planilla
+devuelta trae varias versiones de una carrera: Analista Programador en los
+planes 2007, 2011, 2020 y 2022, y TGDE en 2022 y 2025, cada una con su malla.
+En vez de agregar el concepto de plan a la base, cada plan es un `Programa` con
+el año en el nombre: `Analista Programador (Plan 2020)`. Las carreras con un
+solo plan no llevan sufijo. Helpers en `v2/services/planes.py`.
+
+- **Qué agrupa por carrera y no por plan:** el promedio de la escolaridad
+  (bedelía lo calcula con todos los planes juntos). `promedio_escolaridad`
+  junta las cursadas de todos los programas de la misma carrera.
+- **El plan de cada alumno:** bedelía confirmó (25/09/2026) que **todos los
+  alumnos actuales están en el plan vigente** (Analista Programador 2022, TGDE
+  el de este año), incluso los que empezaron en planes viejos, porque cortaron
+  y retomaron con el actual. Sin plan explícito se toma el más reciente
+  (`planes.plan_por_defecto`); si algún alumno está en uno viejo, va en la
+  columna `Plan` de `1-Alumnos` o en el nombre del programa.
+- **Materias de planes viejos en el historial** (las filas con "Plan 2020" en
+  Observaciones): son de antes de retomar. El importador las tiene que llevar
+  a la materia del mismo nombre en el plan del alumno si existe (equivalencia)
+  y, si no, al programa del plan viejo.
+- **Historial:** cada materia se busca en el plan del alumno; si la fila dice
+  otro plan (en Observaciones, "Plan 2011"), en ese. **Previaturas y dictado**
+  no dicen el plan: se toman del más reciente.
+- **Para el importador:** `materia.codigo` es **único en toda la base**, no
+  por programa, y la planilla repite el código de una materia en cada plan
+  (PROG1 en 2020 y en 2022). Hay que diferenciarlos (`PROG1-2020`) o dejar sin
+  código los planes viejos. El programa "Analista Programador" que ya existe en
+  develop (la malla del plan actual) pasa a llamarse "Analista Programador
+  (Plan 2022)".
+- **Semestres `.5`** (los talleres, que van entre dos semestres): se
+  **redondean para abajo** (`planes.semestre_del_plan`), decidido con bedelía
+  el 25/09/2026: el alumno paga el taller junto con el semestre anterior. El
+  Taller de Genexus (4.5) queda en el 4.
+
+**Oportunidades de examen según el tipo de programa (bedelía, 23/09/2026):**
+las materias de una **carrera** tienen hasta **5** oportunidades; los **cursos
+independientes** (anuales o cortos, fuera de una carrera, por ejemplo Técnico
+en Soporte IT) tienen **2**, **sin fecha de caducidad**: quien aprobó el curso
+puede volver años después a rendir (decisión de negocio). En el portal es la `politica_examen` de cada
+materia: hay que crear una política con `max_oportunidades = 2` y que el
+importador se la asigne a las materias de los programas que no son carrera.
+Hoy en develop existe solo la de 5.
+
+**Para el importador de la planilla (cuando se escriba): no poner
+`fecha_cierre` en las inscripciones que crea.** El promedio de la escolaridad
+cuenta una cursada del portal solo si *el portal la cerró* después de la fecha
+de corte; así las filas de la planilla, cuya última instancia ya está en el
+histórico, no se cuentan dos veces. Las que vienen como `CURSANDO` sí van a
+contar cuando el portal las cierre. Ver `v2/services/promedio_escolaridad.py`.
+
+**Cómo llenó bedelía `6-Dictado actual` (25/09/2026):** no como "lo que se
+dicta este semestre" sino como **quién dicta cada materia del plan vigente**:
+en `Año` puso el año del plan (Analista 2022, TGDE 2025) y en `Semestre` el
+semestre de la materia en el plan. El importador tiene que tomar esa hoja como
+la **asignación docente por materia**, y sacar **qué se dicta ahora** de las
+filas `CURSANDO` 2026 del historial: con esas crea las instancias de cursado
+del semestre y les pone el docente de la hoja 6.
+
+**Decisiones de bedelía sobre la planilla completa (25/09/2026):**
+- **Proyecto Integrador Final** (Analista Programador): se trata como la
+  última materia del **semestre 5**. Es la que el plan 2022 tenía como
+  "Integrador - Analista programador" (código `INT`); queda con el nombre que
+  usa bedelía.
+- **Examen Integrador** de TGDE: igual, la última materia (semestre 5 del
+  plan 2025).
+- **Algoritmos 2** ya no existe en Analista Programador y **Programación WEB**
+  (un curso de CTC Minas, que cerró) ya no existe: no se cargan. Lo cursado en
+  eso queda solo en el legajo histórico.
+- **Materias sin nota todavía** (el docente no la pasó): van como
+  `CURSANDO`, y la nota se pone en el portal cuando llegue. Como no están en
+  el histórico, cuentan para el promedio cuando el portal las cierra. El
+  importador tiene que dejarlas en un estado en el que se puedan calificar.
+- **Técnico en Gerencia (plan 2016):** lo cursado en ese plan no se carga en
+  el portal; queda solo en el legajo histórico, que ya lo tiene completo.
+- **Segundo curso:** un alumno puede estar en una carrera y además en un curso
+  (Comunicación Efectiva, Excel y Power BI…). Va en `Otro Programa` de
+  `1-Alumnos`, y el importador lo toma como una inscripción más.
+- **Cédula:** es obligatoria para **alumnos**, porque es la clave que une las
+  hojas y la que vincula al alumno con su legajo histórico y su escolaridad.
+  Para **docentes** el portal no la necesita (`usuario.documento` admite nulo
+  y el ingreso es con la cuenta de Google), pero la planilla une el dictado
+  con el docente por cédula. Un docente sin cédula que no dicta nada puede
+  quedar afuera y cargarse cuando dicte.
+
+`A_EXAMEN` está aunque parezca un detalle: hay alumnos que arrastran materias
+con derecho a examen durante años, y si eso se pierde en la migración quedan
+como si nunca las hubieran cursado.
+
+### Paso 1b — Traer las personas de Google
+
+```bash
+python -m v2.scripts.traer_usuarios_google carga_inicial.xlsx --consultar-ou
+```
+
+Resultado real sobre las 142 cuentas del directorio:
+
+| Unidad organizativa | Cuentas | Va a |
+|---|---|---|
+| `/Alumnos` | 111 | hoja `1-Alumnos` |
+| `/Equipo Docente` | 15 | hoja `2-Docentes` |
+| `/Administración y Ventas` | 4 | ninguna — acceso desde el portal |
+| `/Gestión de Datos` | 8 | ninguna — casillas funcionales |
+| `/` (raíz) | 4 | ninguna — 2 genéricas + 2 personas sin clasificar |
+
+Va contra el mismo webhook de n8n que ya administra las cuentas, así que no
+necesita credenciales nuevas. **Hoy trae 142 cuentas** con apellido, nombre y
+correo institucional, y marca las suspendidas.
+
+Que el correo venga de Google y no tipeado importa más de lo que parece: es la
+identidad con la que la persona entra al portal. Una letra de más y queda afuera.
+
+Es idempotente — correrlo dos veces no duplica — y no pisa lo que bedelía ya
+escribió: saltea los correos que ya están en la planilla.
+
+**Lo que no trae, y hay que completar igual:**
+
+- **La cédula.** Google no la tiene cargada en estas cuentas (`externalIds` viene
+  vacío) y es la columna que une todas las hojas.
+**Sobre el rol:** el workflow `getManyUsersGoogle` tiene activada la opción
+**"Simplify"** del nodo de Google Workspace y no devuelve `orgUnitPath`, así que
+el lote no alcanza para clasificar. Por eso existe `--consultar-ou`, que
+resuelve la unidad de a una persona contra el workflow `getGoogleUO`
+(`POST {"primaryEmail": "..."}` → `{"orgUnitPath": "/Alumnos"}`). Son 142
+llamadas, un par de minutos, y se corre una sola vez.
+
+Si en algún momento se desactiva "Simplify" en `getManyUsersGoogle`, el lote
+trae la unidad directamente y `--consultar-ou` deja de hacer falta. El parámetro
+`query` tampoco se propaga: filtrar por `orgUnitPath='/Alumnos'` devuelve el
+directorio entero.
+
+**Las cuentas que no se pueden clasificar no se escriben.** En la práctica son
+casillas funcionales (`soporte@`, `becas@`, `servidor@`, `aulavirtual@`) que no
+son personas y no deben figurar como alumnos. El script las lista por pantalla
+para que alguien las revise. Antes del arreglo de `ou_to_rol` estas 12 cuentas
+habrían entrado como estudiantes.
+
+### Paso 2 — Validar lo que devuelvan
+
+```bash
+python -m v2.scripts.validar_planilla_migracion carga_inicial.xlsx --reporte errores.txt
+```
+
+No toca la base. Se puede correr las veces que haga falta, y el `.txt` se le
+reenvía a administración tal cual.
+
+Separa **ERROR** (impide importar la fila) de **AVISO** (se importa, pero
+conviene mirarlo). Verifica, entre otras cosas: cédulas con formato válido y
+consistentes entre hojas, códigos de materia que existan y sean únicos,
+previaturas dentro del mismo programa, **ciclos de previaturas**, notas en rango,
+estados dentro del vocabulario, y una fila por alumno y materia.
+
+**El chequeo que más importa** es el de cadenas incompletas: si un alumno figura
+con Programación 2 aprobada pero Programación 1 no aparece en su historial, sale
+un aviso. Casi siempre significa que falta cargar historial viejo. Si eso no se
+corrige antes de importar, el día uno el portal le bloquea la inscripción a ese
+alumno y bedelía reporta que el sistema está roto.
+
+### Paso 3 — Importar
+
+```bash
+python -m v2.scripts.importar_planilla_migracion carga_inicial.xlsx              # simula
+python -m v2.scripts.importar_planilla_migracion carga_inicial.xlsx --confirmar  # escribe
+```
+
+`v2/scripts/importar_planilla_migracion.py`. Cargado en develop el 25/09/2026.
+
+- **Corre el validador primero** y con un solo error no importa nada. Importa
+  las filas que el validador ya resolvió (materia con su plan, plan de cada
+  alumno), así no vuelve a interpretar la planilla por su cuenta.
+- **Una sola transacción:** entra todo o nada. Sin `--confirmar`, simula.
+- **Idempotente:** busca antes de crear (programa por nombre, materia por
+  código, persona por cédula o email, inscripciones por alumno y programa o por
+  alumno y cursada). Correrlo dos veces no duplica nada, y sirve para completar
+  lo que haya faltado.
+- **Personas:** si ya tienen cuenta (por cédula o por email) se completa solo
+  lo que falta. Las nuevas se crean igual que un alta manual; el primer login
+  con Google las vincula por email.
+- **Historial:** una cursada por materia y año, y una inscripción por fila. Las
+  que están CURSANDO quedan en curso, con la política copiada y su docente de
+  la hoja 6. Las demás quedan finalizadas, sin `fecha_cierre`.
+- **Políticas:** las carreras usan "Base 100 - Carrera AP" con examen de 5
+  oportunidades; los cursos, "Base 100 - Curso Corto" con la de 2
+  oportunidades, que el importador crea si no está.
+- Un estado que la base no acepta (en develop falta `REVALIDADA`) se saltea con
+  un aviso, y la fila entra al volver a correrlo después de la migración.
+
+Resuelve los nombres **ignorando tildes y mayúsculas** (lo hace el validador),
+que es el error que dejó el seed sin efecto.
+
+---
+
+## 3. Historial viejo y previaturas
+
+El punto que hay que resolver bien.
+
+Las inscripciones a materia cuelgan de una `instancia_cursado` — el dictado
+concreto de una materia en un año. Para el historial viejo esas instancias no
+existen. Dos caminos:
+
+**(a) Crear una instancia por (materia, año) que aparezca en el historial**,
+marcada como `FINALIZADA`, y colgar de ahí las inscripciones con su estado y
+nota. Preserva el historial con fechas reales y el motor de previaturas funciona
+solo, sin casos especiales.
+
+**(b) Cargar todo como `REVALIDADA`.** Más rápido, pero está mal: `REVALIDADA`
+significa "estudios hechos en otra institución", y además **corta la regla de
+cumplimiento pleno** — o sea que desactivaría el control de cadena de previaturas
+para toda la población migrada, justo lo que se acaba de implementar.
+
+**Recomendación: (a).** El costo extra es generar instancias sintéticas, que es
+código, no trabajo de bedelía.
+
+---
+
+## 4. Lo que no depende de la planilla
+
+### Cuentas de Google
+
+El login de v2 es Google OAuth restringido a `@ctcsalto.edu.uy`. **Un alumno sin
+cuenta institucional no puede entrar**, por más que esté cargado en la base.
+
+Buena noticia: ya hay **142 cuentas creadas**, así que este frente está mucho más
+avanzado de lo que parecía. Lo que falta es cruzarlas contra el padrón académico
+y ver a quién le falta cuenta.
+
+`Usuario.email` es nullable justamente para esto: se puede cargar la persona sin
+cuenta y crearla después.
+
+### La consulta de OU está caída, y eso afecta los roles
+
+El workflow `google-user-ou` de n8n **está inactivo y responde 404**. Como
+consecuencia, `ou_google` está en `NULL` para los 12 usuarios de la base,
+incluidos los que ya iniciaron sesión: la consulta nunca funcionó.
+
+Eso destapó un problema más serio, ya corregido en el código. `update_on_login`
+re-sincroniza el rol desde la OU **en cada login**, y `ou_to_rol(None)` devolvía
+`ESTUDIANTE` como "default seguro". Con la consulta caída, el resultado era que
+**cualquiera que iniciara sesión quedaba como estudiante** — incluido un
+administrativo, que después no podía recuperar su rol porque la pantalla que lo
+cambia exige ser administrativo. Un lockout.
+
+Ahora `ou_to_rol` devuelve `None` cuando no sabe, y ni el rol ni la OU se tocan
+si la consulta falló. El default de mínimo privilegio quedó solo para usuarios
+nuevos, donde no hay nada que pisar.
+
+**Igual hay que reactivar el workflow**, o los roles nunca se sincronizan solos y
+todo alta nueva entra como estudiante hasta que alguien la corrija a mano.
+
+### Usuarios de v1
+
+`user` en v1 son cuentas del sitio público (gente que se registró para consultar
+carreras), no el padrón académico. No son la misma población y no tienen
+necesariamente cuenta institucional. **No dar por hecho que migran solos**: hay
+que cruzar por documento y ver cuántos coinciden de verdad.
+
+### Políticas de calificación
+
+Ya están cargadas y coinciden con la regla vigente: base 100, `<70` reprueba,
+`70-85` derecho a examen, `>=86` exonera. No requiere trabajo de administración.
+
+Falta definir la política de examen de **Base de Datos 1**, que tiene
+`politica_examen_id` en null mientras las otras dos materias la tienen.
+
+---
+
+## 5. Antes de importar en producción
+
+- [ ] Migraciones 13, 14, 15 y `d2e3f4a5b6c7` aplicadas (ver
+      [PENDIENTES_PRODUCCION.md](../PENDIENTES_PRODUCCION.md))
+- [ ] `V2_ENABLED=true`
+- [ ] Workflow `getGoogleUO` **activo** en n8n (no en modo test), o los roles no
+      se sincronizan en el login y toda alta nueva entra como estudiante
+- [ ] `agustina.finozzi@` y `ana.escobal@` movidas a su OU correcta en Google:
+      hoy están en la raíz y el sistema no las puede clasificar
+- [ ] `python -m v2.scripts.verificar_ciclos_previaturas` en verde
+- [ ] Validador sin errores y con los avisos revisados uno por uno
+- [ ] Backup de la base **antes** de correr el importador
+- [ ] Importador en `--dry-run` primero, comparando totales contra la planilla
+- [ ] Una escolaridad real (`GET /v2/portal/estudiante/mi-escolaridad`) contrastada
+      contra el papel de bedelía, antes de dar acceso a nadie

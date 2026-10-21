@@ -17,7 +17,12 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
     def get_by_google_id(self, google_id: str, session: Session) -> Optional[Usuario]:
         return session.exec(select(Usuario).where(Usuario.google_id == google_id)).first()
 
-    def get_by_email(self, email: str, session: Session) -> Optional[Usuario]:
+    def get_by_email(self, email: Optional[str], session: Session) -> Optional[Usuario]:
+        # Guard: `email` es nullable (oyentes sin cuenta). Sin esto, un None generaría
+        # `WHERE email = NULL` y devolvería siempre None de forma silenciosa; peor,
+        # cualquier lookup accidental con None quedaría enmascarado como "no existe".
+        if not email:
+            return None
         return session.exec(select(Usuario).where(Usuario.email == email)).first()
 
     def get_by_id(self, usuario_id: int, session: Session) -> Optional[Usuario]:
@@ -31,11 +36,19 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
         apellido: str,
         foto_url: Optional[str],
         ou_google: Optional[str],
-        rol: RolUsuario,
+        rol: Optional[RolUsuario],
         moodle_id: Optional[int],
         session: Session,
     ) -> Usuario:
-        """Crea un usuario nuevo desde el login de Google OAuth."""
+        """
+        Crea un usuario nuevo desde el login de Google OAuth.
+
+        Si la OU no se pudo consultar, entra como ESTUDIANTE: es el rol de
+        menor privilegio y un administrativo se lo corrige despues. Aca el
+        default si corresponde, porque no hay rol previo que pisar.
+        """
+        from v2.auth.n8n_ou_client import N8nOUClient
+
         usuario = Usuario(
             google_id=google_id,
             email=email,
@@ -43,7 +56,7 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
             apellido=apellido,
             foto_url=foto_url,
             ou_google=ou_google,
-            rol=rol,
+            rol=N8nOUClient.rol_o_default(rol),
             moodle_id=moodle_id,
             activo=True,
             google_activo=True,
@@ -62,25 +75,30 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
 
     def create_manual(
         self,
-        email: str,
         nombre: str,
         apellido: str,
         rol: RolUsuario,
         session: Session,
+        email: Optional[str] = None,
         documento: Optional[str] = None,
         telefono: Optional[str] = None,
         email_personal: Optional[str] = None,
+        perfil: Optional[dict] = None,
     ) -> Usuario:
         """
         Crea un usuario manualmente (admin), sin requerir login de Google.
         Util para ponentes que dan una charla puntual o asistentes a charlas
         que deben quedar registrados pero nunca inician sesion en el portal.
 
-        Si la persona luego inicia sesion con Google usando el mismo email,
-        el callback de OAuth la encuentra por email y vincula la cuenta
-        (ver v2/routes/auth_google.py).
+        `email` es opcional: un oyente de una charla puede no tener cuenta
+        institucional ni email que queramos almacenar. Si se provee y la persona
+        luego inicia sesion con Google usando ese mismo email, el callback de
+        OAuth la encuentra y vincula la cuenta (ver v2/routes/auth_google.py).
+
+        Se crea con `activo=False` porque no tiene acceso al portal. Si mas
+        adelante inicia sesion con Google, el callback lo reactiva.
         """
-        if self.get_by_email(email, session):
+        if email and self.get_by_email(email, session):
             raise ValueError(f"Ya existe un usuario con el email {email}")
 
         usuario = Usuario(
@@ -91,7 +109,7 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
             telefono=telefono,
             email_personal=email_personal,
             rol=rol,
-            activo=True,
+            activo=False,
             google_activo=False,
             moodle_activo=False,
             fecha_creacion=datetime.now(get_uruguay_tz()),
@@ -100,18 +118,34 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
         session.flush()
         session.refresh(usuario)
 
-        self._auto_crear_perfil(usuario, session)
+        self._auto_crear_perfil(usuario, session, perfil)
 
         return usuario
 
-    def _auto_crear_perfil(self, usuario: Usuario, session: Session):
-        """Crea automáticamente el perfil correspondiente según el rol del usuario."""
+    def _auto_crear_perfil(self, usuario: Usuario, session: Session, perfil: Optional[dict] = None):
+        """
+        Crea automáticamente el perfil correspondiente según el rol del usuario.
+        `perfil` permite pasar los campos propios del perfil en el alta manual.
+        """
+        datos = perfil or {}
         if usuario.rol == RolUsuario.ESTUDIANTE:
-            self.crear_perfil_alumno(usuario.id, session)
+            self.crear_perfil_alumno(
+                usuario.id, session,
+                fecha_ingreso=datos.get("fecha_ingreso"),
+            )
         elif usuario.rol == RolUsuario.DOCENTE:
-            self.crear_perfil_profesor(usuario.id, session)
+            self.crear_perfil_profesor(
+                usuario.id, session,
+                cargo=datos.get("cargo"),
+                dedicacion=datos.get("dedicacion"),
+                especialidad=datos.get("especialidad"),
+                carga_horaria_semanal=datos.get("carga_horaria_semanal"),
+            )
         elif usuario.rol == RolUsuario.ADMINISTRATIVO:
-            self.crear_perfil_administrativo(usuario.id, session)
+            self.crear_perfil_administrativo(
+                usuario.id, session,
+                departamento=datos.get("departamento"),
+            )
 
     def update_on_login(
         self,
@@ -120,24 +154,59 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
         apellido: str,
         foto_url: Optional[str],
         ou_google: Optional[str],
-        rol: RolUsuario,
+        rol: Optional[RolUsuario],
         moodle_id: Optional[int],
         session: Session,
+        google_id: Optional[str] = None,
+        email: Optional[str] = None,
     ) -> Usuario:
-        """Actualiza datos del usuario en cada login (re-sync)."""
+        """
+        Actualiza datos del usuario en cada login (re-sync).
+
+        Si el usuario habia sido creado manualmente (sin google_id) y ahora
+        inicia sesion con Google, se vincula la cuenta: se guarda el google_id,
+        se completa el email si faltaba y se lo activa. Sin esto, el vinculo
+        nunca se persistia y la persona quedaba bloqueada por activo=False.
+
+        Un usuario que YA tenia google_id y esta inactivo fue desactivado a
+        proposito por un administrador: no se reactiva.
+
+        `rol` y `ou_google` en None significan "no se pudo consultar la OU", y
+        en ese caso NO se tocan los que ya tiene. Antes se escribian igual: con
+        la consulta de OU caida, cada login degradaba al usuario a estudiante y
+        le borraba la OU. A un administrativo eso lo dejaba sin poder recuperar
+        su rol, porque la pantalla que lo cambia pide ser administrativo.
+        """
+        primer_vinculo_google = usuario.google_id is None
+
         usuario.nombre = nombre
         usuario.apellido = apellido
         usuario.foto_url = foto_url
-        usuario.ou_google = ou_google
-        usuario.rol = rol
+        if ou_google is not None:
+            usuario.ou_google = ou_google
+        if rol is not None:
+            usuario.rol = rol
         usuario.ultimo_acceso = datetime.now(get_uruguay_tz())
         usuario.google_activo = True
+
+        if primer_vinculo_google and google_id is not None:
+            usuario.google_id = google_id
+            if not usuario.email and email:
+                usuario.email = email
+            usuario.activo = True
 
         if moodle_id is not None:
             usuario.moodle_id = moodle_id
             usuario.moodle_activo = True
 
         session.flush()
+
+        # El rol se re-sincroniza desde la OU en cada login. Si cambio (o si el
+        # perfil nunca se creo), hay que garantizar que exista: las inscripciones
+        # y asignaciones docentes referencian alumno.id / profesor.id, no usuario.id.
+        # Es idempotente: si el perfil ya existe, no hace nada.
+        self._auto_crear_perfil(usuario, session)
+
         session.refresh(usuario)
         return usuario
 
@@ -162,14 +231,20 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
 
     # ── Perfiles de herencia ─────────────────────────────────────────────
 
-    def crear_perfil_alumno(self, usuario_id: int, session: Session) -> Alumno:
-        """Crea perfil de alumno para un usuario existente."""
+    def crear_perfil_alumno(
+        self, usuario_id: int, session: Session,
+        fecha_ingreso=None,
+    ) -> Alumno:
+        """Crea perfil de alumno para un usuario existente. Idempotente."""
         existente = session.exec(
             select(Alumno).where(Alumno.usuario_id == usuario_id)
         ).first()
         if existente:
             return existente
-        alumno = Alumno(usuario_id=usuario_id)
+        kwargs = {"usuario_id": usuario_id}
+        if fecha_ingreso is not None:
+            kwargs["fecha_ingreso"] = fecha_ingreso
+        alumno = Alumno(**kwargs)
         session.add(alumno)
         session.flush()
         session.refresh(alumno)
@@ -178,8 +253,9 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
     def crear_perfil_profesor(
         self, usuario_id: int, session: Session,
         cargo=None, dedicacion=None, especialidad=None,
+        carga_horaria_semanal=None,
     ) -> Profesor:
-        """Crea perfil de profesor para un usuario existente."""
+        """Crea perfil de profesor para un usuario existente. Idempotente."""
         existente = session.exec(
             select(Profesor).where(Profesor.usuario_id == usuario_id)
         ).first()
@@ -190,6 +266,7 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
             cargo=cargo,
             dedicacion=dedicacion,
             especialidad=especialidad,
+            carga_horaria_semanal=carga_horaria_semanal,
         )
         session.add(profesor)
         session.flush()
@@ -305,15 +382,21 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
         per_page: int = 50,
         search: Optional[str] = None,
         activo: Optional[bool] = None,
+        activo_docente: Optional[bool] = None,
     ) -> dict:
         """
         Lista paginada de docentes para el dashboard de admin, con datos de
         usuario embebidos. Incluye tanto docentes con cuenta de Google como
         los creados manualmente (ej: ponentes de una charla puntual).
+
+        activo: filtra por acceso al sistema (usuario.activo)
+        activo_docente: filtra por si dicta actualmente (profesor.activo)
         """
         base_filters = [Usuario.eliminado == False]
         if activo is not None:
             base_filters.append(Usuario.activo == activo)
+        if activo_docente is not None:
+            base_filters.append(Profesor.activo == activo_docente)
         if search:
             like = f"%{search}%"
             base_filters.append(
@@ -348,6 +431,7 @@ class UsuarioService(BaseServiceWithFilters[Usuario]):
                 "documento": usuario.documento,
                 "telefono": usuario.telefono,
                 "activo": usuario.activo,
+                "activo_docente": profesor.activo,
                 "tiene_login": usuario.google_id is not None,
                 "cargo": profesor.cargo,
                 "dedicacion": profesor.dedicacion,

@@ -38,6 +38,19 @@ def _format_hora(hora: Optional[str]) -> str:
     return hora or "A confirmar"
 
 
+def _usuario_de_alumno(alumno_id: int, session):
+    """
+    Resuelve el Usuario (la persona) detras de un perfil de alumno.
+    Las notificaciones necesitan email y nombre, que viven en Usuario. Un alumno
+    registrado sin cuenta (oyente) no tiene a quien notificar: devuelve None y
+    quien llama simplemente lo saltea.
+    """
+    from v2.models.usuario import Usuario
+    from v2.models.alumno import Alumno
+    alumno = session.get(Alumno, alumno_id)
+    return session.get(Usuario, alumno.usuario_id) if alumno else None
+
+
 # Mapeo de estado a texto legible
 _ESTADO_LABELS = {
     EstadoInscripcionMateria.CURSANDO: "Cursando",
@@ -59,8 +72,12 @@ class NotificationService:
 
     # ── Helpers internos ─────────────────────────────────────────────────────
 
-    def _get_email_destinatario(self, usuario) -> str:
-        """Retorna email_personal si existe, sino email institucional."""
+    def _get_email_destinatario(self, usuario) -> Optional[str]:
+        """
+        Retorna email_personal si existe, sino el institucional.
+        Puede ser None: un oyente registrado por administracion no tiene cuenta
+        ni email. En ese caso no hay a quien notificar.
+        """
         return usuario.email_personal or usuario.email
 
     def _renderizar(self, template_key: str, variables: dict) -> str:
@@ -126,7 +143,7 @@ class NotificationService:
         self,
         tipo: TipoNotificacion,
         usuario_id: int,
-        email: str,
+        email: Optional[str],
         asunto: str,
         html: str,
         session: Session,
@@ -135,6 +152,13 @@ class NotificationService:
         enviado_por_id: Optional[int] = None,
     ) -> dict:
         """Envía email y registra en log. Retorna resultado (incluye id_rastreo del log)."""
+        # Punto unico de salida de emails: si la persona no tiene direccion
+        # (oyente sin cuenta), se omite en silencio en vez de romper el flujo
+        # academico que disparo la notificacion. No se registra en el log porque
+        # no hubo intento de envio.
+        if not email:
+            return {"ok": False, "omitido": True, "error": "El usuario no tiene email", "id_rastreo": None}
+
         resultado = self.email_service.send_single(email, asunto, html)
 
         estado = EstadoNotificacion.ENVIADA if resultado["ok"] else EstadoNotificacion.ERROR
@@ -248,7 +272,7 @@ class NotificationService:
                 insc_materia = session.get(InscripcionMateria, insc_examen.inscripcion_materia_id)
                 if not insc_materia:
                     continue
-                usuario = session.get(Usuario, insc_materia.usuario_id)
+                usuario = _usuario_de_alumno(insc_materia.alumno_id, session)
                 if not usuario:
                     continue
 
@@ -306,6 +330,11 @@ class NotificationService:
             if not usuario or not usuario.activo:
                 continue
 
+            if self._ya_enviada_hoy(
+                TipoNotificacion.APERTURA_INSCRIPCION, usuario.id, periodo.id, session
+            ):
+                continue
+
             email = self._get_email_destinatario(usuario)
             asunto = f"Inscripción abierta: {programa.nombre}"
             try:
@@ -347,8 +376,13 @@ class NotificationService:
         inscripciones = session.exec(stmt).all()
 
         for insc in inscripciones:
-            usuario = session.get(Usuario, insc.usuario_id)
+            usuario = _usuario_de_alumno(insc.alumno_id, session)
             if not usuario or not usuario.activo:
+                continue
+
+            if self._ya_enviada_hoy(
+                TipoNotificacion.APERTURA_EXAMEN, usuario.id, instancia_examen.id, session
+            ):
                 continue
 
             email = self._get_email_destinatario(usuario)
@@ -372,6 +406,78 @@ class NotificationService:
                 )
             except Exception as e:
                 ic(f"Error notificando examen a {usuario.email}: {e}")
+
+    # ── Jobs de apertura ─────────────────────────────────────────────────────
+    # Se buscan las aperturas de HOY, no las que estan abiertas: un periodo
+    # abierto sigue abierto muchos dias, y avisar sobre "lo que esta abierto"
+    # mandaria el mismo mail todos los dias. La ventana de un dia hace que el
+    # aviso salga una sola vez, y _ya_enviada_hoy cubre que el job se corra dos
+    # veces la misma jornada.
+
+    def _ventana_de_hoy(self):
+        ahora = datetime.now(_get_tz())
+        inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+        fin = ahora.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return inicio, fin
+
+    def notificar_aperturas_inscripcion_del_dia(self, session: Session) -> dict:
+        """
+        Job del scheduler: periodos de inscripcion que abren hoy.
+        Retorna un resumen para que el job lo pueda loguear.
+        """
+        from v2.models.periodo_inscripcion_materia import PeriodoInscripcionMateria
+        from v2.models.programa import Programa
+
+        inicio_dia, fin_dia = self._ventana_de_hoy()
+
+        periodos = session.exec(
+            select(PeriodoInscripcionMateria)
+            .where(col(PeriodoInscripcionMateria.fecha_inicio) >= inicio_dia)
+            .where(col(PeriodoInscripcionMateria.fecha_inicio) <= fin_dia)
+            .where(PeriodoInscripcionMateria.habilitado == True)
+        ).all()
+
+        procesados = 0
+        for periodo in periodos:
+            programa = session.get(Programa, periodo.programa_id)
+            if not programa:
+                continue
+            self.notificar_apertura_inscripcion(periodo, programa, session)
+            procesados += 1
+
+        return {"periodos": len(periodos), "notificados": procesados}
+
+    def notificar_aperturas_examen_del_dia(self, session: Session) -> dict:
+        """
+        Job del scheduler: instancias de examen cuya inscripcion abre hoy.
+        Avisa a quienes tienen la materia en A_EXAMEN.
+        """
+        from v2.models.instancia_examen import InstanciaExamen
+        from v2.models.materia import Materia
+
+        inicio_dia, fin_dia = self._ventana_de_hoy()
+
+        # Las fechas de instancia_examen se guardan sin tzinfo, asi que la
+        # ventana se compara naive para no mezclar aware y naive.
+        inicio_naive = inicio_dia.replace(tzinfo=None)
+        fin_naive = fin_dia.replace(tzinfo=None)
+
+        instancias = session.exec(
+            select(InstanciaExamen)
+            .where(col(InstanciaExamen.fecha_inicio_inscripcion) >= inicio_naive)
+            .where(col(InstanciaExamen.fecha_inicio_inscripcion) <= fin_naive)
+            .where(InstanciaExamen.habilitado == True)
+        ).all()
+
+        procesados = 0
+        for instancia in instancias:
+            materia = session.get(Materia, instancia.materia_id)
+            if not materia:
+                continue
+            self.notificar_apertura_examen(instancia, materia, session)
+            procesados += 1
+
+        return {"instancias": len(instancias), "notificados": procesados}
 
     def notificar_cierre_inscripcion_proximo(self, session: Session):
         """Job del scheduler: busca períodos cerrando pronto y avisa a estudiantes del programa."""
@@ -506,7 +612,7 @@ class NotificationService:
         if not inscripcion:
             raise ValueError(f"Inscripción {inscripcion_id} no encontrada")
 
-        usuario = session.get(Usuario, inscripcion.usuario_id)
+        usuario = _usuario_de_alumno(inscripcion.alumno_id, session)
         instancia = session.get(InstanciaCursado, inscripcion.instancia_cursado_id)
         materia = session.get(Materia, instancia.materia_id) if instancia else None
 
@@ -612,7 +718,7 @@ class NotificationService:
                 .where(InscripcionMateria.estado == EstadoInscripcionMateria.CURSANDO)
             )
             for insc in session.exec(stmt).all():
-                usuario = session.get(Usuario, insc.usuario_id)
+                usuario = _usuario_de_alumno(insc.alumno_id, session)
                 if usuario and usuario.activo:
                     usuarios.add(usuario)
 
@@ -685,13 +791,13 @@ class NotificationService:
 
         resultado = []
         for insc in inscripciones:
-            usuario = session.get(Usuario, insc.usuario_id)
+            usuario = _usuario_de_alumno(insc.alumno_id, session)
             instancia = session.get(InstanciaCursado, insc.instancia_cursado_id)
             materia = session.get(Materia, instancia.materia_id) if instancia else None
 
             resultado.append({
                 "inscripcion_id": insc.id,
-                "usuario_id": insc.usuario_id,
+                "alumno_id": insc.alumno_id,
                 "nombre_estudiante": f"{usuario.nombre} {usuario.apellido}" if usuario else "N/A",
                 "email": self._get_email_destinatario(usuario) if usuario else "N/A",
                 "materia": materia.nombre if materia else "N/A",
