@@ -128,6 +128,7 @@ verificó ahí. En orden de cadena:
 | 20 | `a6b7c8d9e0f1` | Tablas `pago` y `pago_notificacion` (Handy) | v2 |
 | 21 | `b8c9d0e1f2a3` | Revisión de merge de 19 y 20. **No-op**: no toca nada | — |
 | 22 | `c9d0e1f2a3b4` | **`career.files`** (JSON, `'[]'` por defecto): archivos descargables de la oferta | **v1 — tabla que producción usa hoy** |
+| 23 | `d0e1f2a3b4c5` | **`career.certix`** (boolean, `false` por defecto): respaldo de CERTIX | **v1 — tabla que producción usa hoy** |
 
 > **Ojo con la 18.** Es la única que toca una tabla de **v1**, o sea del sitio
 > público que ya está en producción con datos reales. Las demás son todas
@@ -626,6 +627,17 @@ Si aparece algo que parece necesitar un cambio de esquema: documentarlo acá com
 propuesta, con el motivo y el impacto, y esperar la decisión.
 
 ---
+
+### 23. `d0e1f2a3b4c5_career_certix` — Respaldo de CERTIX en la oferta académica
+
+> ⚠️ **Aplicar ANTES de desplegar el código**, igual que la 22: el código lee
+> `career.certix` en todas las consultas de carreras. Al revés no pasa nada.
+
+CERTIX es la nueva división de certificados del instituto (09/11/2026). No es un
+tipo de oferta: `careerType` sigue siendo carrera, curso, taller o diploma, y
+algunas ofertas tienen además el respaldo de CERTIX. Un booleano; las existentes
+quedan en `false`. Se carga en el alta (`certix` en el formulario) y en el PUT, y
+se filtra con `{"attribute": "certix", "operator": "eq", "value": true}`.
 
 ### 22. `c9d0e1f2a3b4_career_files` — Archivos descargables de la oferta académica
 

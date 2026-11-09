@@ -53,6 +53,9 @@ class CareerBase(SQLModel):
     cost: Optional[str] = Field(default=None, description="Costo")
     startClasses: Optional[date] = Field(default=None, description="Próximo inicio de clases")
     certificationType: Optional[str] = Field(default=None, description="Tipo certificación")
+    # CERTIX es la division de certificados del instituto (09/11/2026). No es un
+    # tipo de oferta: una carrera, curso o taller puede tener ademas su respaldo.
+    certix: bool = Field(default=False, description="Tiene el respaldo de CERTIX (division de certificados del instituto)")
 
 
 # Archivos descargables de la oferta (programa, plan de estudios, folletos...).
@@ -112,6 +115,7 @@ class CareerCreateForm(BaseModel):
     cost: Optional[str] = None
     startClasses: Optional[date] = None
     certificationType: Optional[str] = None
+    certix: bool = False
 
     @classmethod
     def as_form(
@@ -130,7 +134,8 @@ class CareerCreateForm(BaseModel):
         hourlyLoad: Optional[str] = Form(None),
         cost: Optional[str] = Form(None),
         startClasses: Optional[date] = Form(None),
-        certificationType: Optional[str] = Form(None)
+        certificationType: Optional[str] = Form(None),
+        certix: bool = Form(False)
     ) -> 'CareerCreateForm':
         return cls(
             name=name,
@@ -147,7 +152,8 @@ class CareerCreateForm(BaseModel):
             hourlyLoad=hourlyLoad,
             cost=cost,
             startClasses=startClasses,
-            certificationType=certificationType
+            certificationType=certificationType,
+            certix=certix
         )
 
 # Modelo para actualizar una carrera (PUT/PATCH)
@@ -171,6 +177,7 @@ class CareerUpdate(SQLModel):
     cost: Optional[str] = None
     startClasses: Optional[date] = None
     certificationType: Optional[str] = None
+    certix: Optional[bool] = None
 
 # Modelo para leer una carrera (GET) - incluye todos los campos
 class CareerRead(CareerBase):
@@ -203,6 +210,7 @@ class CareerFilterResponse(SQLModel):
     cost: Optional[str] = None
     startClasses: Optional[date] = None
     certificationType: Optional[str] = None
+    certix: Optional[bool] = None
     files: Optional[List[str]] = None
     
 class CareerFilterWithCountResponse(SQLModel):
@@ -233,8 +241,9 @@ class CareerSimple(SQLModel):
     cost: Optional[str] = None
     startClasses: Optional[date] = None
     certificationType: Optional[str] = None
+    certix: bool = Field(default=False, description="Tiene el respaldo de CERTIX (division de certificados del instituto)")
     files: List[str] = Field(default_factory=list, description=DESCRIPCION_FILES)
-    
+
 class CarrerDropdown(SQLModel):
     """Modelo para dropdown de carreras (id, name)"""
     careerId: int = Field(description="ID único de la carrera")
@@ -285,8 +294,9 @@ class CareerInList(SQLModel):
     duration: Optional[str] = None
     cost: Optional[str] = None
     startClasses: Optional[date] = None
+    certix: bool = Field(default=False, description="Tiene el respaldo de CERTIX (division de certificados del instituto)")
     files: List[str] = Field(default_factory=list, description=DESCRIPCION_FILES)
-    
+
     
 from .user import UserRead
 from .testimony import TestimonyRead

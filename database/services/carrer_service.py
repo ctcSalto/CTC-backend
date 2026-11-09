@@ -190,6 +190,7 @@ class CareerService(BaseServiceWithFilters[Career]):
                 cost=career.cost,
                 startClasses=career.startClasses,
                 certificationType=career.certificationType,
+                certix=career.certix,
                 files=career.files or [],
             )
 
@@ -265,6 +266,7 @@ class CareerService(BaseServiceWithFilters[Career]):
                 cost=career.cost,
                 startClasses=career.startClasses,
                 certificationType=career.certificationType,
+                certix=career.certix,
                 files=career.files or [],
             )
 

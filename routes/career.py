@@ -97,7 +97,8 @@ async def create_career(
             hourlyLoad=career_form.hourlyLoad,
             cost=career_form.cost,
             startClasses=career_form.startClasses,
-            certificationType=career_form.certificationType
+            certificationType=career_form.certificationType,
+            certix=career_form.certix
         )
         
         # Crear la carrera
