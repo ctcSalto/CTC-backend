@@ -22,6 +22,9 @@ class CareerType(str, Enum):
     COURSE = "course"
     WORKSHOP = "workshop"
     DIPLOMA = "diploma"
+    # Oferta de la division de certificados del instituto (12/11/2026). Distinto
+    # del campo `certix`, que marca el respaldo de CERTIX en cualquier tipo.
+    CERTIX = "certix"
 
 class Area(str, Enum):
     ADMINISTRATION = "administration"

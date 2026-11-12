@@ -129,6 +129,7 @@ verificó ahí. En orden de cadena:
 | 21 | `b8c9d0e1f2a3` | Revisión de merge de 19 y 20. **No-op**: no toca nada | — |
 | 22 | `c9d0e1f2a3b4` | **`career.files`** (JSON, `'[]'` por defecto): archivos descargables de la oferta | **v1 — tabla que producción usa hoy** |
 | 23 | `d0e1f2a3b4c5` | **`career.certix`** (boolean, `false` por defecto): respaldo de CERTIX | **v1 — tabla que producción usa hoy** |
+| 24 | `e1f2a3b4c5d6` | Enum `careertype` + valor **`CERTIX`** (igual que DIPLOMA en su momento) | **v1 — tabla que producción usa hoy** |
 
 > **Ojo con la 18.** Es la única que toca una tabla de **v1**, o sea del sitio
 > público que ya está en producción con datos reales. Las demás son todas
@@ -627,6 +628,16 @@ Si aparece algo que parece necesitar un cambio de esquema: documentarlo acá com
 propuesta, con el motivo y el impacto, y esperar la decisión.
 
 ---
+
+### 24. `e1f2a3b4c5d6_careertype_certix` — CERTIX como tipo de oferta
+
+> ⚠️ **Aplicar ANTES de desplegar el código.** Si una oferta queda con tipo
+> `certix` y la base no tiene el valor, falla al guardar.
+
+Pedido del 12/11/2026: CERTIX también como valor de `careerType`. **Convive con
+el campo `certix` de la 23**: el tipo dice que la oferta *es* de CERTIX; el campo,
+que una oferta de cualquier tipo tiene su respaldo. Solo agrega un valor al enum;
+Postgres no permite quitarlo, así que el `downgrade` no hace nada.
 
 ### 23. `d0e1f2a3b4c5_career_certix` — Respaldo de CERTIX en la oferta académica
 

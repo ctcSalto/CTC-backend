@@ -149,3 +149,23 @@ class TestCargaYEdicion:
         assert r.json()["certix"] is True
         r = cliente.http.put(f"/careers/{cid}", json={"certix": False})
         assert r.json()["certix"] is False
+
+
+class TestTipoCertix:
+    """CERTIX tambien es un tipo de oferta (12/11/2026), ademas del campo."""
+
+    def test_esta_en_los_tipos(self, cliente):
+        assert "certix" in cliente.http.get("/careers/types").json()
+
+    def test_alta_y_filtro_por_tipo(self, cliente):
+        r = cliente.http.post("/careers/create", data={
+            "name": "Certificacion X", "subtitle": "-", "aboutCourse1": "-", "published": "true",
+            "careerType": "certix", "area": "it",
+        }, files={"image": ("img.png", b"\x89PNG\r\n\x1a\n", "image/png")})
+        assert r.status_code == 201, r.text
+        nueva = r.json()["careerId"]
+        assert r.json()["careerType"] == "certix"
+
+        r = cliente.http.post("/careers/public/filters", json=filtro(
+            {"attribute": "careerType", "operator": "eq", "value": "certix"}))
+        assert ids_de(r.json()) == {nueva}

@@ -3,9 +3,15 @@
 CERTIX es la nueva división de certificados del instituto. Algunas carreras,
 cursos o talleres tienen **el respaldo de CERTIX** y otras no.
 
-**No es un tipo de oferta nuevo.** `careerType` sigue siendo `career`, `course`,
-`workshop` o `diploma`. CERTIX es un campo aparte que se suma: una carrera puede
-ser `career` **y** tener respaldo de CERTIX.
+Hay **dos** formas, y conviven:
+
+| | Qué significa |
+|---|---|
+| `careerType: "certix"` | La oferta **es** de CERTIX (un tipo más, como `career` o `diploma`) |
+| `certix: true` | Una oferta de **cualquier** tipo tiene además el **respaldo** de CERTIX |
+
+`GET /careers/types` ya devuelve `certix` entre los tipos, para el selector del admin.
+Para filtrar por tipo: `{ "attribute": "careerType", "operator": "eq", "value": "certix" }`.
 
 Son endpoints de **v1** (`/careers`).
 
