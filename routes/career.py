@@ -710,8 +710,9 @@ async def get_careers_by_type(
 
         # Cache miss - get from database
         show(f"[CACHE MISS] Public careers by type {career_type.value} (offset={offset}, limit={limit}) - querying DB")
-        careers = services.careerService.get_careers_by_type(career_type.value, session, offset, limit)
-        published_careers = [career for career in careers if career.published]
+        # El servicio filtra las publicadas en la consulta (así offset/limit no dejan páginas cortas)
+        published_careers = services.careerService.get_careers_by_type(
+            career_type.value, session, offset, limit, only_published=True)
 
         # Update cache
         services.cacheService.cache_generic(

@@ -1,5 +1,5 @@
 from sqlmodel import Session, select, and_, or_
-from ..models.career import Career, CareerCreate, CareerRead, CareerSimple, CareerUpdate, CareerInList, CareerReadOptimized, UserSimple, TestimonyForCareer, CarrerDropdown
+from ..models.career import Career, CareerType, CareerCreate, CareerRead, CareerSimple, CareerUpdate, CareerInList, CareerReadOptimized, UserSimple, TestimonyForCareer, CarrerDropdown
 from ..services.supabase.image_service import SupabaseService
 from typing import List, Optional
 from datetime import date 
@@ -442,6 +442,33 @@ class CareerService(BaseServiceWithFilters[Career]):
             if not careers:
                 return []
             return [CareerRead.from_orm(career) for career in careers]
+
+    def get_careers_by_type(self, career_type: str, session: Session, offset: int = 0, limit: int = 10,
+                            only_published: bool = False) -> List[CareerRead]:
+        """Obtener carreras de un tipo (career, course, workshop, diploma, certix).
+
+        Un solo método con `only_published` en lugar de dos: la consulta es la misma
+        y lo único que cambia es la visibilidad. La ruta pública pasa True y aplica
+        las mismas restricciones que `_add_public_constraints` de los filtros
+        (published y publicationDate <= hoy o nula); la de admin trae todo.
+        El filtro va en la consulta y no después, para que offset/limit paginen
+        sobre las visibles y no devuelvan páginas incompletas.
+        """
+        # careerType es un enum de Postgres con los NOMBRES en mayúsculas ('CAREER'),
+        # y el valor que llega es el de la API en minúsculas ('career'): se compara
+        # contra el miembro del enum para que SQLAlchemy lo traduzca bien.
+        tipo = CareerType(career_type)
+        with session:
+            statement = select(Career).where(Career.careerType == tipo)
+            if only_published:
+                hoy = datetime.now(get_uruguay_tz()).date()
+                statement = statement.where(
+                    Career.published,
+                    or_(Career.publicationDate <= hoy, Career.publicationDate.is_(None)),
+                )
+            statement = statement.order_by(Career.careerId).offset(offset).limit(limit)
+            careers = session.exec(statement).all()
+            return [CareerRead.model_validate(career) for career in careers]
 
     def update_career(self, career_id: int, career_update: CareerUpdate, session: Session, supabaseService: SupabaseService = None) -> CareerRead:
         """Actualizar una carrera existente"""
